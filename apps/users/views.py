@@ -1,0 +1,69 @@
+from django.contrib.auth import get_user_model
+from rest_framework import generics
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+from core.permissions import RoleBasedPermission
+from core.roles import ADMIN, SALES
+from core.viewsets import ServiceModelViewSet
+
+from .serializers import (
+    ClientCreateSerializer,
+    ClientOptionSerializer,
+    CustomTokenObtainPairSerializer,
+    UserRegistrationSerializer,
+    UserSerializer,
+)
+from .services import UserService
+
+User = get_user_model()
+
+
+class UserViewSet(ServiceModelViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = UserService
+    allowed_roles = (ADMIN,)
+    write_roles = (ADMIN,)
+    filterset_fields = ["role", "is_active"]
+    search_fields = ["email", "username", "first_name", "last_name", "organization_name"]
+    ordering_fields = ["created_at", "email", "first_name"]
+
+
+class ClientDirectoryView(generics.ListCreateAPIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = (ADMIN, SALES)
+    write_roles = (ADMIN,)
+
+    def get_queryset(self):
+        return User.objects.filter(role=User.Role.CLIENT).order_by("organization_name", "email")
+
+    def get_serializer_class(self):
+        if self.request.method == "POST":
+            return ClientCreateSerializer
+        return ClientOptionSerializer
+
+
+class RegisterView(generics.CreateAPIView):
+    serializer_class = UserRegistrationSerializer
+    permission_classes = [AllowAny]
+
+
+class CurrentUserView(generics.RetrieveAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+
+class AuthHealthView(generics.GenericAPIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        return Response({"authenticated": True, "user_id": request.user.id})

@@ -1,0 +1,947 @@
+"use client";
+
+import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
+import { AppShell } from "@/components/app-shell";
+import { ImageManagerCard } from "@/components/image-manager-card";
+import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
+import { deleteMediaUnitImage, getMediaUnitImageMutationError, updateMediaUnitImage, uploadMediaUnitImage } from "@/lib/media-unit-images";
+import {
+  createMediaUnit,
+  createSite,
+  deleteSite,
+  fetchInventoryData,
+  formatMediaUnitSiteType,
+  getInventorySiteMutationError,
+  getInventoryUnitMutationError,
+  MEDIA_UNIT_SITE_TYPE_OPTIONS,
+  type InventoryPayload,
+  type InventorySiteCreateInput,
+  type InventoryUnitMutationInput,
+  updateMediaUnit,
+} from "@/lib/inventory";
+import { deleteSiteImage, getSiteImageMutationError, updateSiteImage, uploadSiteImage } from "@/lib/site-images";
+
+type StoredUser = {
+  email?: string;
+  role?: string;
+};
+
+const WRITE_ROLES = new Set(["admin", "operations"]);
+const ADMIN_ROLES = new Set(["admin"]);
+
+const INITIAL_SITE_FORM: InventorySiteCreateInput = {
+  name: "",
+  code: "",
+  site_type: "billboard",
+  address: "",
+  city: "",
+  state: "",
+  latitude: "",
+  longitude: "",
+};
+
+const INITIAL_UNIT_FORM: InventoryUnitMutationInput = {
+  site: 0,
+  unit_code: "",
+  face_count: 1,
+  width: "",
+  height: "",
+  status: "available",
+  is_illuminated: false,
+  monthly_rate: "",
+  facing_direction: "",
+  site_type: "",
+};
+
+type UnitFilters = {
+  city: string;
+  status: string;
+  facing_direction: string;
+  site_type: string;
+};
+
+const INITIAL_UNIT_FILTERS: UnitFilters = {
+  city: "",
+  status: "",
+  facing_direction: "",
+  site_type: "",
+};
+
+export default function InventoryPage() {
+  const router = useRouter();
+  const [user, setUser] = useState<StoredUser | null>(null);
+  const [inventory, setInventory] = useState<InventoryPayload | null>(null);
+  const [error, setError] = useState("");
+  const [siteForm, setSiteForm] = useState<InventorySiteCreateInput>(INITIAL_SITE_FORM);
+  const [siteFieldErrors, setSiteFieldErrors] = useState<Record<string, string[]>>({});
+  const [siteMutationError, setSiteMutationError] = useState("");
+  const [siteMutationSuccess, setSiteMutationSuccess] = useState("");
+  const [unitForm, setUnitForm] = useState<InventoryUnitMutationInput>(INITIAL_UNIT_FORM);
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null);
+  const [unitFieldErrors, setUnitFieldErrors] = useState<Record<string, string[]>>({});
+  const [unitMutationError, setUnitMutationError] = useState("");
+  const [unitMutationSuccess, setUnitMutationSuccess] = useState("");
+  const [unitFilters, setUnitFilters] = useState<UnitFilters>(INITIAL_UNIT_FILTERS);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSiteSubmitting, setIsSiteSubmitting] = useState(false);
+  const [isUnitSubmitting, setIsUnitSubmitting] = useState(false);
+  const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
+
+  const canManageImages = WRITE_ROLES.has(user?.role ?? "");
+  const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
+  const canManageUnits = WRITE_ROLES.has(user?.role ?? "");
+
+  async function loadInventory(profileHint?: StoredUser | null) {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const profile = profileHint ?? (await fetchCurrentUser());
+      if (profile) {
+        setUser(profile);
+      }
+
+      const payload = await fetchInventoryData();
+      setInventory(payload);
+      setUnitForm((current) => ({
+        ...current,
+        site: current.site || payload.sites[0]?.id || 0,
+      }));
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Unable to load inventory.";
+      setError(message);
+      if (message.includes("sign in again")) {
+        router.replace("/login");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) {
+      router.replace("/login");
+      return;
+    }
+
+    const storedUser = getStoredUser();
+    if (storedUser) {
+      setUser(storedUser);
+    }
+
+    void loadInventory(storedUser);
+  }, [router]);
+
+  function handleLogout() {
+    clearAuthSession();
+    router.replace("/login");
+  }
+
+  const inventoryStats = useMemo(() => {
+    const units = inventory?.units ?? [];
+    const sites = inventory?.sites ?? [];
+
+    return {
+      totalSites: sites.length,
+      totalUnits: units.length,
+      availableUnits: units.filter((unit) => unit.status === "available").length,
+      imagedSites: sites.filter((site) => (site.image_gallery ?? []).length > 0).length,
+    };
+  }, [inventory]);
+
+  const siteMap = useMemo(() => {
+    const mapping = new Map<number, { label: string; city: string; name: string; code: string }>();
+    for (const site of inventory?.sites ?? []) {
+      mapping.set(site.id, {
+        label: `${site.code} • ${site.name}`,
+        city: site.city,
+        name: site.name,
+        code: site.code,
+      });
+    }
+    return mapping;
+  }, [inventory]);
+
+  const sortedSites = inventory?.sites ?? [];
+  const filteredUnits = useMemo(() => {
+    return (inventory?.units ?? []).filter((unit) => {
+      const site = siteMap.get(unit.site);
+      const direction = unit.facing_direction.toLowerCase();
+      const directionFilter = unitFilters.facing_direction.trim().toLowerCase();
+
+      if (unitFilters.city && site?.city !== unitFilters.city) {
+        return false;
+      }
+      if (unitFilters.status && unit.status !== unitFilters.status) {
+        return false;
+      }
+      if (unitFilters.site_type && unit.site_type !== unitFilters.site_type) {
+        return false;
+      }
+      if (directionFilter && !direction.includes(directionFilter)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [inventory?.units, siteMap, unitFilters]);
+
+  const filterCities = useMemo(
+    () => Array.from(new Set((inventory?.sites ?? []).map((site) => site.city).filter(Boolean))).sort(),
+    [inventory?.sites],
+  );
+  const filterStatuses = useMemo(
+    () => Array.from(new Set((inventory?.units ?? []).map((unit) => unit.status).filter(Boolean))).sort(),
+    [inventory?.units],
+  );
+
+  async function handleSiteImageUpload(siteId: number, payload: { file: File; caption: string; isPrimary: boolean }) {
+    try {
+      await uploadSiteImage({
+        site: siteId,
+        image: payload.file,
+        caption: payload.caption,
+        is_primary: payload.isPrimary,
+      });
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getSiteImageMutationError(error).message);
+    }
+  }
+
+  async function handleSitePrimary(imageId: number) {
+    try {
+      await updateSiteImage(imageId, { is_primary: true });
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getSiteImageMutationError(error).message);
+    }
+  }
+
+  async function handleSiteDelete(imageId: number) {
+    try {
+      await deleteSiteImage(imageId);
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getSiteImageMutationError(error).message);
+    }
+  }
+
+  async function handleUnitImageUpload(
+    unitId: number,
+    payload: { file: File; caption: string; isPrimary: boolean },
+  ) {
+    try {
+      await uploadMediaUnitImage({
+        media_unit: unitId,
+        image: payload.file,
+        caption: payload.caption,
+        is_primary: payload.isPrimary,
+      });
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getMediaUnitImageMutationError(error).message);
+    }
+  }
+
+  async function handleUnitPrimary(imageId: number) {
+    try {
+      await updateMediaUnitImage(imageId, { is_primary: true });
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getMediaUnitImageMutationError(error).message);
+    }
+  }
+
+  async function handleUnitDelete(imageId: number) {
+    try {
+      await deleteMediaUnitImage(imageId);
+      await loadInventory(user);
+    } catch (error) {
+      throw new Error(getMediaUnitImageMutationError(error).message);
+    }
+  }
+
+  function updateSiteForm<K extends keyof InventorySiteCreateInput>(field: K, value: InventorySiteCreateInput[K]) {
+    setSiteMutationError("");
+    setSiteMutationSuccess("");
+    setSiteFieldErrors({});
+    setSiteForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function resetUnitForm(nextSiteId?: number) {
+    setEditingUnitId(null);
+    setUnitFieldErrors({});
+    setUnitMutationError("");
+    setUnitMutationSuccess("");
+    setUnitForm({
+      ...INITIAL_UNIT_FORM,
+      site: nextSiteId ?? inventory?.sites?.[0]?.id ?? 0,
+    });
+  }
+
+  function updateUnitForm<K extends keyof InventoryUnitMutationInput>(field: K, value: InventoryUnitMutationInput[K]) {
+    setUnitMutationError("");
+    setUnitMutationSuccess("");
+    setUnitFieldErrors({});
+    setUnitForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleCreateSite(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSiteSubmitting) {
+      return;
+    }
+
+    setSiteMutationError("");
+    setSiteMutationSuccess("");
+    setSiteFieldErrors({});
+    setIsSiteSubmitting(true);
+
+    try {
+      await createSite({
+        ...siteForm,
+        latitude: siteForm.latitude || null,
+        longitude: siteForm.longitude || null,
+      });
+      setSiteMutationSuccess("Site created successfully.");
+      setSiteForm(INITIAL_SITE_FORM);
+      await loadInventory(user);
+    } catch (siteError) {
+      const normalized = getInventorySiteMutationError(siteError);
+      setSiteMutationError(normalized.message);
+      setSiteFieldErrors(normalized.fieldErrors);
+    } finally {
+      setIsSiteSubmitting(false);
+    }
+  }
+
+  async function handleDeleteSite(siteId: number, siteName: string) {
+    if (activeSiteId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Delete ${siteName}? This will also remove its units, images, and related inventory data that is not protected by active bookings.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setSiteMutationError("");
+    setSiteMutationSuccess("");
+    setSiteFieldErrors({});
+    setActiveSiteId(siteId);
+
+    try {
+      await deleteSite(siteId);
+      setSiteMutationSuccess("Site deleted successfully.");
+      await loadInventory(user);
+    } catch (siteError) {
+      const normalized = getInventorySiteMutationError(siteError);
+      setSiteMutationError(normalized.message);
+      setSiteFieldErrors(normalized.fieldErrors);
+    } finally {
+      setActiveSiteId(null);
+    }
+  }
+
+  function handleEditUnit(unitId: number) {
+    const unit = inventory?.units.find((entry) => entry.id === unitId);
+    if (!unit) {
+      return;
+    }
+
+    setEditingUnitId(unit.id);
+    setUnitFieldErrors({});
+    setUnitMutationError("");
+    setUnitMutationSuccess("");
+      setUnitForm({
+        site: unit.site,
+        unit_code: unit.unit_code,
+        face_count: unit.face_count,
+      width: unit.width,
+      height: unit.height,
+      status: unit.status,
+        is_illuminated: unit.is_illuminated,
+        monthly_rate: unit.monthly_rate,
+        facing_direction: unit.facing_direction ?? "",
+        site_type: unit.site_type ?? "",
+      });
+  }
+
+  async function handleSubmitUnit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isUnitSubmitting) {
+      return;
+    }
+
+    setUnitMutationError("");
+    setUnitMutationSuccess("");
+    setUnitFieldErrors({});
+    setIsUnitSubmitting(true);
+
+    try {
+      if (editingUnitId) {
+        await updateMediaUnit(editingUnitId, {
+          ...unitForm,
+          facing_direction: unitForm.facing_direction || "",
+          site_type: unitForm.site_type || "",
+          monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
+        });
+        setUnitMutationSuccess("Media unit updated successfully.");
+      } else {
+        await createMediaUnit({
+          ...unitForm,
+          facing_direction: unitForm.facing_direction || "",
+          site_type: unitForm.site_type || "",
+          monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
+        });
+        setUnitMutationSuccess("Media unit created successfully.");
+      }
+
+      await loadInventory(user);
+      resetUnitForm(unitForm.site || inventory?.sites?.[0]?.id);
+    } catch (unitError) {
+      const normalized = getInventoryUnitMutationError(unitError);
+      setUnitMutationError(normalized.message);
+      setUnitFieldErrors(normalized.fieldErrors);
+    } finally {
+      setIsUnitSubmitting(false);
+    }
+  }
+
+  function updateUnitFilter<K extends keyof UnitFilters>(field: K, value: UnitFilters[K]) {
+    setUnitFilters((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  return (
+    <AppShell
+      active="inventory"
+      roleLabel={user?.role ?? "Authenticated"}
+      userEmail={user?.email ?? "Loading user..."}
+      title="Inventory command"
+      eyebrow="Inventory"
+      description="Manage live site and media-unit imagery alongside the operational inventory metadata already connected to your backend scope."
+      onLogout={handleLogout}
+    >
+      {error ? <p className="error dashboard-error">{error}</p> : null}
+
+      {canManageSites ? (
+        <section className="module-card creation-panel">
+          <div className="module-head">
+            <h2>Create site</h2>
+            <span>Admin only</span>
+          </div>
+          <p className="section-copy creation-copy">
+            Add a new inventory site without leaving the dashboard. Deletion stays protected if the site is tied to active bookings.
+          </p>
+          {siteMutationError ? <p className="error">{siteMutationError}</p> : null}
+          {siteMutationSuccess ? <p className="success">{siteMutationSuccess}</p> : null}
+          <form className="site-form-grid" onSubmit={handleCreateSite}>
+            <div className="field field-full">
+              <label htmlFor="site-name">Site name</label>
+              <input
+                id="site-name"
+                value={siteForm.name}
+                onChange={(event) => updateSiteForm("name", event.target.value)}
+                placeholder="Airport Arrival Billboard"
+                required
+              />
+              {siteFieldErrors.name?.length ? <p className="field-help field-help-error">{siteFieldErrors.name[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-code">Site code</label>
+              <input
+                id="site-code"
+                value={siteForm.code}
+                onChange={(event) => updateSiteForm("code", event.target.value.toUpperCase())}
+                placeholder="SITE-003"
+                required
+              />
+              {siteFieldErrors.code?.length ? <p className="field-help field-help-error">{siteFieldErrors.code[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-type">Site type</label>
+              <select
+                id="site-type"
+                value={siteForm.site_type}
+                onChange={(event) => updateSiteForm("site_type", event.target.value)}
+              >
+                <option value="billboard">Billboard</option>
+                <option value="transit">Transit</option>
+                <option value="street_furniture">Street furniture</option>
+                <option value="digital">Digital</option>
+              </select>
+              {siteFieldErrors.site_type?.length ? <p className="field-help field-help-error">{siteFieldErrors.site_type[0]}</p> : null}
+            </div>
+            <div className="field field-full">
+              <label htmlFor="site-address">Address</label>
+              <input
+                id="site-address"
+                value={siteForm.address}
+                onChange={(event) => updateSiteForm("address", event.target.value)}
+                placeholder="Airport Road, Terminal 2 approach"
+                required
+              />
+              {siteFieldErrors.address?.length ? <p className="field-help field-help-error">{siteFieldErrors.address[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-city">City</label>
+              <input
+                id="site-city"
+                value={siteForm.city}
+                onChange={(event) => updateSiteForm("city", event.target.value)}
+                placeholder="Pune"
+                required
+              />
+              {siteFieldErrors.city?.length ? <p className="field-help field-help-error">{siteFieldErrors.city[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-state">State</label>
+              <input
+                id="site-state"
+                value={siteForm.state}
+                onChange={(event) => updateSiteForm("state", event.target.value)}
+                placeholder="Maharashtra"
+                required
+              />
+              {siteFieldErrors.state?.length ? <p className="field-help field-help-error">{siteFieldErrors.state[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-latitude">Latitude</label>
+              <input
+                id="site-latitude"
+                value={siteForm.latitude ?? ""}
+                onChange={(event) => updateSiteForm("latitude", event.target.value)}
+                placeholder="18.520430"
+              />
+              {siteFieldErrors.latitude?.length ? <p className="field-help field-help-error">{siteFieldErrors.latitude[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="site-longitude">Longitude</label>
+              <input
+                id="site-longitude"
+                value={siteForm.longitude ?? ""}
+                onChange={(event) => updateSiteForm("longitude", event.target.value)}
+                placeholder="73.856743"
+              />
+              {siteFieldErrors.longitude?.length ? <p className="field-help field-help-error">{siteFieldErrors.longitude[0]}</p> : null}
+            </div>
+            <div className="form-actions field-full">
+              <button className="submit" type="submit" disabled={isSiteSubmitting || isLoading}>
+                {isSiteSubmitting ? "Creating site..." : "Create site"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      <section className="summary-row" aria-label="Inventory stats">
+        <article className="summary-card">
+          <p className="stat-label">Sites</p>
+          <p className="summary-value">{isLoading ? "..." : inventoryStats.totalSites}</p>
+        </article>
+        <article className="summary-card">
+          <p className="stat-label">Units</p>
+          <p className="summary-value">{isLoading ? "..." : inventoryStats.totalUnits}</p>
+        </article>
+        <article className="summary-card">
+          <p className="stat-label">Available</p>
+          <p className="summary-value">{isLoading ? "..." : inventoryStats.availableUnits}</p>
+        </article>
+        <article className="summary-card">
+          <p className="stat-label">Sites with imagery</p>
+          <p className="summary-value">{isLoading ? "..." : inventoryStats.imagedSites}</p>
+        </article>
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Image operations</h2>
+            <span>{canManageImages ? "Write access" : "View only"}</span>
+          </div>
+          <div className="module-stats">
+            <div className="module-stat">
+              <p className="stat-label">Site galleries</p>
+              <p className="stat-value">{isLoading ? "..." : inventory?.sites?.length ?? 0}</p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Unit galleries</p>
+              <p className="stat-value">{isLoading ? "..." : inventory?.units?.length ?? 0}</p>
+            </div>
+          </div>
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Primary image coverage</h2>
+            <span>Inventory</span>
+          </div>
+          <div className="module-stats">
+            <div className="module-stat">
+              <p className="stat-label">Sites with primary image</p>
+              <p className="stat-value">
+                {isLoading ? "..." : (inventory?.sites ?? []).filter((site) => Boolean(site.primary_image)).length}
+              </p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Units with primary image</p>
+              <p className="stat-value">
+                {isLoading ? "..." : (inventory?.units ?? []).filter((unit) => Boolean(unit.primary_image)).length}
+              </p>
+            </div>
+          </div>
+        </article>
+
+        <article className="module-card module-card-highlight">
+          <div className="module-head">
+            <h2>Workflow note</h2>
+            <span>Bookings + POE</span>
+          </div>
+          <div className="module-stats">
+            <div className="module-stat">
+              <p className="stat-label">Downstream usage</p>
+              <p className="table-wrap">
+                These images are reused in booking previews and field proof-of-execution capture so operations teams can verify the right location before installation.
+              </p>
+            </div>
+          </div>
+        </article>
+      </section>
+
+      {canManageUnits ? (
+        <section className="module-card creation-panel">
+          <div className="module-head">
+            <h2>{editingUnitId ? "Edit media unit" : "Create media unit"}</h2>
+            <span>{editingUnitId ? "Update unit" : "Admin + operations"}</span>
+          </div>
+          <p className="section-copy creation-copy">
+            Use one site for the physical structure, and create a separate media unit for each sellable face or direction.
+          </p>
+          {unitMutationError ? <p className="error">{unitMutationError}</p> : null}
+          {unitMutationSuccess ? <p className="success">{unitMutationSuccess}</p> : null}
+          <form className="site-form-grid" onSubmit={handleSubmitUnit}>
+            <div className="field">
+              <label htmlFor="unit-site">Site</label>
+              <select
+                id="unit-site"
+                value={unitForm.site || ""}
+                onChange={(event) => updateUnitForm("site", Number(event.target.value))}
+                required
+              >
+                <option value="" disabled>
+                  Select site
+                </option>
+                {sortedSites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name} ({site.code})
+                  </option>
+                ))}
+              </select>
+              {unitFieldErrors.site?.length ? <p className="field-help field-help-error">{unitFieldErrors.site[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-code">Media unit code</label>
+              <input
+                id="unit-code"
+                value={unitForm.unit_code}
+                onChange={(event) => updateUnitForm("unit_code", event.target.value.toUpperCase())}
+                placeholder="SIDCO-A"
+                required
+              />
+              {unitFieldErrors.unit_code?.length ? <p className="field-help field-help-error">{unitFieldErrors.unit_code[0]}</p> : null}
+            </div>
+            <div className="field field-full">
+              <label htmlFor="unit-facing-direction">Facing Direction</label>
+              <input
+                id="unit-facing-direction"
+                value={unitForm.facing_direction ?? ""}
+                onChange={(event) => updateUnitForm("facing_direction", event.target.value)}
+                placeholder="Toward Jammu City"
+              />
+              <p className="field-help">Optional. Use this for the sellable face direction, not the physical site.</p>
+              {unitFieldErrors.facing_direction?.length ? <p className="field-help field-help-error">{unitFieldErrors.facing_direction[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-site-type">Site Type</label>
+              <select
+                id="unit-site-type"
+                value={unitForm.site_type ?? ""}
+                onChange={(event) => updateUnitForm("site_type", event.target.value)}
+              >
+                <option value="">Select type</option>
+                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="field-help">Choose the sellable face format for this media unit.</p>
+              {unitFieldErrors.site_type?.length ? <p className="field-help field-help-error">{unitFieldErrors.site_type[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-face-count">Face count</label>
+              <input
+                id="unit-face-count"
+                type="number"
+                min="1"
+                step="1"
+                value={unitForm.face_count}
+                onChange={(event) => updateUnitForm("face_count", Number(event.target.value))}
+                required
+              />
+              {unitFieldErrors.face_count?.length ? <p className="field-help field-help-error">{unitFieldErrors.face_count[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-status">Status</label>
+              <select
+                id="unit-status"
+                value={unitForm.status}
+                onChange={(event) => updateUnitForm("status", event.target.value)}
+              >
+                <option value="available">Available</option>
+                <option value="reserved">Reserved</option>
+                <option value="maintenance">Maintenance</option>
+                <option value="retired">Retired</option>
+              </select>
+              {unitFieldErrors.status?.length ? <p className="field-help field-help-error">{unitFieldErrors.status[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-width">Width</label>
+              <input
+                id="unit-width"
+                type="number"
+                min="0"
+                step="0.01"
+                value={unitForm.width}
+                onChange={(event) => updateUnitForm("width", event.target.value)}
+                placeholder="20.00"
+                required
+              />
+              {unitFieldErrors.width?.length ? <p className="field-help field-help-error">{unitFieldErrors.width[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-height">Height</label>
+              <input
+                id="unit-height"
+                type="number"
+                min="0"
+                step="0.01"
+                value={unitForm.height}
+                onChange={(event) => updateUnitForm("height", event.target.value)}
+                placeholder="10.00"
+                required
+              />
+              {unitFieldErrors.height?.length ? <p className="field-help field-help-error">{unitFieldErrors.height[0]}</p> : null}
+            </div>
+            <div className="field">
+              <label htmlFor="unit-rate">Monthly rate</label>
+              <input
+                id="unit-rate"
+                type="number"
+                min="0"
+                step="0.01"
+                value={unitForm.monthly_rate}
+                onChange={(event) => updateUnitForm("monthly_rate", event.target.value)}
+                placeholder="50000.00"
+                required
+              />
+              {unitFieldErrors.monthly_rate?.length ? <p className="field-help field-help-error">{unitFieldErrors.monthly_rate[0]}</p> : null}
+            </div>
+            <label className="checkbox-field" htmlFor="unit-illuminated">
+              <input
+                id="unit-illuminated"
+                type="checkbox"
+                checked={unitForm.is_illuminated}
+                onChange={(event) => updateUnitForm("is_illuminated", event.target.checked)}
+              />
+              <span>Illuminated face</span>
+            </label>
+            <div className="form-actions field-full">
+              {editingUnitId ? (
+                <button className="ghost" type="button" onClick={() => resetUnitForm(unitForm.site)}>
+                  Cancel edit
+                </button>
+              ) : null}
+              <button className="submit" type="submit" disabled={isUnitSubmitting || isLoading || sortedSites.length === 0}>
+                {isUnitSubmitting ? (editingUnitId ? "Updating unit..." : "Creating unit...") : editingUnitId ? "Update media unit" : "Create media unit"}
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+
+      <section className="inventory-section">
+        <div className="module-head">
+          <h2>Site image library</h2>
+          <span>{inventory?.sites?.length ?? 0} sites</span>
+        </div>
+        {siteMutationError && !canManageSites ? <p className="error">{siteMutationError}</p> : null}
+        {siteMutationSuccess && !canManageSites ? <p className="success">{siteMutationSuccess}</p> : null}
+        <div className="image-manager-grid">
+          {(inventory?.sites ?? []).map((site) => (
+            <ImageManagerCard
+              key={site.id}
+              formIdPrefix={`site-image-${site.id}`}
+              title={site.name}
+              eyebrow={site.code}
+              description={site.address}
+              meta={`${site.city}, ${site.state} • ${site.site_type.replaceAll("_", " ")}`}
+              images={site.image_gallery ?? []}
+              primaryImage={site.primary_image ?? null}
+              canManage={canManageImages}
+              uploadLabel="Upload site photo"
+              emptyCopy="No site photos have been uploaded yet."
+              headerAction={
+                canManageSites ? (
+                  <button
+                    className="ghost ghost-danger"
+                    type="button"
+                    disabled={activeSiteId === site.id}
+                    onClick={() => void handleDeleteSite(site.id, site.name)}
+                  >
+                    {activeSiteId === site.id ? "Deleting..." : "Delete site"}
+                  </button>
+                ) : null
+              }
+              onUpload={(payload) => handleSiteImageUpload(site.id, payload)}
+              onMarkPrimary={handleSitePrimary}
+              onDelete={handleSiteDelete}
+            />
+          ))}
+        </div>
+        {!isLoading && (inventory?.sites?.length ?? 0) === 0 ? (
+          <p className="empty-state">No sites are visible for the current account.</p>
+        ) : null}
+      </section>
+
+      <section className="inventory-section">
+        <div className="module-head">
+          <h2>Media unit image library</h2>
+          <span>{filteredUnits.length} of {inventory?.units?.length ?? 0} units</span>
+        </div>
+        {unitMutationError && !canManageUnits ? <p className="error">{unitMutationError}</p> : null}
+        {unitMutationSuccess && !canManageUnits ? <p className="success">{unitMutationSuccess}</p> : null}
+        <section className="module-card inventory-filter-panel">
+          <div className="module-head">
+            <h2>Sales filters</h2>
+            <span>Unit finder</span>
+          </div>
+          <div className="inventory-filter-grid">
+            <div className="field">
+              <label htmlFor="filter-city">City</label>
+              <select
+                id="filter-city"
+                value={unitFilters.city}
+                onChange={(event) => updateUnitFilter("city", event.target.value)}
+              >
+                <option value="">All cities</option>
+                {filterCities.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="filter-status">Status</label>
+              <select
+                id="filter-status"
+                value={unitFilters.status}
+                onChange={(event) => updateUnitFilter("status", event.target.value)}
+              >
+                <option value="">All statuses</option>
+                {filterStatuses.map((status) => (
+                  <option key={status} value={status}>
+                    {status}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="filter-direction">Facing Direction</label>
+              <input
+                id="filter-direction"
+                value={unitFilters.facing_direction}
+                onChange={(event) => updateUnitFilter("facing_direction", event.target.value)}
+                placeholder="Toward Jammu City"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="filter-site-type">Site Type</label>
+              <select
+                id="filter-site-type"
+                value={unitFilters.site_type}
+                onChange={(event) => updateUnitFilter("site_type", event.target.value)}
+              >
+                <option value="">All types</option>
+                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-actions field-full">
+              <button className="ghost" type="button" onClick={() => setUnitFilters(INITIAL_UNIT_FILTERS)}>
+                Clear filters
+              </button>
+            </div>
+          </div>
+        </section>
+        <div className="image-manager-grid">
+          {filteredUnits.map((unit) => (
+            <ImageManagerCard
+              key={unit.id}
+              formIdPrefix={`unit-image-${unit.id}`}
+              title={unit.unit_code}
+              eyebrow={siteMap.get(unit.site)?.label ?? `Site #${unit.site}`}
+              description={`${unit.width} x ${unit.height} • ${unit.face_count} face(s)${unit.facing_direction ? ` • ${unit.facing_direction}` : ""}`}
+              meta={`${formatMediaUnitSiteType(unit.site_type)} • ${unit.is_illuminated ? "Illuminated" : "Standard"} • ${unit.status} • INR ${Number(unit.monthly_rate).toLocaleString("en-IN")}${siteMap.get(unit.site)?.city ? ` • ${siteMap.get(unit.site)?.city}` : ""}`}
+              images={unit.image_gallery ?? []}
+              primaryImage={unit.primary_image ?? null}
+              canManage={canManageImages}
+              uploadLabel="Upload media unit photo"
+              emptyCopy="No media unit photos have been uploaded yet."
+              headerAction={
+                canManageUnits ? (
+                  <button
+                    className="ghost"
+                    type="button"
+                    disabled={isUnitSubmitting}
+                    onClick={() => handleEditUnit(unit.id)}
+                  >
+                    Edit unit
+                  </button>
+                ) : null
+              }
+              onUpload={(payload) => handleUnitImageUpload(unit.id, payload)}
+              onMarkPrimary={handleUnitPrimary}
+              onDelete={handleUnitDelete}
+            />
+          ))}
+        </div>
+        {!isLoading && (inventory?.units?.length ?? 0) === 0 ? (
+          <p className="empty-state">No media units are visible for the current account.</p>
+        ) : null}
+        {!isLoading && (inventory?.units?.length ?? 0) > 0 && filteredUnits.length === 0 ? (
+          <p className="empty-state">No media units match the current filters.</p>
+        ) : null}
+      </section>
+    </AppShell>
+  );
+}
