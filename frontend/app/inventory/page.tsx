@@ -52,7 +52,7 @@ const INITIAL_UNIT_FORM: InventoryUnitMutationInput = {
   is_illuminated: false,
   monthly_rate: "",
   facing_direction: "",
-  site_type: "",
+  site_type: "single_side",
 };
 
 type UnitFilters = {
@@ -169,7 +169,7 @@ export default function InventoryPage() {
   const filteredUnits = useMemo(() => {
     return (inventory?.units ?? []).filter((unit) => {
       const site = siteMap.get(unit.site);
-      const direction = unit.facing_direction.toLowerCase();
+      const direction = (unit.facing_direction ?? "").toLowerCase();
       const directionFilter = unitFilters.facing_direction.trim().toLowerCase();
 
       if (unitFilters.city && site?.city !== unitFilters.city) {
@@ -178,7 +178,7 @@ export default function InventoryPage() {
       if (unitFilters.status && unit.status !== unitFilters.status) {
         return false;
       }
-      if (unitFilters.site_type && unit.site_type !== unitFilters.site_type) {
+      if (unitFilters.site_type && (unit.site_type ?? "") !== unitFilters.site_type) {
         return false;
       }
       if (directionFilter && !direction.includes(directionFilter)) {
@@ -395,7 +395,7 @@ export default function InventoryPage() {
         await updateMediaUnit(editingUnitId, {
           ...unitForm,
           facing_direction: unitForm.facing_direction || "",
-          site_type: unitForm.site_type || "",
+          site_type: unitForm.site_type || "single_side",
           monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
         });
         setUnitMutationSuccess("Media unit updated successfully.");
@@ -403,7 +403,7 @@ export default function InventoryPage() {
         await createMediaUnit({
           ...unitForm,
           facing_direction: unitForm.facing_direction || "",
-          site_type: unitForm.site_type || "",
+          site_type: unitForm.site_type || "single_side",
           monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
         });
         setUnitMutationSuccess("Media unit created successfully.");
@@ -666,18 +666,18 @@ export default function InventoryPage() {
               {unitFieldErrors.unit_code?.length ? <p className="field-help field-help-error">{unitFieldErrors.unit_code[0]}</p> : null}
             </div>
             <div className="field field-full">
-              <label htmlFor="unit-facing-direction">Facing Direction</label>
+              <label htmlFor="unit-facing-direction">Facing direction</label>
               <input
                 id="unit-facing-direction"
                 value={unitForm.facing_direction ?? ""}
                 onChange={(event) => updateUnitForm("facing_direction", event.target.value)}
-                placeholder="Toward Jammu City"
+                placeholder="Example: Toward Jammu City"
               />
-              <p className="field-help">Optional. Use this for the sellable face direction, not the physical site.</p>
+              <p className="field-help">Use the direction visible to traffic or pedestrians for this sellable face.</p>
               {unitFieldErrors.facing_direction?.length ? <p className="field-help field-help-error">{unitFieldErrors.facing_direction[0]}</p> : null}
             </div>
             <div className="field">
-              <label htmlFor="unit-site-type">Site Type</label>
+              <label htmlFor="unit-site-type">Media unit site type</label>
               <select
                 id="unit-site-type"
                 value={unitForm.site_type ?? ""}
@@ -690,7 +690,7 @@ export default function InventoryPage() {
                   </option>
                 ))}
               </select>
-              <p className="field-help">Choose the sellable face format for this media unit.</p>
+              <p className="field-help">Choose whether this unit sells one side or both sides.</p>
               {unitFieldErrors.site_type?.length ? <p className="field-help field-help-error">{unitFieldErrors.site_type[0]}</p> : null}
             </div>
             <div className="field">
@@ -873,16 +873,16 @@ export default function InventoryPage() {
               </select>
             </div>
             <div className="field">
-              <label htmlFor="filter-direction">Facing Direction</label>
+              <label htmlFor="filter-direction">Facing direction</label>
               <input
                 id="filter-direction"
                 value={unitFilters.facing_direction}
                 onChange={(event) => updateUnitFilter("facing_direction", event.target.value)}
-                placeholder="Toward Jammu City"
+                placeholder="Example: Toward Jammu City"
               />
             </div>
             <div className="field">
-              <label htmlFor="filter-site-type">Site Type</label>
+              <label htmlFor="filter-site-type">Media unit site type</label>
               <select
                 id="filter-site-type"
                 value={unitFilters.site_type}
@@ -912,6 +912,11 @@ export default function InventoryPage() {
               eyebrow={siteMap.get(unit.site)?.label ?? `Site #${unit.site}`}
               description={`${unit.width} x ${unit.height} • ${unit.face_count} face(s)${unit.facing_direction ? ` • ${unit.facing_direction}` : ""}`}
               meta={`${formatMediaUnitSiteType(unit.site_type)} • ${unit.is_illuminated ? "Illuminated" : "Standard"} • ${unit.status} • INR ${Number(unit.monthly_rate).toLocaleString("en-IN")}${siteMap.get(unit.site)?.city ? ` • ${siteMap.get(unit.site)?.city}` : ""}`}
+              badges={[
+                { label: unit.status.replaceAll("_", " "), tone: unit.status },
+                { label: unit.facing_direction || "Direction pending" },
+                { label: formatMediaUnitSiteType(unit.site_type) },
+              ]}
               images={unit.image_gallery ?? []}
               primaryImage={unit.primary_image ?? null}
               canManage={canManageImages}

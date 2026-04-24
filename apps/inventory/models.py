@@ -52,9 +52,8 @@ class MediaUnit(TimeStampedModel):
         RETIRED = "retired", "Retired"
 
     class SiteType(models.TextChoices):
-        SINGLE_SIDE_VIEW = "single_side_view", "Single Side"
-        BOTH_SIDE_VIEW = "both_side_view", "Both Side"
-        BACK_TO_BACK_DOUBLE_SITE = "back_to_back_double_site", "Back to Back Double Site"
+        SINGLE_SIDE = "single_side", "Single Side"
+        BOTH_SIDE = "both_side", "Both Side"
 
     site = models.ForeignKey(MediaSite, related_name="units", on_delete=models.CASCADE)
     unit_code = models.CharField(max_length=50, unique=True)

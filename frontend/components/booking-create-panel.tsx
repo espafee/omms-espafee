@@ -131,7 +131,7 @@ export function BookingCreatePanel({
             </option>
             {siteUnits.map((unit) => (
               <option key={unit.id} value={unit.id}>
-                {unit.unit_code} · {unit.facing_direction || "Direction pending"} · {formatMediaUnitSiteType(unit.site_type)}
+                {unit.unit_code} | {unit.facing_direction || "Direction pending"} | {formatMediaUnitSiteType(unit.site_type)}
               </option>
             ))}
           </select>

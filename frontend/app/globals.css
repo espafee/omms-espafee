@@ -750,6 +750,15 @@ textarea::placeholder {
   background: rgba(15, 118, 110, 0.03);
 }
 
+.inventory-table tbody tr.selected-row {
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.table-action {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 .status-pill {
   border: 1px solid transparent;
 }
@@ -825,6 +834,11 @@ textarea::placeholder {
   gap: 16px;
 }
 
+.campaign-share-card-embedded {
+  padding-top: 16px;
+  border-top: 1px solid rgba(68, 64, 60, 0.08);
+}
+
 .campaign-share-link-field input {
   font-size: 13px;
 }
@@ -837,6 +851,45 @@ textarea::placeholder {
 
 .creation-copy {
   margin-bottom: 18px;
+}
+
+.campaign-detail-panel {
+  margin-top: 18px;
+  display: grid;
+  gap: 16px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(68, 64, 60, 0.08);
+}
+
+.campaign-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.campaign-detail-head h3 {
+  margin: 3px 0 0;
+  color: #111827;
+  font-size: 22px;
+  line-height: 1.2;
+}
+
+.campaign-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.campaign-detail-grid > div {
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--surface-soft);
+}
+
+.campaign-detail-share {
+  display: grid;
+  gap: 12px;
 }
 
 .inventory-section {
@@ -852,10 +905,32 @@ textarea::placeholder {
 .image-manager-card {
   display: grid;
   gap: 16px;
+  align-content: start;
 }
 
 .image-manager-meta {
   margin-top: -10px;
+}
+
+.unit-meta-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unit-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(68, 64, 60, 0.08);
+  background: var(--surface-soft);
+  color: #44403c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  text-transform: capitalize;
 }
 
 .image-manager-hero,
@@ -956,6 +1031,10 @@ textarea::placeholder {
   border-radius: 22px;
   border: 1px solid rgba(68, 64, 60, 0.08);
   background: rgba(255, 255, 255, 0.92);
+}
+
+.image-upload-form .field-help {
+  max-width: 44rem;
 }
 
 .checkbox-field {
@@ -1237,6 +1316,8 @@ textarea::placeholder {
 .form-actions {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
   width: 100%;
 }
 
@@ -1277,6 +1358,10 @@ textarea::placeholder {
   }
 
   .image-manager-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .campaign-detail-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1367,6 +1452,7 @@ textarea::placeholder {
   }
 
   .asset-head,
+  .campaign-detail-head,
   .module-head,
   .card-head-actions {
     flex-direction: column;

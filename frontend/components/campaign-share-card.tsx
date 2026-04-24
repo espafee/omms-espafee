@@ -13,9 +13,10 @@ type CampaignShareCardProps = {
   accessLinkUrl: string | null;
   status: CampaignAccessLinkStatus | null;
   isLoading: boolean;
-  isActing: boolean;
+  activeAction: "generate" | "copy" | "revoke" | null;
+  embedded?: boolean;
   onGenerate: (campaignId: number) => Promise<void>;
-  onCopy: (url: string) => Promise<void>;
+  onCopy: (url: string, linkId: number) => Promise<void>;
   onRevoke: (link: CampaignAccessLink) => Promise<void>;
 };
 
@@ -39,18 +40,20 @@ export function CampaignShareCard({
   accessLinkUrl,
   status,
   isLoading,
-  isActing,
+  activeAction,
+  embedded = false,
   onGenerate,
   onCopy,
   onRevoke,
 }: CampaignShareCardProps) {
   const statusLabel = status ? getShareLinkStatusLabel(status) : "no link";
   const canGenerate = !accessLink || status !== "active";
-  const canCopy = Boolean(accessLinkUrl);
+  const canCopy = Boolean(accessLink && accessLinkUrl && status === "active");
   const canRevoke = Boolean(accessLink && status === "active");
+  const isActing = Boolean(activeAction);
 
   return (
-    <article className="module-card campaign-share-card">
+    <article className={`${embedded ? "campaign-share-card-embedded" : "module-card"} campaign-share-card`}>
       <div className="module-head">
         <div>
           <p className="site-code">{campaign.code}</p>
@@ -110,15 +113,15 @@ export function CampaignShareCard({
           disabled={isLoading || isActing || !canGenerate}
           onClick={() => void onGenerate(campaign.id)}
         >
-          {isActing && canGenerate ? "Generating..." : "Generate Link"}
+          {activeAction === "generate" ? "Generating..." : "Generate Link"}
         </button>
         <button
           className="ghost"
           type="button"
           disabled={isLoading || isActing || !canCopy}
-          onClick={() => accessLinkUrl && void onCopy(accessLinkUrl)}
+          onClick={() => accessLinkUrl && accessLink && void onCopy(accessLinkUrl, accessLink.id)}
         >
-          Copy
+          {activeAction === "copy" ? "Copying..." : "Copy"}
         </button>
         <button
           className="ghost ghost-danger"
@@ -126,7 +129,7 @@ export function CampaignShareCard({
           disabled={isLoading || isActing || !canRevoke}
           onClick={() => accessLink && void onRevoke(accessLink)}
         >
-          {isActing && canRevoke ? "Revoking..." : "Revoke"}
+          {activeAction === "revoke" ? "Revoking..." : "Revoke"}
         </button>
       </div>
     </article>

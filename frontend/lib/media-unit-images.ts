@@ -14,7 +14,7 @@ export async function uploadMediaUnitImage(payload: MediaUnitImageUploadInput) {
   const formData = new FormData();
   formData.append("media_unit", String(payload.media_unit));
   formData.append("image", payload.image);
-  formData.append("caption", payload.caption);
+  formData.append("caption", payload.caption.trim());
   formData.append("is_primary", String(payload.is_primary));
 
   return apiFetch<InventoryImage>("inventory/unit-images/", {

@@ -21,6 +21,7 @@ type ImageManagerCardProps = {
   onMarkPrimary: (imageId: number) => Promise<void>;
   onDelete: (imageId: number) => Promise<void>;
   headerAction?: ReactNode;
+  badges?: Array<{ label: string; tone?: string }>;
 };
 
 export function ImageManagerCard({
@@ -38,6 +39,7 @@ export function ImageManagerCard({
   onMarkPrimary,
   onDelete,
   headerAction,
+  badges = [],
 }: ImageManagerCardProps) {
   const safeImages = images ?? [];
   const safePrimaryImage = primaryImage ?? null;
@@ -130,6 +132,15 @@ export function ImageManagerCard({
         </div>
         <p className="site-copy">{description}</p>
         <p className="site-copy image-manager-meta">{meta}</p>
+        {badges.length > 0 ? (
+          <div className="unit-meta-chip-row" aria-label={`${title} metadata`}>
+            {badges.map((badge) => (
+              <span className={`unit-meta-chip ${badge.tone ? `status-${badge.tone}` : ""}`} key={`${title}-${badge.label}`}>
+                {badge.label}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <button
           className="image-manager-hero"
@@ -207,9 +218,18 @@ export function ImageManagerCard({
                 id={`${formIdPrefix}-file`}
                 type="file"
                 accept="image/*"
-                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                onChange={(event) => {
+                  setFormError("");
+                  setFormSuccess("");
+                  setSelectedFile(event.target.files?.[0] ?? null);
+                }}
                 required
               />
+              <p className="field-help">
+                {selectedFile
+                  ? `${selectedFile.name} selected (${Math.max(1, Math.round(selectedFile.size / 1024))} KB).`
+                  : "Upload a JPG, PNG, or WebP image. The browser will send it as multipart form data."}
+              </p>
             </div>
             <div className="field">
               <label htmlFor={`${formIdPrefix}-caption`}>Caption</label>

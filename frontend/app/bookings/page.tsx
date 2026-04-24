@@ -222,8 +222,8 @@ export default function BookingsPage() {
         code: unit.unit_code,
         siteId: unit.site,
         status: unit.status,
-        facingDirection: unit.facing_direction,
-        siteType: unit.site_type,
+        facingDirection: unit.facing_direction ?? "",
+        siteType: unit.site_type ?? "",
       });
     }
     return map;
@@ -422,8 +422,8 @@ export default function BookingsPage() {
                           <strong>{unit?.code ?? `Unit #${booking.media_unit}`}</strong>
                           <span>
                             {siteName}
-                            {unit?.facingDirection ? ` • ${unit.facingDirection}` : ""}
-                            {unit?.siteType ? ` • ${formatMediaUnitSiteType(unit.siteType)}` : ""}
+                            {` | ${unit?.facingDirection || "Direction pending"}`}
+                            {` | ${formatMediaUnitSiteType(unit?.siteType)}`}
                           </span>
                         </div>
                       </td>

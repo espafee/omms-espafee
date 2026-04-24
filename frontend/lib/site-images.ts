@@ -14,7 +14,7 @@ export async function uploadSiteImage(payload: SiteImageUploadInput) {
   const formData = new FormData();
   formData.append("site", String(payload.site));
   formData.append("image", payload.image);
-  formData.append("caption", payload.caption);
+  formData.append("caption", payload.caption.trim());
   formData.append("is_primary", String(payload.is_primary));
 
   return apiFetch<InventoryImage>("inventory/site-images/", {

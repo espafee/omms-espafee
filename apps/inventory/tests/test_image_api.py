@@ -60,7 +60,7 @@ class InventoryImageAPITests(APITestCase):
             is_illuminated=True,
             monthly_rate=Decimal("50000.00"),
             facing_direction="Toward Jammu City",
-            site_type=MediaUnit.SiteType.SINGLE_SIDE_VIEW,
+            site_type=MediaUnit.SiteType.SINGLE_SIDE,
         )
         self.campaign = Campaign.objects.create(
             name="Image Campaign",
@@ -270,7 +270,7 @@ class InventoryImageAPITests(APITestCase):
         self.assertEqual(response.data["primary_image"]["id"], primary.id)
         self.assertEqual(len(response.data["image_gallery"]), 1)
         self.assertEqual(response.data["facing_direction"], "Toward Jammu City")
-        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.SINGLE_SIDE_VIEW)
+        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.SINGLE_SIDE)
 
     def test_operations_can_create_media_unit_with_direction_and_type(self):
         self.client.force_authenticate(user=self.operations)
@@ -287,14 +287,14 @@ class InventoryImageAPITests(APITestCase):
                 "is_illuminated": False,
                 "monthly_rate": "45000.00",
                 "facing_direction": "Toward Lakhanpur",
-                "site_type": MediaUnit.SiteType.BOTH_SIDE_VIEW,
+                "site_type": MediaUnit.SiteType.BOTH_SIDE,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["facing_direction"], "Toward Lakhanpur")
-        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.BOTH_SIDE_VIEW)
+        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.BOTH_SIDE)
 
     def test_operations_can_update_media_unit_direction_and_type(self):
         self.client.force_authenticate(user=self.operations)
@@ -303,14 +303,14 @@ class InventoryImageAPITests(APITestCase):
             reverse("inventory-units-detail", args=[self.unit.id]),
             {
                 "facing_direction": "Toward SIDCO Chowk",
-                "site_type": MediaUnit.SiteType.BACK_TO_BACK_DOUBLE_SITE,
+                "site_type": MediaUnit.SiteType.BOTH_SIDE,
             },
             format="json",
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["facing_direction"], "Toward SIDCO Chowk")
-        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.BACK_TO_BACK_DOUBLE_SITE)
+        self.assertEqual(response.data["site_type"], MediaUnit.SiteType.BOTH_SIDE)
 
     def test_media_unit_list_supports_type_and_city_filters(self):
         MediaUnit.objects.create(
@@ -331,14 +331,14 @@ class InventoryImageAPITests(APITestCase):
             is_illuminated=False,
             monthly_rate=Decimal("42000.00"),
             facing_direction="Toward Lakhanpur",
-            site_type=MediaUnit.SiteType.BOTH_SIDE_VIEW,
+            site_type=MediaUnit.SiteType.BOTH_SIDE,
         )
 
         self.client.force_authenticate(user=self.sales)
         response = self.client.get(
             reverse("inventory-units-list"),
             {
-                "site_type": MediaUnit.SiteType.SINGLE_SIDE_VIEW,
+                "site_type": MediaUnit.SiteType.SINGLE_SIDE,
                 "site__city": "Pune",
             },
         )

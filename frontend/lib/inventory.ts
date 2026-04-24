@@ -86,22 +86,30 @@ export type InventoryUnitMutationInput = {
 };
 
 export const MEDIA_UNIT_SITE_TYPE_OPTIONS = [
-  { value: "single_side_view", label: "Single Side" },
-  { value: "both_side_view", label: "Both Side" },
-  { value: "back_to_back_double_site", label: "Back to Back Double Site" },
+  { value: "single_side", label: "Single Side" },
+  { value: "both_side", label: "Both Side" },
 ];
 
 export function formatMediaUnitSiteType(value: string | null | undefined) {
   if (!value) {
     return "Type pending";
   }
+  if (value === "single_side_view") {
+    return "Single Side";
+  }
+  if (value === "both_side_view" || value === "back_to_back_double_site") {
+    return "Both Side";
+  }
   return MEDIA_UNIT_SITE_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value.replaceAll("_", " ");
 }
 
 export function normalizeMutationError(error: unknown) {
   if (error instanceof ApiError) {
+    const fieldMessages = Object.entries(error.fieldErrors)
+      .flatMap(([field, messages]) => messages.map((message) => `${field.replaceAll("_", " ")}: ${message}`))
+      .join(" ");
     return {
-      message: error.message,
+      message: fieldMessages || error.message,
       fieldErrors: error.fieldErrors,
     };
   }

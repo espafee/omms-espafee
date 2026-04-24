@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -64,10 +64,12 @@ export default function CampaignsPage() {
   const [shareError, setShareError] = useState("");
   const [shareSuccess, setShareSuccess] = useState("");
   const [form, setForm] = useState<CampaignCreateInput>(INITIAL_FORM);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isShareLoading, setIsShareLoading] = useState(false);
   const [activeShareKey, setActiveShareKey] = useState<string | null>(null);
+  const shareActionInFlight = useRef(false);
 
   const canManageCampaigns = WRITE_ROLES.has(user?.role ?? "");
   const canManageShareLinks = ADMIN_ROLES.has(user?.role ?? "");
@@ -190,6 +192,13 @@ export default function CampaignsPage() {
     }
     return grouped;
   }, [accessLinks]);
+  const campaigns = campaignData?.campaigns ?? [];
+  const selectedCampaign = useMemo(() => {
+    if (campaigns.length === 0) {
+      return null;
+    }
+    return campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0] ?? null;
+  }, [campaigns, selectedCampaignId]);
 
   function updateForm<K extends keyof CampaignCreateInput>(field: K, value: CampaignCreateInput[K]) {
     setForm((current) => ({
@@ -250,12 +259,13 @@ export default function CampaignsPage() {
   }
 
   async function handleGenerateLink(campaignId: number) {
-    if (activeShareKey) {
+    if (shareActionInFlight.current) {
       return;
     }
 
     setShareError("");
     setShareSuccess("");
+    shareActionInFlight.current = true;
     setActiveShareKey(`generate-${campaignId}`);
 
     try {
@@ -265,28 +275,37 @@ export default function CampaignsPage() {
     } catch (shareActionError) {
       setShareError(getCampaignShareLinkError(shareActionError));
     } finally {
+      shareActionInFlight.current = false;
       setActiveShareKey(null);
     }
   }
 
-  async function handleCopyLink(url: string) {
-    if (activeShareKey) {
+  async function handleCopyLink(url: string, linkId: number) {
+    if (shareActionInFlight.current) {
       return;
     }
 
     setShareError("");
     setShareSuccess("");
+    shareActionInFlight.current = true;
+    setActiveShareKey(`copy-${linkId}`);
 
     try {
+      if (!navigator.clipboard?.writeText) {
+        throw new Error("Clipboard API is not available.");
+      }
       await navigator.clipboard.writeText(url);
-      setShareSuccess("Client share link copied.");
+      setShareSuccess("Copied!");
     } catch {
       setShareError("Unable to copy the link automatically. You can still copy it from the field.");
+    } finally {
+      shareActionInFlight.current = false;
+      setActiveShareKey(null);
     }
   }
 
   async function handleRevokeLink(link: CampaignAccessLink) {
-    if (activeShareKey) {
+    if (shareActionInFlight.current) {
       return;
     }
 
@@ -297,6 +316,7 @@ export default function CampaignsPage() {
 
     setShareError("");
     setShareSuccess("");
+    shareActionInFlight.current = true;
     setActiveShareKey(`revoke-${link.id}`);
 
     try {
@@ -306,6 +326,7 @@ export default function CampaignsPage() {
     } catch (shareActionError) {
       setShareError(getCampaignShareLinkError(shareActionError));
     } finally {
+      shareActionInFlight.current = false;
       setActiveShareKey(null);
     }
   }
@@ -458,45 +479,6 @@ export default function CampaignsPage() {
         </section>
       ) : null}
 
-      {canManageShareLinks ? (
-        <section className="campaign-share-section">
-          <div className="module-head">
-            <h2>Client share links</h2>
-            <span>{campaignData?.campaigns.length ?? 0} campaigns</span>
-          </div>
-          {shareError ? <p className="error">{shareError}</p> : null}
-          {shareSuccess ? <p className="success">{shareSuccess}</p> : null}
-          <div className="campaign-share-grid">
-            {(campaignData?.campaigns ?? []).map((campaign) => {
-              const accessLink = getPreferredAccessLink(campaign.id, campaign.end_date);
-              const accessLinkUrl = accessLink ? getCachedCampaignShareLink(accessLink.id) : null;
-              const status = accessLink ? getCampaignAccessLinkStatus(accessLink, campaign.end_date) : null;
-              const isActing =
-                activeShareKey === `generate-${campaign.id}` ||
-                (accessLink ? activeShareKey === `revoke-${accessLink.id}` : false);
-
-              return (
-                <CampaignShareCard
-                  key={campaign.id}
-                  campaign={campaign}
-                  accessLink={accessLink}
-                  accessLinkUrl={accessLinkUrl}
-                  status={status}
-                  isLoading={isShareLoading || isLoading}
-                  isActing={isActing}
-                  onGenerate={handleGenerateLink}
-                  onCopy={handleCopyLink}
-                  onRevoke={handleRevokeLink}
-                />
-              );
-            })}
-          </div>
-          {!isLoading && (campaignData?.campaigns.length ?? 0) === 0 ? (
-            <p className="empty-state">Create a campaign first to generate a secure client share link.</p>
-          ) : null}
-        </section>
-      ) : null}
-
       <section className="summary-row" aria-label="Campaign stats">
         {quickStats.map((item) => (
           <article className="summary-card" key={item.label}>
@@ -601,11 +583,12 @@ export default function CampaignsPage() {
                   <th>Budget</th>
                   <th>Assets</th>
                   <th>Objective</th>
+                  <th>Details</th>
                 </tr>
               </thead>
               <tbody>
                 {(campaignData?.campaigns ?? []).map((campaign) => (
-                  <tr key={campaign.id}>
+                  <tr className={selectedCampaign?.id === campaign.id ? "selected-row" : ""} key={campaign.id}>
                     <td>
                       <div className="table-primary">
                         <strong>{campaign.name}</strong>
@@ -619,6 +602,11 @@ export default function CampaignsPage() {
                     <td>{formatCurrency(campaign.budget)}</td>
                     <td>{campaign.assets.length}</td>
                     <td className="table-wrap">{campaign.objective || "No objective added yet."}</td>
+                    <td>
+                      <button className="ghost table-action" type="button" onClick={() => setSelectedCampaignId(campaign.id)}>
+                        View
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -626,6 +614,73 @@ export default function CampaignsPage() {
           </div>
           {!isLoading && (campaignData?.campaigns.length ?? 0) === 0 ? (
             <p className="empty-state">No campaigns are visible for the current account.</p>
+          ) : null}
+          {selectedCampaign ? (
+            <section className="campaign-detail-panel" aria-label="Selected campaign details">
+              <div className="campaign-detail-head">
+                <div>
+                  <p className="site-code">{selectedCampaign.code}</p>
+                  <h3>{selectedCampaign.name}</h3>
+                </div>
+                <span className={`status-pill status-${selectedCampaign.status}`}>{selectedCampaign.status}</span>
+              </div>
+              <div className="campaign-detail-grid">
+                <div>
+                  <p className="stat-label">Timeline</p>
+                  <p className="site-copy">{formatDateRange(selectedCampaign.start_date, selectedCampaign.end_date)}</p>
+                </div>
+                <div>
+                  <p className="stat-label">Budget</p>
+                  <p className="site-copy">{formatCurrency(selectedCampaign.budget)}</p>
+                </div>
+                <div>
+                  <p className="stat-label">Assets</p>
+                  <p className="site-copy">{selectedCampaign.assets.length}</p>
+                </div>
+              </div>
+              <div>
+                <p className="stat-label">Objective</p>
+                <p className="site-copy">{selectedCampaign.objective || "No objective added yet."}</p>
+              </div>
+              {canManageShareLinks ? (
+                <div className="campaign-detail-share">
+                  <div className="module-head">
+                    <h2>Share Link</h2>
+                    <span>Admin only</span>
+                  </div>
+                  {shareError ? <p className="error">{shareError}</p> : null}
+                  {shareSuccess ? <p className="success">{shareSuccess}</p> : null}
+                  {(() => {
+                    const accessLink = getPreferredAccessLink(selectedCampaign.id, selectedCampaign.end_date);
+                    const accessLinkUrl = accessLink ? getCachedCampaignShareLink(accessLink.id, selectedCampaign.id) : null;
+                    const status = accessLink ? getCampaignAccessLinkStatus(accessLink, selectedCampaign.end_date) : null;
+                    const activeAction =
+                      activeShareKey === `generate-${selectedCampaign.id}`
+                        ? "generate"
+                        : accessLink && activeShareKey === `copy-${accessLink.id}`
+                          ? "copy"
+                          : accessLink && activeShareKey === `revoke-${accessLink.id}`
+                            ? "revoke"
+                            : null;
+
+                    return (
+                      <CampaignShareCard
+                        campaign={selectedCampaign}
+                        accessLink={accessLink}
+                        accessLinkUrl={accessLinkUrl}
+                        status={status}
+                        isLoading={isShareLoading || isLoading}
+                        activeAction={activeAction}
+                        embedded
+                        onGenerate={handleGenerateLink}
+                        onCopy={handleCopyLink}
+                        onRevoke={handleRevokeLink}
+                      />
+                    );
+                  })()}
+                </div>
+              ) : null}
+            </section>
           ) : null}
         </article>
 
