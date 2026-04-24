@@ -8,6 +8,7 @@ import { PoeCreatePanel, type PoeFormState } from "@/components/poe-create-panel
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import { createPoeWorkflow, fetchPoeData, getPoeCreateError, type PoePayload } from "@/lib/poe";
+import type { Booking } from "@/lib/bookings";
 
 type StoredUser = {
   id?: number;
@@ -189,7 +190,7 @@ export default function PoePage() {
   }
 
   const bookingMap = useMemo(() => {
-    const map = new Map<number, BookingDetails>();
+    const map = new Map<number, Booking>();
     for (const booking of poeData?.bookings ?? []) {
       map.set(booking.id, booking);
     }
