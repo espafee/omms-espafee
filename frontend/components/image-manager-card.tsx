@@ -52,6 +52,14 @@ export function ImageManagerCard({
   const [activeImageId, setActiveImageId] = useState<number | null>(null);
   const [lightboxImage, setLightboxImage] = useState<InventoryImage | null>(null);
 
+  function formatUploadDate(value: string) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return "Upload date unavailable";
+    }
+    return parsed.toLocaleDateString("en-IN");
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedFile || isSubmitting) {
@@ -100,6 +108,11 @@ export function ImageManagerCard({
 
   async function handleDelete(imageId: number) {
     if (activeImageId) {
+      return;
+    }
+
+    const confirmed = window.confirm("Delete this image? This action cannot be undone.");
+    if (!confirmed) {
       return;
     }
 
@@ -177,7 +190,7 @@ export function ImageManagerCard({
                 <p className="site-copy">{image.caption || "Untitled image"}</p>
                 <div className="image-thumb-badges">
                   {image.is_primary ? <span className="status-pill status-approved">Primary</span> : null}
-                  <span className="site-code">{new Date(image.uploaded_at).toLocaleDateString("en-IN")}</span>
+                  <span className="site-code">{formatUploadDate(image.uploaded_at)}</span>
                 </div>
                 {canManage ? (
                   <div className="image-thumb-actions">

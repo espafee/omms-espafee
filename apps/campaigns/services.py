@@ -54,12 +54,27 @@ class PublicCampaignAccessError(Exception):
 class CampaignAccessTokenService(BaseService):
     repository_class = CampaignAccessTokenRepository
 
+    def get_active_token(self, campaign):
+        tokens = self.get_queryset().filter(campaign=campaign).order_by("-created_at")
+        for access_token in tokens:
+            if access_token.is_available():
+                return access_token
+        return None
+
     def create_token(self, *, campaign, actor=None, expires_at=None):
-        return CampaignAccessToken.create_with_token(
+        existing = self.get_active_token(campaign)
+        if existing and existing.token_value:
+            return existing, existing.token_value, False
+
+        if existing and not existing.token_value:
+            existing.revoke(actor=actor)
+
+        created, raw_token = CampaignAccessToken.create_with_token(
             campaign=campaign,
             created_by=actor,
             expires_at=expires_at,
         )
+        return created, raw_token, True
 
     def revoke(self, instance, *, actor=None):
         instance.revoke(actor=actor)

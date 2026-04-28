@@ -10,7 +10,7 @@ import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } fro
 import {
   createCampaignAccessLink,
   fetchCampaignAccessLinks,
-  getCachedCampaignShareLink,
+  getCampaignAccessLinkUrl,
   getCampaignAccessLinkStatus,
   getCampaignShareLinkError,
   revokeCampaignAccessLink,
@@ -74,10 +74,18 @@ export default function CampaignsPage() {
   const canManageCampaigns = WRITE_ROLES.has(user?.role ?? "");
   const canManageShareLinks = ADMIN_ROLES.has(user?.role ?? "");
 
+  function mergeAccessLink(nextLink: CampaignAccessLink) {
+    setAccessLinks((current) => {
+      const remaining = current.filter((item) => item.id !== nextLink.id && item.campaign !== nextLink.campaign);
+      return [nextLink, ...remaining];
+    });
+  }
+
   async function loadCampaigns(profileHint?: StoredUser | null) {
     setIsLoading(true);
     setError("");
     setIsShareLoading(true);
+    setShareError("");
 
     try {
       const profile = profileHint ?? (await fetchCurrentUser());
@@ -85,15 +93,22 @@ export default function CampaignsPage() {
         setUser(profile);
       }
 
-      const [payload, directory, links] = await Promise.all([
+      const [payload, directory] = await Promise.all([
         fetchCampaignData(),
         WRITE_ROLES.has(profile?.role ?? "") ? fetchClients() : Promise.resolve([]),
-        ADMIN_ROLES.has(profile?.role ?? "") ? fetchCampaignAccessLinks() : Promise.resolve([]),
       ]);
 
-      const managerDirectory = ADMIN_ROLES.has(profile?.role ?? "")
-        ? await fetchUsers()
-        : profile
+      let links: CampaignAccessLink[] = [];
+      if (ADMIN_ROLES.has(profile?.role ?? "")) {
+        try {
+          links = await fetchCampaignAccessLinks();
+        } catch {
+          setShareError("Share links are temporarily unavailable right now. Campaign data is still available.");
+        }
+      }
+
+      let managerDirectory: UserOption[] =
+        profile
           ? [
               {
                 id: profile.id ?? 0,
@@ -106,6 +121,14 @@ export default function CampaignsPage() {
               },
             ]
           : [];
+
+      if (ADMIN_ROLES.has(profile?.role ?? "")) {
+        try {
+          managerDirectory = await fetchUsers();
+        } catch {
+          setFormError("Campaign managers are temporarily unavailable. You can still review campaign data.");
+        }
+      }
 
       setCampaignData(payload);
       setClients(directory);
@@ -235,12 +258,20 @@ export default function CampaignsPage() {
   }
 
   async function handleClientCreated(client: ClientOption) {
-    const refreshedClients = await fetchClients();
-    setClients(refreshedClients);
-    setForm((current) => ({
-      ...current,
-      client: client.id,
-    }));
+    try {
+      const refreshedClients = await fetchClients();
+      setClients(refreshedClients);
+      setForm((current) => ({
+        ...current,
+        client: client.id,
+      }));
+    } catch (refreshError) {
+      const message =
+        refreshError instanceof Error
+          ? refreshError.message
+          : "The client was created, but the dropdown could not be refreshed automatically.";
+      setFormError(message);
+    }
   }
 
   function getPreferredAccessLink(campaignId: number, campaignEndDate: string): CampaignAccessLink | null {
@@ -270,7 +301,7 @@ export default function CampaignsPage() {
 
     try {
       const link = await createCampaignAccessLink(campaignId);
-      setAccessLinks((current) => [link, ...current]);
+      mergeAccessLink(link);
       setShareSuccess("Client share link generated successfully.");
     } catch (shareActionError) {
       setShareError(getCampaignShareLinkError(shareActionError));
@@ -652,7 +683,7 @@ export default function CampaignsPage() {
                   {shareSuccess ? <p className="success">{shareSuccess}</p> : null}
                   {(() => {
                     const accessLink = getPreferredAccessLink(selectedCampaign.id, selectedCampaign.end_date);
-                    const accessLinkUrl = accessLink ? getCachedCampaignShareLink(accessLink.id, selectedCampaign.id) : null;
+                    const accessLinkUrl = getCampaignAccessLinkUrl(accessLink);
                     const status = accessLink ? getCampaignAccessLinkStatus(accessLink, selectedCampaign.end_date) : null;
                     const activeAction =
                       activeShareKey === `generate-${selectedCampaign.id}`

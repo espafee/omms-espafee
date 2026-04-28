@@ -89,3 +89,18 @@ class ClientDirectoryAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertFalse(User.objects.filter(email=payload["email"]).exists())
+
+    def test_admin_gets_validation_errors_for_duplicate_client_identity(self):
+        self.client.force_authenticate(user=self.admin)
+        payload = {
+            "email": self.client_user.email,
+            "username": self.client_user.username,
+            "organization_name": "Duplicate Org",
+            "password": "Duplicate123!",
+        }
+
+        response = self.client.post(reverse("client-directory"), payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("email", response.data)
+        self.assertIn("username", response.data)

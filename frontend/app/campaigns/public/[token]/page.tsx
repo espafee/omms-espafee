@@ -21,12 +21,37 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function formatDateTime(value: string) {
+  if (!value) {
+    return "Not available";
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
 function formatDateRange(startDate: string, endDate: string) {
   return `${formatDate(startDate)} - ${formatDate(endDate)}`;
 }
 
 function getMediaPreview(media: PublicPoeMedia) {
   return media.image_url || media.media_url || "";
+}
+
+function formatSiteType(value: string) {
+  if (!value) {
+    return "Type pending";
+  }
+  return value.replaceAll("_", " ");
+}
+
+function formatStatusLabel(value: string) {
+  return value.replaceAll("_", " ");
 }
 
 export default function PublicCampaignPage({ params }: { params: { token: string } }) {
@@ -75,17 +100,23 @@ export default function PublicCampaignPage({ params }: { params: { token: string
   const summary = useMemo(() => {
     const bookings = payload?.campaign.bookings ?? [];
     const poeRecords = bookings.flatMap((booking) => booking.poe_records);
+    const uniqueSites = new Set(bookings.map((booking) => booking.site.id));
+    const uniqueUnits = new Set(bookings.map((booking) => booking.media_unit.id));
 
     return {
       totalBookings: bookings.length,
       liveBookings: bookings.filter((booking) => booking.status === "live").length,
       totalPoe: poeRecords.length,
       verifiedPoe: poeRecords.filter((record) => record.verification_status === "verified").length,
+      uniqueSites: uniqueSites.size,
+      uniqueUnits: uniqueUnits.size,
     };
   }, [payload]);
 
   const stateLabel =
-    error?.code === "expired_token"
+    (error?.status ?? 0) >= 500 || error?.code === "access_unavailable"
+      ? "Access unavailable"
+      : error?.code === "expired_token"
       ? "Expired link"
       : error?.code === "revoked_token"
         ? "Revoked link"
@@ -151,6 +182,14 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                   <p className="field-summary-value">
                     {payload.access_expires_at ? formatDate(payload.access_expires_at) : "Campaign end"}
                   </p>
+                </div>
+              </div>
+              <div className="public-summary-banner">
+                <div className="unit-meta-chip-row">
+                  <span className={`status-pill status-${payload.campaign.status}`}>{formatStatusLabel(payload.campaign.status)}</span>
+                  <span className="unit-meta-chip">{summary.uniqueSites} site(s)</span>
+                  <span className="unit-meta-chip">{summary.uniqueUnits} media unit(s)</span>
+                  <span className="unit-meta-chip">{summary.totalBookings} booking window(s)</span>
                 </div>
               </div>
             </section>
@@ -236,36 +275,80 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                         <p className="site-code">{booking.media_unit.unit_code}</p>
                         <h3>{booking.site.name}</h3>
                       </div>
-                      <span className={`status-pill status-${booking.status}`}>{booking.status}</span>
+                      <span className={`status-pill status-${booking.status}`}>{formatStatusLabel(booking.status)}</span>
                     </div>
-                    <div className="image-reference-card">
-                      <div className="image-reference-frame">
-                        {booking.site.primary_image?.image_url ? (
-                          <img
-                            className="image-reference-asset"
-                            src={booking.site.primary_image.image_url}
-                            alt={booking.site.primary_image.caption || booking.site.name}
-                          />
-                        ) : (
-                          <div className="image-reference-empty">No site image available for this placement.</div>
-                        )}
+                    <div className="field-capture-summary">
+                      <div className="module-stat">
+                        <p className="stat-label">Site</p>
+                        <p className="field-summary-value">{booking.site.name}</p>
+                        <p className="site-copy">
+                          {booking.site.code} • {booking.site.city}, {booking.site.state}
+                        </p>
                       </div>
-                      <div className="image-reference-copy">
-                        <p className="section-copy">
-                          <strong>{booking.site.code}</strong> in {booking.site.city}, {booking.site.state}
+                      <div className="module-stat">
+                        <p className="stat-label">Media unit</p>
+                        <p className="field-summary-value">{booking.media_unit.unit_code}</p>
+                        <p className="site-copy">
+                          {booking.media_unit.facing_direction || "Direction pending"} • {formatSiteType(booking.media_unit.site_type)} •{" "}
+                          {booking.media_unit.is_illuminated ? "Illuminated" : "Non-illuminated"}
                         </p>
-                        <p className="section-copy">
-                          Scheduled for {formatDateRange(booking.start_date, booking.end_date)}
-                        </p>
-                        <p className="section-copy">
-                          Unit status: <span className={`status-pill status-${booking.media_unit.status}`}>{booking.media_unit.status}</span>
-                        </p>
-                        <p className="section-copy">
-                          Lighting: {booking.media_unit.is_illuminated ? "Illuminated" : "Non-illuminated"}
+                      </div>
+                      <div className="module-stat">
+                        <p className="stat-label">Scheduled window</p>
+                        <p className="field-summary-value">{formatDateRange(booking.start_date, booking.end_date)}</p>
+                        <p className="site-copy">
+                          Unit status: <span className={`status-pill status-${booking.media_unit.status}`}>{formatStatusLabel(booking.media_unit.status)}</span>
                         </p>
                       </div>
                     </div>
 
+                    <div className="field-reference-grid">
+                      <div className="image-reference-card">
+                        <div className="image-reference-frame">
+                          {booking.site.primary_image?.image_url ? (
+                            <img
+                              className="image-reference-asset"
+                              src={booking.site.primary_image.image_url}
+                              alt={booking.site.primary_image.caption || booking.site.name}
+                            />
+                          ) : (
+                            <div className="image-reference-empty">No site image available for this placement.</div>
+                          )}
+                        </div>
+                        <div className="image-reference-copy">
+                          <p className="site-code">Site reference</p>
+                          <p className="section-copy">
+                            Use this image to confirm the installation location and surrounding placement context.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="image-reference-card">
+                        <div className="image-reference-frame">
+                          {booking.media_unit.primary_image?.image_url ? (
+                            <img
+                              className="image-reference-asset"
+                              src={booking.media_unit.primary_image.image_url}
+                              alt={booking.media_unit.primary_image.caption || booking.media_unit.unit_code}
+                            />
+                          ) : (
+                            <div className="image-reference-empty">No media unit image available for this placement.</div>
+                          )}
+                        </div>
+                        <div className="image-reference-copy">
+                          <p className="site-code">Media unit reference</p>
+                          <p className="section-copy">
+                            {booking.media_unit.facing_direction || "Direction pending"} • {formatSiteType(booking.media_unit.site_type)}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="public-poe-section">
+                      <div className="module-head">
+                        <h2>Proof of execution</h2>
+                        <span>{booking.poe_records.length} record(s)</span>
+                      </div>
                     <div className="public-evidence-grid">
                       {booking.poe_records.map((record) => (
                         <article className="asset-card asset-card-media" key={record.id}>
@@ -275,11 +358,13 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                               <h3>{formatDate(record.executed_on)}</h3>
                             </div>
                             <span className={`status-pill status-${record.verification_status}`}>
-                              {record.verification_status}
+                              {formatStatusLabel(record.verification_status)}
                             </span>
                           </div>
                           <p className="site-copy">
-                            Score: {record.verification_score ?? "Pending"} {record.verification_notes ? `• ${record.verification_notes}` : ""}
+                            Captured: {formatDateTime(record.captured_at)}
+                            {record.verification_score ? ` • Score ${record.verification_score}` : ""}
+                            {record.verification_notes ? ` • ${record.verification_notes}` : ""}
                           </p>
                           <div className="capture-preview-grid">
                             {record.media_items.map((media) => {
@@ -296,8 +381,8 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                                     <div className="asset-image-placeholder">No preview available</div>
                                   )}
                                   <div className="capture-preview-name">
-                                    <p className="site-copy">{media.media_type}</p>
-                                    <p className="site-copy">{formatDate(media.captured_at)}</p>
+                                    <p className="site-copy">{formatStatusLabel(media.media_type)}</p>
+                                    <p className="site-copy">{formatDateTime(media.captured_at)}</p>
                                   </div>
                                 </article>
                               );
@@ -311,6 +396,7 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                       {booking.poe_records.length === 0 ? (
                         <p className="empty-state">No proof of execution has been published yet for this booking.</p>
                       ) : null}
+                    </div>
                     </div>
                   </article>
                 ))}

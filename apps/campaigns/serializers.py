@@ -34,11 +34,17 @@ class CampaignSerializer(serializers.ModelSerializer):
 
 
 class CampaignAccessTokenSerializer(serializers.ModelSerializer):
+    public_path = serializers.SerializerMethodField()
+
+    def get_public_path(self, obj):
+        return obj.public_path
+
     class Meta:
         model = CampaignAccessToken
         fields = [
             "id",
             "campaign",
+            "public_path",
             "token_prefix",
             "is_active",
             "expires_at",
@@ -58,11 +64,10 @@ class CampaignAccessTokenCreateSerializer(serializers.Serializer):
 
 
 class CampaignAccessTokenCreateResponseSerializer(CampaignAccessTokenSerializer):
-    token = serializers.CharField()
-    public_path = serializers.CharField()
+    token = serializers.CharField(source="token_value")
 
     class Meta(CampaignAccessTokenSerializer.Meta):
-        fields = CampaignAccessTokenSerializer.Meta.fields + ["token", "public_path"]
+        fields = CampaignAccessTokenSerializer.Meta.fields + ["token"]
         read_only_fields = fields
 
 
@@ -103,6 +108,8 @@ class PublicMediaUnitSerializer(serializers.Serializer):
     unit_code = serializers.CharField()
     status = serializers.CharField()
     is_illuminated = serializers.BooleanField()
+    facing_direction = serializers.CharField(allow_blank=True)
+    site_type = serializers.CharField(allow_blank=True)
     primary_image = serializers.SerializerMethodField()
 
     def get_primary_image(self, obj):

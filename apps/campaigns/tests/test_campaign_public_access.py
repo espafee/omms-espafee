@@ -110,6 +110,7 @@ class CampaignPublicAccessAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["link_status"], "active")
         self.assertEqual(response.data["campaign"]["code"], self.campaign.code)
+        self.assertEqual(response.data["campaign"]["bookings"][0]["media_unit"]["facing_direction"], "")
         self.assertEqual(len(response.data["campaign"]["assets"]), 1)
         self.assertEqual(response.data["campaign"]["assets"][0]["name"], self.approved_asset.name)
         self.assertNotIn("budget", response.data["campaign"])
@@ -183,3 +184,29 @@ class CampaignPublicAccessAPITests(APITestCase):
         self.assertEqual(revoke_response.status_code, status.HTTP_200_OK)
         self.assertFalse(revoke_response.data["is_active"])
         self.assertIsNotNone(revoke_response.data["revoked_at"])
+
+    def test_admin_can_list_existing_access_token_with_public_path(self):
+        access_token, raw_token = CampaignAccessToken.create_with_token(campaign=self.campaign, created_by=self.admin)
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.get(reverse("campaign-access-links-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["results"][0]["id"], access_token.id)
+        self.assertEqual(response.data["results"][0]["public_path"], f"/campaigns/public/{raw_token}")
+
+    def test_create_reuses_existing_active_token_for_campaign(self):
+        access_token, raw_token = CampaignAccessToken.create_with_token(campaign=self.campaign, created_by=self.admin)
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            reverse("campaign-access-links-list"),
+            {"campaign": self.campaign.id},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["id"], access_token.id)
+        self.assertEqual(response.data["token"], raw_token)
+        self.assertEqual(response.data["public_path"], f"/campaigns/public/{raw_token}")
+        self.assertEqual(CampaignAccessToken.objects.filter(campaign=self.campaign, is_active=True).count(), 1)

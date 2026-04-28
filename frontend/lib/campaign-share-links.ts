@@ -5,6 +5,7 @@ const CACHE_KEY = "omms_campaign_share_links";
 export type CampaignAccessLink = {
   id: number;
   campaign: number;
+  public_path?: string | null;
   token_prefix: string;
   is_active: boolean;
   expires_at: string | null;
@@ -15,7 +16,6 @@ export type CampaignAccessLink = {
   created_at: string;
   updated_at: string;
   token?: string;
-  public_path?: string;
 };
 
 export type CampaignAccessLinkStatus = "active" | "expired" | "revoked" | "ended";
@@ -79,6 +79,18 @@ export function getCachedCampaignShareLink(linkId: number, campaignId?: number) 
   const suffix = `:${linkId}`;
   const matchedKey = Object.keys(cache).find((key) => key.endsWith(suffix));
   return matchedKey ? cache[matchedKey] : null;
+}
+
+export function getCampaignAccessLinkUrl(link: CampaignAccessLink | null) {
+  if (!link) {
+    return null;
+  }
+
+  if (link.public_path && typeof window !== "undefined") {
+    return `${window.location.origin}${link.public_path}`;
+  }
+
+  return getCachedCampaignShareLink(link.id, link.campaign);
 }
 
 export function getCampaignShareLinkError(error: unknown) {

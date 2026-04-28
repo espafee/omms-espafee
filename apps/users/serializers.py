@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from .services import UserService
@@ -42,6 +43,12 @@ class ClientOptionSerializer(serializers.ModelSerializer):
 
 
 class ClientCreateSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message="A user with this email already exists.")]
+    )
+    username = serializers.CharField(
+        validators=[UniqueValidator(queryset=User.objects.all(), message="A user with this username already exists.")]
+    )
     password = serializers.CharField(write_only=True, min_length=8)
 
     class Meta:

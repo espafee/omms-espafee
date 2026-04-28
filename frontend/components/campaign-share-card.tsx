@@ -47,7 +47,7 @@ export function CampaignShareCard({
   onRevoke,
 }: CampaignShareCardProps) {
   const statusLabel = status ? getShareLinkStatusLabel(status) : "no link";
-  const canGenerate = !accessLink || status !== "active";
+  const canGenerate = !accessLink || status !== "active" || !accessLinkUrl;
   const canCopy = Boolean(accessLink && accessLinkUrl && status === "active");
   const canRevoke = Boolean(accessLink && status === "active");
   const isActing = Boolean(activeAction);
@@ -94,14 +94,14 @@ export function CampaignShareCard({
           value={accessLinkUrl ?? ""}
           placeholder={
             accessLink
-              ? "Full link is available on this device only if it was generated here."
+              ? "The saved public campaign link will appear here when it is available."
               : "Generate a secure link to share this campaign with the client."
           }
           readOnly
         />
         {accessLink && !accessLinkUrl ? (
           <p className="field-help">
-            This token exists, but the full URL was not generated in this browser. Revoke it and generate a fresh link here if you need to copy it again.
+            This active token cannot be copied from the current record. Generate a fresh link here to replace it with a reusable saved link.
           </p>
         ) : null}
       </div>

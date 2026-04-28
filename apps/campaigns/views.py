@@ -11,6 +11,7 @@ from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
     CampaignAccessTokenCreateSerializer,
+    CampaignAccessTokenCreateResponseSerializer,
     CampaignAccessTokenSerializer,
     CampaignAssetSerializer,
     CampaignSerializer,
@@ -61,15 +62,13 @@ class CampaignAccessTokenViewSet(ServiceModelViewSet):
         serializer = CampaignAccessTokenCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        access_token, raw_token = self.get_service().create_token(
+        access_token, _raw_token, created = self.get_service().create_token(
             campaign=serializer.validated_data["campaign"],
             actor=request.user,
             expires_at=serializer.validated_data.get("expires_at"),
         )
-        response_payload = CampaignAccessTokenSerializer(instance=access_token).data
-        response_payload["token"] = raw_token
-        response_payload["public_path"] = f"/campaigns/public/{raw_token}"
-        return Response(response_payload, status=status.HTTP_201_CREATED)
+        response_payload = CampaignAccessTokenCreateResponseSerializer(instance=access_token).data
+        return Response(response_payload, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="revoke")
     def revoke(self, request, pk=None):

@@ -1157,11 +1157,22 @@ textarea::placeholder {
 }
 
 .public-hero-card {
-  padding-top: 24px;
+  padding-top: 28px;
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.09), transparent 28%),
+    rgba(255, 255, 255, 0.92);
 }
 
 .public-title {
   margin-top: 14px;
+}
+
+.public-summary-banner {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(68, 64, 60, 0.08);
+  background: rgba(255, 255, 255, 0.82);
 }
 
 .public-meta-grid,
@@ -1188,14 +1199,19 @@ textarea::placeholder {
 .public-booking-card {
   display: grid;
   gap: 18px;
-  padding: 18px;
+  padding: 22px;
   border-radius: 22px;
   border: 1px solid rgba(68, 64, 60, 0.08);
-  background: var(--surface-soft);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 243, 232, 0.94));
 }
 
 .public-evidence-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.public-poe-section {
+  display: grid;
+  gap: 14px;
 }
 
 .field-topbar,

@@ -32,12 +32,14 @@ function isBrowser() {
 export class ApiError extends Error {
   status: number;
   fieldErrors: ApiFieldErrors;
+  code: string;
 
-  constructor(message: string, status = 0, fieldErrors: ApiFieldErrors = {}) {
+  constructor(message: string, status = 0, fieldErrors: ApiFieldErrors = {}, code = "request_failed") {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.fieldErrors = fieldErrors;
+    this.code = code;
   }
 }
 
@@ -61,6 +63,40 @@ function normalizeFieldErrors(payload: unknown): ApiFieldErrors {
   return errors;
 }
 
+function isGenericDetail(detail: string) {
+  return ["not found.", "request failed.", "permission denied.", "method not allowed."].includes(
+    detail.trim().toLowerCase(),
+  );
+}
+
+function getDefaultApiErrorMessage(status: number, fieldErrors: ApiFieldErrors) {
+  if (status === 400 && Object.keys(fieldErrors).length > 0) {
+    return "Please review the highlighted fields and try again.";
+  }
+  if (status === 400) {
+    return "We could not accept that request. Please review the details and try again.";
+  }
+  if (status === 401) {
+    return "Your session has expired. Please sign in again.";
+  }
+  if (status === 403) {
+    return "You do not have permission to perform this action.";
+  }
+  if (status === 404) {
+    return "The requested record could not be found.";
+  }
+  if (status === 405) {
+    return "This action is not available right now.";
+  }
+  if (status === 409) {
+    return "This request conflicts with existing data. Please refresh and try again.";
+  }
+  if (status >= 500) {
+    return "The server ran into a problem. Please try again in a moment.";
+  }
+  return "We couldn't complete your request. Please try again.";
+}
+
 export async function parseApiError(response: Response): Promise<ApiError> {
   let payload: unknown = null;
   try {
@@ -74,8 +110,11 @@ export async function parseApiError(response: Response): Promise<ApiError> {
     payload && typeof payload === "object" && "detail" in payload
       ? String((payload as { detail: unknown }).detail)
       : "";
-  const message = detail || fieldErrors.non_field_errors?.[0] || "Request failed.";
-  return new ApiError(message, response.status, fieldErrors);
+  const code =
+    payload && typeof payload === "object" && "code" in payload ? String((payload as { code: unknown }).code) : "";
+  const specificDetail = detail && !isGenericDetail(detail) ? detail : "";
+  const message = specificDetail || fieldErrors.non_field_errors?.[0] || getDefaultApiErrorMessage(response.status, fieldErrors);
+  return new ApiError(message, response.status, fieldErrors, code || "request_failed");
 }
 
 export function getAccessToken() {
@@ -137,15 +176,20 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers.set("Authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(normalizeUrl(API_ROOT, path), {
-    ...init,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(normalizeUrl(API_ROOT, path), {
+      ...init,
+      headers,
+    });
+  } catch {
+    throw new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error");
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
       clearAuthSession();
-      throw new ApiError("Your session has expired. Please sign in again.", response.status);
+      throw new ApiError("Your session has expired. Please sign in again.", response.status, {}, "session_expired");
     }
     throw await parseApiError(response);
   }

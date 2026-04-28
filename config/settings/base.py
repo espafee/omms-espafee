@@ -106,6 +106,27 @@ STATIC_URL = get_env("DJANGO_STATIC_URL", "/static/")
 STATIC_ROOT = BASE_DIR / get_env("DJANGO_STATIC_ROOT", "staticfiles")
 MEDIA_URL = get_env("DJANGO_MEDIA_URL", "/media/")
 MEDIA_ROOT = BASE_DIR / get_env("DJANGO_MEDIA_ROOT", "media")
+DEFAULT_FILE_STORAGE_BACKEND = get_env("DJANGO_DEFAULT_FILE_STORAGE", "django.core.files.storage.FileSystemStorage")
+STATICFILES_STORAGE_BACKEND = get_env(
+    "DJANGO_STATICFILES_STORAGE",
+    "django.contrib.staticfiles.storage.StaticFilesStorage",
+)
+
+STORAGES = {
+    "default": {
+        "BACKEND": DEFAULT_FILE_STORAGE_BACKEND,
+    },
+    "staticfiles": {
+        "BACKEND": STATICFILES_STORAGE_BACKEND,
+    },
+}
+
+AWS_STORAGE_BUCKET_NAME = get_env("AWS_STORAGE_BUCKET_NAME", "")
+AWS_S3_REGION_NAME = get_env("AWS_S3_REGION_NAME", "")
+AWS_S3_ENDPOINT_URL = get_env("AWS_S3_ENDPOINT_URL", "")
+AWS_S3_CUSTOM_DOMAIN = get_env("AWS_S3_CUSTOM_DOMAIN", "")
+AWS_DEFAULT_ACL = get_env("AWS_DEFAULT_ACL", "")
+AWS_QUERYSTRING_AUTH = get_bool("AWS_QUERYSTRING_AUTH", True)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "users.User"

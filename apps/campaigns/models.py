@@ -54,6 +54,7 @@ class CampaignAsset(TimeStampedModel):
 
 class CampaignAccessToken(TimeStampedModel):
     campaign = models.ForeignKey(Campaign, related_name="access_tokens", on_delete=models.CASCADE)
+    token_value = models.CharField(max_length=255, unique=True, editable=False, null=True, blank=True)
     token_hash = models.CharField(max_length=64, unique=True, db_index=True, editable=False)
     token_prefix = models.CharField(max_length=16, editable=False)
     created_by = models.ForeignKey(
@@ -91,12 +92,19 @@ class CampaignAccessToken(TimeStampedModel):
         raw_token = cls.issue_token()
         instance = cls.objects.create(
             campaign=campaign,
+            token_value=raw_token,
             token_hash=cls.build_hash(raw_token),
             token_prefix=raw_token[:12],
             created_by=created_by,
             expires_at=expires_at,
         )
         return instance, raw_token
+
+    @property
+    def public_path(self) -> str | None:
+        if not self.token_value:
+            return None
+        return f"/campaigns/public/{self.token_value}"
 
     def matches(self, raw_token: str) -> bool:
         return self.token_hash == self.build_hash(raw_token)

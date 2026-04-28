@@ -51,6 +51,8 @@ export type PublicBooking = {
     unit_code: string;
     status: string;
     is_illuminated: boolean;
+    facing_direction: string;
+    site_type: string;
     primary_image: PublicImage | null;
   };
   poe_records: PublicPoeRecord[];
@@ -84,8 +86,31 @@ export class PublicCampaignAccessError extends Error {
   }
 }
 
+function getFallbackPublicAccessMessage(status: number) {
+  if (status === 404) {
+    return "This campaign link does not exist or is no longer available.";
+  }
+  if (status === 410) {
+    return "This campaign link is no longer active.";
+  }
+  if (status >= 500) {
+    return "The campaign link is temporarily unavailable. Please try again in a moment.";
+  }
+  return "This campaign link is not available right now.";
+}
+
 export async function fetchPublicCampaignAccess(token: string): Promise<PublicCampaignAccessPayload> {
-  const response = await fetch(`${API_ROOT.replace(/\/$/, "")}/campaigns/public/${token}/`);
+  let response: Response;
+  try {
+    response = await fetch(`${API_ROOT.replace(/\/$/, "")}/campaigns/public/${token}/`, { cache: "no-store" });
+  } catch {
+    throw new PublicCampaignAccessError(
+      "We couldn't reach the server for this campaign link. Please try again.",
+      0,
+      "network_error",
+    );
+  }
+
   if (!response.ok) {
     let payload: { detail?: string; code?: string } = {};
     try {
@@ -94,7 +119,7 @@ export async function fetchPublicCampaignAccess(token: string): Promise<PublicCa
       payload = {};
     }
     throw new PublicCampaignAccessError(
-      payload.detail ?? "This campaign link is not available.",
+      payload.detail || getFallbackPublicAccessMessage(response.status),
       response.status,
       payload.code ?? "access_unavailable",
     );
