@@ -21,3 +21,5 @@ X_FRAME_OPTIONS = "DENY"
 SECURE_HSTS_SECONDS = get_int("DJANGO_HSTS_SECONDS", 0)
 SECURE_HSTS_INCLUDE_SUBDOMAINS = get_bool("DJANGO_HSTS_INCLUDE_SUBDOMAINS", True)
 SECURE_HSTS_PRELOAD = get_bool("DJANGO_HSTS_PRELOAD", False)
+
+STORAGES["staticfiles"]["BACKEND"] = "whitenoise.storage.CompressedManifestStaticFilesStorage"  # noqa: F405
