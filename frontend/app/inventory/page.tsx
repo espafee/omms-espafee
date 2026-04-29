@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -78,6 +78,9 @@ const INITIAL_UNIT_FILTERS: UnitFilters = {
 
 export default function InventoryPage() {
   const router = useRouter();
+  const unitFormSectionRef = useRef<HTMLElement | null>(null);
+  const unitCodeInputRef = useRef<HTMLInputElement | null>(null);
+  const unitFormHighlightTimeoutRef = useRef<number | null>(null);
   const [user, setUser] = useState<StoredUser | null>(null);
   const [inventory, setInventory] = useState<InventoryPayload | null>(null);
   const [error, setError] = useState("");
@@ -90,10 +93,13 @@ export default function InventoryPage() {
   const [unitFieldErrors, setUnitFieldErrors] = useState<Record<string, string[]>>({});
   const [unitMutationError, setUnitMutationError] = useState("");
   const [unitMutationSuccess, setUnitMutationSuccess] = useState("");
+  const [unitEditHint, setUnitEditHint] = useState("");
+  const [unitLibraryNotice, setUnitLibraryNotice] = useState("");
   const [pendingUnitImages, setPendingUnitImages] = useState<PendingUnitImage[]>([]);
   const [primaryPendingUnitImageId, setPrimaryPendingUnitImageId] = useState<string | null>(null);
   const [unitImageUploadProgress, setUnitImageUploadProgress] = useState(0);
   const [unitFilters, setUnitFilters] = useState<UnitFilters>(INITIAL_UNIT_FILTERS);
+  const [isUnitFormHighlighted, setIsUnitFormHighlighted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSiteSubmitting, setIsSiteSubmitting] = useState(false);
   const [isUnitSubmitting, setIsUnitSubmitting] = useState(false);
@@ -110,6 +116,49 @@ export default function InventoryPage() {
       }
     };
   }, [pendingUnitImages]);
+
+  useEffect(() => {
+    return () => {
+      if (unitFormHighlightTimeoutRef.current) {
+        window.clearTimeout(unitFormHighlightTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!editingUnitId) {
+      return;
+    }
+
+    const scrollToEditor = () => {
+      const editor = document.getElementById("media-unit-editor");
+      if (editor) {
+        editor.scrollIntoView({ behavior: "smooth", block: "start" });
+        unitCodeInputRef.current?.focus({ preventScroll: true });
+        triggerUnitFormHighlight();
+        return;
+      }
+
+      window.location.hash = "media-unit-editor";
+    };
+
+    const frameId = window.requestAnimationFrame(() => {
+      window.setTimeout(scrollToEditor, 0);
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [editingUnitId]);
+
+  function triggerUnitFormHighlight() {
+    setIsUnitFormHighlighted(true);
+    if (unitFormHighlightTimeoutRef.current) {
+      window.clearTimeout(unitFormHighlightTimeoutRef.current);
+    }
+    unitFormHighlightTimeoutRef.current = window.setTimeout(() => {
+      setIsUnitFormHighlighted(false);
+      unitFormHighlightTimeoutRef.current = null;
+    }, 3000);
+  }
 
   async function loadInventory(profileHint?: StoredUser | null) {
     setIsLoading(true);
@@ -303,7 +352,14 @@ export default function InventoryPage() {
     setUnitFieldErrors({});
     setUnitMutationError("");
     setUnitMutationSuccess("");
+    setUnitEditHint("");
+    setUnitLibraryNotice("");
+    setIsUnitFormHighlighted(false);
     setUnitImageUploadProgress(0);
+    if (unitFormHighlightTimeoutRef.current) {
+      window.clearTimeout(unitFormHighlightTimeoutRef.current);
+      unitFormHighlightTimeoutRef.current = null;
+    }
     for (const image of pendingUnitImages) {
       URL.revokeObjectURL(image.previewUrl);
     }
@@ -397,6 +453,8 @@ export default function InventoryPage() {
     setUnitFieldErrors({});
     setUnitMutationError("");
     setUnitMutationSuccess("");
+    setUnitEditHint("Unit details loaded. Update the fields and click Save Changes.");
+    setUnitLibraryNotice("Unit loaded for editing. Taking you to the edit form...");
     setPendingUnitImages([]);
     setPrimaryPendingUnitImageId(null);
     setUnitImageUploadProgress(0);
@@ -716,14 +774,19 @@ export default function InventoryPage() {
       </section>
 
       {canManageUnits ? (
-        <section className="module-card creation-panel">
+        <section
+          id="media-unit-editor"
+          className={`module-card creation-panel${isUnitFormHighlighted ? " creation-panel-active" : ""}`}
+          ref={unitFormSectionRef}
+        >
           <div className="module-head">
-            <h2>{editingUnitId ? "Edit media unit" : "Create media unit"}</h2>
+            <h2>{editingUnitId ? `Editing Media Unit${unitForm.unit_code ? `: ${unitForm.unit_code}` : ""}` : "Create media unit"}</h2>
             <span>{editingUnitId ? "Update unit" : "Admin + operations"}</span>
           </div>
           <p className="section-copy creation-copy">
             Use one site for the physical structure, and create a separate media unit for each sellable face or direction.
           </p>
+          {unitEditHint ? <p className="info">{unitEditHint}</p> : null}
           {unitMutationError ? <p className="error">{unitMutationError}</p> : null}
           {unitMutationSuccess ? <p className="success">{unitMutationSuccess}</p> : null}
           <form className="site-form-grid" onSubmit={handleSubmitUnit}>
@@ -750,6 +813,7 @@ export default function InventoryPage() {
               <label htmlFor="unit-code">Media unit code</label>
               <input
                 id="unit-code"
+                ref={unitCodeInputRef}
                 value={unitForm.unit_code}
                 onChange={(event) => updateUnitForm("unit_code", event.target.value.toUpperCase())}
                 placeholder="SIDCO-A"
@@ -913,11 +977,11 @@ export default function InventoryPage() {
             <div className="form-actions field-full">
               {editingUnitId ? (
                 <button className="ghost" type="button" onClick={() => resetUnitForm(unitForm.site)}>
-                  Cancel edit
+                  Cancel Edit
                 </button>
               ) : null}
               <button className="submit" type="submit" disabled={isUnitSubmitting || isLoading || sortedSites.length === 0}>
-                {isUnitSubmitting ? (editingUnitId ? "Updating unit..." : "Creating unit...") : editingUnitId ? "Update media unit" : "Create media unit"}
+                {isUnitSubmitting ? (editingUnitId ? "Saving changes..." : "Creating unit...") : editingUnitId ? "Save Changes" : "Create Media Unit"}
               </button>
             </div>
           </form>
@@ -973,6 +1037,7 @@ export default function InventoryPage() {
           <h2>Media unit image library</h2>
           <span>{filteredUnits.length} of {inventory?.units?.length ?? 0} units</span>
         </div>
+        {unitLibraryNotice ? <p className="info inventory-section-notice">{unitLibraryNotice}</p> : null}
         {unitMutationError && !canManageUnits ? <p className="error">{unitMutationError}</p> : null}
         {unitMutationSuccess && !canManageUnits ? <p className="success">{unitMutationSuccess}</p> : null}
         <section className="module-card inventory-filter-panel">
