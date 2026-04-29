@@ -1,3 +1,4 @@
+import { normalizeMediaUrl } from "@/lib/media";
 const API_ROOT = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
 
 export type PublicImage = {
@@ -124,5 +125,44 @@ export async function fetchPublicCampaignAccess(token: string): Promise<PublicCa
       payload.code ?? "access_unavailable",
     );
   }
-  return response.json() as Promise<PublicCampaignAccessPayload>;
+  const payload = (await response.json()) as PublicCampaignAccessPayload;
+  return normalizePublicCampaignAccess(payload);
+}
+
+function normalizePublicCampaignAccess(payload: PublicCampaignAccessPayload): PublicCampaignAccessPayload {
+  return {
+    ...payload,
+    campaign: {
+      ...payload.campaign,
+      bookings: payload.campaign.bookings.map((booking) => ({
+        ...booking,
+        site: {
+          ...booking.site,
+          primary_image: booking.site.primary_image
+            ? {
+                ...booking.site.primary_image,
+                image_url: normalizeMediaUrl(booking.site.primary_image.image_url),
+              }
+            : null,
+        },
+        media_unit: {
+          ...booking.media_unit,
+          primary_image: booking.media_unit.primary_image
+            ? {
+                ...booking.media_unit.primary_image,
+                image_url: normalizeMediaUrl(booking.media_unit.primary_image.image_url),
+              }
+            : null,
+        },
+        poe_records: booking.poe_records.map((record) => ({
+          ...record,
+          media_items: record.media_items.map((item) => ({
+            ...item,
+            image_url: normalizeMediaUrl(item.image_url),
+            media_url: normalizeMediaUrl(item.media_url) ?? item.media_url,
+          })),
+        })),
+      })),
+    },
+  };
 }

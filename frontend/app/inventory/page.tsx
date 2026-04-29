@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -62,6 +62,13 @@ type UnitFilters = {
   site_type: string;
 };
 
+type PendingUnitImage = {
+  id: string;
+  file: File;
+  previewUrl: string;
+  caption: string;
+};
+
 const INITIAL_UNIT_FILTERS: UnitFilters = {
   city: "",
   status: "",
@@ -83,6 +90,9 @@ export default function InventoryPage() {
   const [unitFieldErrors, setUnitFieldErrors] = useState<Record<string, string[]>>({});
   const [unitMutationError, setUnitMutationError] = useState("");
   const [unitMutationSuccess, setUnitMutationSuccess] = useState("");
+  const [pendingUnitImages, setPendingUnitImages] = useState<PendingUnitImage[]>([]);
+  const [primaryPendingUnitImageId, setPrimaryPendingUnitImageId] = useState<string | null>(null);
+  const [unitImageUploadProgress, setUnitImageUploadProgress] = useState(0);
   const [unitFilters, setUnitFilters] = useState<UnitFilters>(INITIAL_UNIT_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
   const [isSiteSubmitting, setIsSiteSubmitting] = useState(false);
@@ -92,6 +102,14 @@ export default function InventoryPage() {
   const canManageImages = WRITE_ROLES.has(user?.role ?? "");
   const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
   const canManageUnits = WRITE_ROLES.has(user?.role ?? "");
+
+  useEffect(() => {
+    return () => {
+      for (const image of pendingUnitImages) {
+        URL.revokeObjectURL(image.previewUrl);
+      }
+    };
+  }, [pendingUnitImages]);
 
   async function loadInventory(profileHint?: StoredUser | null) {
     setIsLoading(true);
@@ -198,13 +216,17 @@ export default function InventoryPage() {
     [inventory?.units],
   );
 
-  async function handleSiteImageUpload(siteId: number, payload: { file: File; caption: string; isPrimary: boolean }) {
+  async function handleSiteImageUpload(
+    siteId: number,
+    payload: { file: File; caption: string; isPrimary: boolean; onProgress?: (progress: number) => void },
+  ) {
     try {
       await uploadSiteImage({
         site: siteId,
         image: payload.file,
         caption: payload.caption,
         is_primary: payload.isPrimary,
+        onProgress: payload.onProgress,
       });
       await loadInventory(user);
     } catch (error) {
@@ -232,7 +254,7 @@ export default function InventoryPage() {
 
   async function handleUnitImageUpload(
     unitId: number,
-    payload: { file: File; caption: string; isPrimary: boolean },
+    payload: { file: File; caption: string; isPrimary: boolean; onProgress?: (progress: number) => void },
   ) {
     try {
       await uploadMediaUnitImage({
@@ -240,6 +262,7 @@ export default function InventoryPage() {
         image: payload.file,
         caption: payload.caption,
         is_primary: payload.isPrimary,
+        onProgress: payload.onProgress,
       });
       await loadInventory(user);
     } catch (error) {
@@ -280,6 +303,12 @@ export default function InventoryPage() {
     setUnitFieldErrors({});
     setUnitMutationError("");
     setUnitMutationSuccess("");
+    setUnitImageUploadProgress(0);
+    for (const image of pendingUnitImages) {
+      URL.revokeObjectURL(image.previewUrl);
+    }
+    setPendingUnitImages([]);
+    setPrimaryPendingUnitImageId(null);
     setUnitForm({
       ...INITIAL_UNIT_FORM,
       site: nextSiteId ?? inventory?.sites?.[0]?.id ?? 0,
@@ -361,22 +390,28 @@ export default function InventoryPage() {
       return;
     }
 
+    for (const image of pendingUnitImages) {
+      URL.revokeObjectURL(image.previewUrl);
+    }
     setEditingUnitId(unit.id);
     setUnitFieldErrors({});
     setUnitMutationError("");
     setUnitMutationSuccess("");
-      setUnitForm({
-        site: unit.site,
-        unit_code: unit.unit_code,
-        face_count: unit.face_count,
+    setPendingUnitImages([]);
+    setPrimaryPendingUnitImageId(null);
+    setUnitImageUploadProgress(0);
+    setUnitForm({
+      site: unit.site,
+      unit_code: unit.unit_code,
+      face_count: unit.face_count,
       width: unit.width,
       height: unit.height,
       status: unit.status,
-        is_illuminated: unit.is_illuminated,
-        monthly_rate: unit.monthly_rate,
-        facing_direction: unit.facing_direction ?? "",
-        site_type: unit.site_type ?? "",
-      });
+      is_illuminated: unit.is_illuminated,
+      monthly_rate: unit.monthly_rate,
+      facing_direction: unit.facing_direction ?? "",
+      site_type: unit.site_type ?? "",
+    });
   }
 
   async function handleSubmitUnit(event: FormEvent<HTMLFormElement>) {
@@ -391,26 +426,35 @@ export default function InventoryPage() {
     setIsUnitSubmitting(true);
 
     try {
+      let savedUnit;
       if (editingUnitId) {
-        await updateMediaUnit(editingUnitId, {
+        savedUnit = await updateMediaUnit(editingUnitId, {
           ...unitForm,
           facing_direction: unitForm.facing_direction || "",
           site_type: unitForm.site_type || "single_side",
           monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
         });
-        setUnitMutationSuccess("Media unit updated successfully.");
       } else {
-        await createMediaUnit({
+        savedUnit = await createMediaUnit({
           ...unitForm,
           facing_direction: unitForm.facing_direction || "",
           site_type: unitForm.site_type || "single_side",
           monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
         });
-        setUnitMutationSuccess("Media unit created successfully.");
       }
 
+      const uploadedCount = await uploadPendingImagesForUnit(savedUnit.id);
+      setUnitMutationSuccess(
+        editingUnitId
+          ? uploadedCount > 0
+            ? `Media unit updated and ${uploadedCount} image(s) uploaded successfully.`
+            : "Media unit updated successfully."
+          : uploadedCount > 0
+            ? `Media unit created and ${uploadedCount} image(s) uploaded successfully.`
+            : "Media unit created successfully.",
+      );
       await loadInventory(user);
-      resetUnitForm(unitForm.site || inventory?.sites?.[0]?.id);
+      resetUnitForm(savedUnit.site || unitForm.site || inventory?.sites?.[0]?.id);
     } catch (unitError) {
       const normalized = getInventoryUnitMutationError(unitError);
       setUnitMutationError(normalized.message);
@@ -425,6 +469,54 @@ export default function InventoryPage() {
       ...current,
       [field]: value,
     }));
+  }
+
+  function handlePendingUnitImagesChange(event: ChangeEvent<HTMLInputElement>) {
+    for (const image of pendingUnitImages) {
+      URL.revokeObjectURL(image.previewUrl);
+    }
+
+    const nextImages = Array.from(event.target.files ?? []).map((file, index) => ({
+      id: `${file.name}-${file.size}-${index}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      caption: file.name.replace(/\.[^.]+$/, ""),
+    }));
+
+    setPendingUnitImages(nextImages);
+    setPrimaryPendingUnitImageId(nextImages[0]?.id ?? null);
+    setUnitImageUploadProgress(0);
+  }
+
+  function updatePendingUnitImageCaption(imageId: string, caption: string) {
+    setPendingUnitImages((current) =>
+      current.map((image) => (image.id === imageId ? { ...image, caption } : image)),
+    );
+  }
+
+  async function uploadPendingImagesForUnit(unitId: number) {
+    if (pendingUnitImages.length === 0) {
+      return 0;
+    }
+
+    const primaryId = primaryPendingUnitImageId ?? pendingUnitImages[0]?.id ?? null;
+
+    for (let index = 0; index < pendingUnitImages.length; index += 1) {
+      const image = pendingUnitImages[index];
+      await uploadMediaUnitImage({
+        media_unit: unitId,
+        image: image.file,
+        caption: image.caption.trim(),
+        is_primary: image.id === primaryId,
+        onProgress: (progress) => {
+          const aggregate = Math.round(((index + progress / 100) / pendingUnitImages.length) * 100);
+          setUnitImageUploadProgress(aggregate);
+        },
+      });
+    }
+
+    setUnitImageUploadProgress(100);
+    return pendingUnitImages.length;
   }
 
   return (
@@ -771,6 +863,53 @@ export default function InventoryPage() {
               />
               <span>Illuminated face</span>
             </label>
+            <div className="field field-full">
+              <label htmlFor="unit-images">Media unit images</label>
+              <input
+                id="unit-images"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={handlePendingUnitImagesChange}
+              />
+              <p className="field-help">
+                {editingUnitId
+                  ? "Add new images while editing. They will upload automatically after the unit update is saved."
+                  : "Choose one or more images. The unit will be created first, then the selected images will upload automatically."}
+              </p>
+              {isUnitSubmitting && pendingUnitImages.length > 0 ? (
+                <p className="field-help">Uploading selected images... {unitImageUploadProgress}%</p>
+              ) : null}
+            </div>
+            {pendingUnitImages.length > 0 ? (
+              <div className="field field-full unit-upload-preview-grid">
+                {pendingUnitImages.map((image) => (
+                  <article className="upload-preview-card upload-preview-card-stacked" key={image.id}>
+                    <img className="upload-preview-image" src={image.previewUrl} alt={image.file.name} />
+                    <div className="upload-preview-copy">
+                      <p className="site-copy">{image.file.name}</p>
+                      <label className="field">
+                        <span>Caption</span>
+                        <input
+                          value={image.caption}
+                          onChange={(event) => updatePendingUnitImageCaption(image.id, event.target.value)}
+                          placeholder="Optional caption"
+                        />
+                      </label>
+                      <label className="checkbox-field">
+                        <input
+                          type="radio"
+                          name="primary-unit-upload-image"
+                          checked={primaryPendingUnitImageId === image.id}
+                          onChange={() => setPrimaryPendingUnitImageId(image.id)}
+                        />
+                        <span>Set as primary image</span>
+                      </label>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : null}
             <div className="form-actions field-full">
               {editingUnitId ? (
                 <button className="ghost" type="button" onClick={() => resetUnitForm(unitForm.site)}>

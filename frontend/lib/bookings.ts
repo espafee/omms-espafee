@@ -1,7 +1,7 @@
 import { ApiError, apiFetch } from "@/lib/auth";
 import type { BookingSummary } from "@/lib/dashboard";
 import type { Campaign } from "@/lib/campaigns";
-import type { InventorySite, InventoryUnit } from "@/lib/inventory";
+import { fetchInventoryData, type InventorySite, type InventoryUnit } from "@/lib/inventory";
 
 type Paginated<T> = {
   results: T[];
@@ -54,14 +54,13 @@ export function getBookingCreateError(error: unknown) {
 }
 
 export async function fetchBookingsData(): Promise<BookingPayload> {
-  const [bookings, campaigns, sites, units, summary] = await Promise.all([
+  const [bookings, campaigns, inventory, summary] = await Promise.all([
     list<Booking>("bookings/"),
     list<Campaign>("campaigns/"),
-    list<InventorySite>("inventory/sites/"),
-    list<InventoryUnit>("inventory/units/"),
+    fetchInventoryData(),
     apiFetch<BookingSummary>("bookings/summary/"),
   ]);
-  return { bookings, campaigns, sites, units, summary };
+  return { bookings, campaigns, sites: inventory.sites, units: inventory.units, summary };
 }
 
 export async function createBooking(payload: BookingCreateInput) {

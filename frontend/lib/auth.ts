@@ -1,4 +1,5 @@
 export type ApiFieldErrors = Record<string, string[]>;
+export type UploadProgressHandler = (progress: number) => void;
 
 export type AuthUser = {
   id?: number;
@@ -97,14 +98,7 @@ function getDefaultApiErrorMessage(status: number, fieldErrors: ApiFieldErrors) 
   return "We couldn't complete your request. Please try again.";
 }
 
-export async function parseApiError(response: Response): Promise<ApiError> {
-  let payload: unknown = null;
-  try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-
+function createApiError(status: number, payload: unknown) {
   const fieldErrors = normalizeFieldErrors(payload);
   const detail =
     payload && typeof payload === "object" && "detail" in payload
@@ -113,8 +107,19 @@ export async function parseApiError(response: Response): Promise<ApiError> {
   const code =
     payload && typeof payload === "object" && "code" in payload ? String((payload as { code: unknown }).code) : "";
   const specificDetail = detail && !isGenericDetail(detail) ? detail : "";
-  const message = specificDetail || fieldErrors.non_field_errors?.[0] || getDefaultApiErrorMessage(response.status, fieldErrors);
-  return new ApiError(message, response.status, fieldErrors, code || "request_failed");
+  const message = specificDetail || fieldErrors.non_field_errors?.[0] || getDefaultApiErrorMessage(status, fieldErrors);
+  return new ApiError(message, status, fieldErrors, code || "request_failed");
+}
+
+export async function parseApiError(response: Response): Promise<ApiError> {
+  let payload: unknown = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  return createApiError(response.status, payload);
 }
 
 export function getAccessToken() {
@@ -198,6 +203,72 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     return undefined as T;
   }
   return response.json() as Promise<T>;
+}
+
+export async function apiUpload<T>(
+  path: string,
+  formData: FormData,
+  options: {
+    method?: string;
+    onProgress?: UploadProgressHandler;
+  } = {},
+): Promise<T> {
+  const token = getAccessToken();
+
+  return new Promise<T>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(options.method ?? "POST", normalizeUrl(API_ROOT, path));
+
+    if (token) {
+      request.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    if (options.onProgress) {
+      request.upload.onprogress = (event) => {
+        if (!event.lengthComputable) {
+          options.onProgress?.(0);
+          return;
+        }
+
+        options.onProgress?.(Math.round((event.loaded / event.total) * 100));
+      };
+    }
+
+    request.onerror = () => {
+      reject(new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error"));
+    };
+
+    request.onload = () => {
+      let payload: unknown = null;
+      if (request.responseText) {
+        try {
+          payload = JSON.parse(request.responseText);
+        } catch {
+          payload = null;
+        }
+      }
+
+      if (request.status >= 200 && request.status < 300) {
+        options.onProgress?.(100);
+        if (request.status === 204) {
+          resolve(undefined as T);
+          return;
+        }
+        resolve(payload as T);
+        return;
+      }
+
+      if (request.status === 401) {
+        clearAuthSession();
+        reject(new ApiError("Your session has expired. Please sign in again.", request.status, {}, "session_expired"));
+        return;
+      }
+
+      reject(createApiError(request.status, payload));
+    };
+
+    request.send(formData);
+  });
 }
 
 export async function loginWithEmailPassword(email: string, password: string): Promise<AuthSessionPayload> {

@@ -3,6 +3,7 @@ from django.db import models, transaction
 from django.db.models import Q
 
 from core.models import TimeStampedModel
+from core.images import compress_field_image
 
 
 def site_image_upload_to(instance, filename):
@@ -116,6 +117,7 @@ class MediaSiteImage(TimeStampedModel):
         with transaction.atomic():
             if self.is_primary:
                 self.site.images.exclude(pk=self.pk).filter(is_primary=True).update(is_primary=False)
+            compress_field_image(self.image)
             super().save(*args, **kwargs)
 
     def __str__(self) -> str:
@@ -150,6 +152,7 @@ class MediaUnitImage(TimeStampedModel):
         with transaction.atomic():
             if self.is_primary:
                 self.media_unit.images.exclude(pk=self.pk).filter(is_primary=True).update(is_primary=False)
+            compress_field_image(self.image)
             super().save(*args, **kwargs)
 
     def __str__(self) -> str:

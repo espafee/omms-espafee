@@ -1,4 +1,5 @@
 import { ApiError, apiFetch } from "@/lib/auth";
+import { normalizeMediaUrl } from "@/lib/media";
 
 type Paginated<T> = {
   count: number;
@@ -127,12 +128,42 @@ async function list<T>(path: string) {
   return Array.isArray(payload) ? payload : payload.results;
 }
 
+function normalizeImage(image: InventoryImage | null | undefined): InventoryImage | null {
+  if (!image) {
+    return null;
+  }
+
+  return {
+    ...image,
+    image_url: normalizeMediaUrl(image.image_url),
+  };
+}
+
+function normalizeSite(site: InventorySite): InventorySite {
+  return {
+    ...site,
+    primary_image: normalizeImage(site.primary_image),
+    image_gallery: (site.image_gallery ?? []).map((image) => normalizeImage(image)).filter(Boolean) as InventoryImage[],
+  };
+}
+
+function normalizeUnit(unit: InventoryUnit): InventoryUnit {
+  return {
+    ...unit,
+    primary_image: normalizeImage(unit.primary_image),
+    image_gallery: (unit.image_gallery ?? []).map((image) => normalizeImage(image)).filter(Boolean) as InventoryImage[],
+  };
+}
+
 export async function fetchInventoryData(): Promise<InventoryPayload> {
   const [sites, units] = await Promise.all([
     list<InventorySite>("inventory/sites/"),
     list<InventoryUnit>("inventory/units/"),
   ]);
-  return { sites, units };
+  return {
+    sites: sites.map(normalizeSite),
+    units: units.map(normalizeUnit),
+  };
 }
 
 export async function createSite(payload: InventorySiteCreateInput) {

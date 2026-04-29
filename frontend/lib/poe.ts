@@ -1,7 +1,8 @@
 import { ApiError, apiFetch } from "@/lib/auth";
 import type { Booking } from "@/lib/bookings";
 import type { Campaign } from "@/lib/campaigns";
-import type { InventorySite, InventoryUnit } from "@/lib/inventory";
+import { fetchInventoryData, type InventorySite, type InventoryUnit } from "@/lib/inventory";
+import { normalizeMediaUrl } from "@/lib/media";
 
 type Paginated<T> = {
   results: T[];
@@ -87,14 +88,26 @@ export function getPoeCreateError(error: unknown) {
 }
 
 export async function fetchPoeData(): Promise<PoePayload> {
-  const [records, bookings, campaigns, sites, units] = await Promise.all([
+  const [records, bookings, campaigns, inventory] = await Promise.all([
     list<PoeRecord>("poe/"),
     list<Booking>("bookings/"),
     list<Campaign>("campaigns/"),
-    list<InventorySite>("inventory/sites/"),
-    list<InventoryUnit>("inventory/units/"),
+    fetchInventoryData(),
   ]);
-  return { records, bookings, campaigns, sites, units };
+  return {
+    records: records.map((record) => ({
+      ...record,
+      media_items: record.media_items.map((item) => ({
+        ...item,
+        image_url: normalizeMediaUrl(item.image_url),
+        media_url: normalizeMediaUrl(item.media_url) ?? item.media_url,
+      })),
+    })),
+    bookings,
+    campaigns,
+    sites: inventory.sites,
+    units: inventory.units,
+  };
 }
 
 export async function createPoeWorkflow(payload: PoeWorkflowInput): Promise<PoeWorkflowResult> {

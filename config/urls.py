@@ -4,6 +4,8 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+from core.images import is_local_media_storage_backend
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
@@ -17,5 +19,5 @@ urlpatterns = [
     path("api/v1/billing/", include("apps.billing.urls")),
 ]
 
-if settings.DEBUG:
+if settings.DEBUG or is_local_media_storage_backend(settings.STORAGES["default"]["BACKEND"]):
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

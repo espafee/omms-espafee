@@ -1,5 +1,7 @@
 "use client";
 
+import { SafeImage } from "@/components/safe-image";
+
 type ImageLightboxProps = {
   imageUrl: string | null;
   title: string;
@@ -26,7 +28,16 @@ export function ImageLightbox({ imageUrl, title, subtitle, onClose }: ImageLight
             Close
           </button>
         </div>
-        <img className="lightbox-image" src={imageUrl} alt={title} />
+        <SafeImage
+          src={imageUrl}
+          alt={title}
+          className="lightbox-image"
+          fallback={
+            <div className="image-reference-empty lightbox-image lightbox-image-fallback">
+              <span>Preview unavailable</span>
+            </div>
+          }
+        />
       </div>
     </div>
   );

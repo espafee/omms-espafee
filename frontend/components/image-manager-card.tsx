@@ -1,10 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { ImageLightbox } from "@/components/image-lightbox";
+import { SafeImage } from "@/components/safe-image";
 import type { InventoryImage } from "@/lib/inventory";
+import type { UploadProgressHandler } from "@/lib/auth";
 
 type ImageManagerCardProps = {
   formIdPrefix: string;
@@ -17,7 +19,7 @@ type ImageManagerCardProps = {
   canManage: boolean;
   uploadLabel: string;
   emptyCopy: string;
-  onUpload: (payload: { file: File; caption: string; isPrimary: boolean }) => Promise<void>;
+  onUpload: (payload: { file: File; caption: string; isPrimary: boolean; onProgress?: UploadProgressHandler }) => Promise<void>;
   onMarkPrimary: (imageId: number) => Promise<void>;
   onDelete: (imageId: number) => Promise<void>;
   headerAction?: ReactNode;
@@ -49,8 +51,21 @@ export function ImageManagerCard({
   const [formError, setFormError] = useState("");
   const [formSuccess, setFormSuccess] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [activeImageId, setActiveImageId] = useState<number | null>(null);
   const [lightboxImage, setLightboxImage] = useState<InventoryImage | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedFile) {
+      setPreviewUrl(null);
+      return;
+    }
+
+    const objectUrl = URL.createObjectURL(selectedFile);
+    setPreviewUrl(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [selectedFile]);
 
   function formatUploadDate(value: string) {
     const parsed = new Date(value);
@@ -75,10 +90,12 @@ export function ImageManagerCard({
         file: selectedFile,
         caption,
         isPrimary,
+        onProgress: setUploadProgress,
       });
       setSelectedFile(null);
       setCaption("");
       setIsPrimary(false);
+      setUploadProgress(0);
       setFormSuccess("Image uploaded successfully.");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Unable to upload the image.");
@@ -161,30 +178,32 @@ export function ImageManagerCard({
           disabled={!safePrimaryImage?.image_url}
           onClick={() => setLightboxImage(safePrimaryImage)}
         >
-          {safePrimaryImage?.image_url ? (
-            <img
-              className="image-manager-hero-image"
-              src={safePrimaryImage.image_url}
-              alt={safePrimaryImage.caption || title}
-            />
-          ) : (
-            <div className="image-manager-empty">
-              <span>{emptyCopy}</span>
-            </div>
-          )}
+          <SafeImage
+            src={safePrimaryImage?.image_url ?? null}
+            alt={safePrimaryImage?.caption || title}
+            className="image-manager-hero-image"
+            fallback={
+              <div className="image-manager-empty">
+                <span>{emptyCopy}</span>
+              </div>
+            }
+          />
         </button>
 
         <div className="image-thumb-grid">
           {safeImages.map((image) => (
             <article className="image-thumb-card" key={image.id}>
               <button className="image-thumb-button" type="button" onClick={() => setLightboxImage(image)}>
-                {image.image_url ? (
-                  <img className="image-thumb" src={image.image_url} alt={image.caption || title} />
-                ) : (
-                  <div className="image-reference-empty asset-image-placeholder">
-                    <span>Preview unavailable</span>
-                  </div>
-                )}
+                <SafeImage
+                  src={image.image_url}
+                  alt={image.caption || title}
+                  className="image-thumb"
+                  fallback={
+                    <div className="image-reference-empty asset-image-placeholder">
+                      <span>Preview unavailable</span>
+                    </div>
+                  }
+                />
               </button>
               <div className="image-thumb-copy">
                 <p className="site-copy">{image.caption || "Untitled image"}</p>
@@ -243,6 +262,15 @@ export function ImageManagerCard({
                   ? `${selectedFile.name} selected (${Math.max(1, Math.round(selectedFile.size / 1024))} KB).`
                   : "Upload a JPG, PNG, or WebP image. The browser will send it as multipart form data."}
               </p>
+              {previewUrl ? (
+                <div className="upload-preview-card">
+                  <img className="upload-preview-image" src={previewUrl} alt={selectedFile?.name ?? "Selected upload preview"} />
+                  <div className="upload-preview-copy">
+                    <p className="site-copy">{selectedFile?.name}</p>
+                    {isSubmitting ? <p className="site-code">Uploading... {uploadProgress}%</p> : <p className="site-code">Ready to upload</p>}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="field">
               <label htmlFor={`${formIdPrefix}-caption`}>Caption</label>

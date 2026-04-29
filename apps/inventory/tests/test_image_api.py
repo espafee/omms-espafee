@@ -28,6 +28,14 @@ def generate_test_image(name="test.png", color=(15, 118, 110)):
     return SimpleUploadedFile(name, file_obj.read(), content_type="image/png")
 
 
+def generate_large_test_image(name="large-test.jpg"):
+    file_obj = io.BytesIO()
+    image = Image.effect_noise((3200, 2400), 96).convert("RGB")
+    image.save(file_obj, format="JPEG", quality=96)
+    file_obj.seek(0)
+    return SimpleUploadedFile(name, file_obj.read(), content_type="image/jpeg")
+
+
 @override_settings(MEDIA_URL="/media/")
 class InventoryImageAPITests(APITestCase):
     def setUp(self):
@@ -114,6 +122,30 @@ class InventoryImageAPITests(APITestCase):
         self.assertTrue(response.data["is_primary"])
         self.assertEqual(response.data["uploaded_by"], self.operations.id)
         self.assertIn("/media/inventory/sites/", response.data["image_url"])
+        self.assertTrue(MediaSiteImage.objects.filter(pk=response.data["id"]).exists())
+        self.assertTrue(Path(MediaSiteImage.objects.get(pk=response.data["id"]).image.path).exists())
+
+    def test_operations_can_upload_media_unit_image(self):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-unit-images-list"),
+            {
+                "media_unit": self.unit.id,
+                "caption": "Unit frontage",
+                "is_primary": True,
+                "image": generate_test_image("unit-primary.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["media_unit"], self.unit.id)
+        self.assertTrue(response.data["is_primary"])
+        self.assertEqual(response.data["uploaded_by"], self.operations.id)
+        self.assertIn("/media/inventory/units/", response.data["image_url"])
+        self.assertTrue(MediaUnitImage.objects.filter(pk=response.data["id"]).exists())
+        self.assertTrue(Path(MediaUnitImage.objects.get(pk=response.data["id"]).image.path).exists())
 
     def test_site_detail_exposes_primary_image_and_gallery(self):
         first = MediaSiteImage.objects.create(
@@ -311,6 +343,26 @@ class InventoryImageAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["facing_direction"], "Toward SIDCO Chowk")
         self.assertEqual(response.data["site_type"], MediaUnit.SiteType.BOTH_SIDE)
+
+    def test_uploaded_images_are_compressed_before_save(self):
+        self.client.force_authenticate(user=self.operations)
+        original = generate_large_test_image()
+        original_size = original.size
+
+        response = self.client.post(
+            reverse("inventory-site-images-list"),
+            {
+                "site": self.site.id,
+                "caption": "Compressed shot",
+                "image": original,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_image = MediaSiteImage.objects.get(pk=response.data["id"])
+        self.assertLess(saved_image.image.size, original_size)
+        self.assertTrue(saved_image.image.name.lower().endswith(".jpg"))
 
     def test_media_unit_list_supports_type_and_city_filters(self):
         MediaUnit.objects.create(

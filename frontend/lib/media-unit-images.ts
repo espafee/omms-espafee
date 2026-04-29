@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/auth";
+import { apiFetch, apiUpload, type UploadProgressHandler } from "@/lib/auth";
 import { normalizeMutationError, type InventoryImage } from "@/lib/inventory";
 
 export type MediaUnitImageUploadInput = {
@@ -6,6 +6,7 @@ export type MediaUnitImageUploadInput = {
   image: File;
   caption: string;
   is_primary: boolean;
+  onProgress?: UploadProgressHandler;
 };
 
 export const getMediaUnitImageMutationError = normalizeMutationError;
@@ -17,9 +18,8 @@ export async function uploadMediaUnitImage(payload: MediaUnitImageUploadInput) {
   formData.append("caption", payload.caption.trim());
   formData.append("is_primary", String(payload.is_primary));
 
-  return apiFetch<InventoryImage>("inventory/unit-images/", {
-    method: "POST",
-    body: formData,
+  return apiUpload<InventoryImage>("inventory/unit-images/", formData, {
+    onProgress: payload.onProgress,
   });
 }
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { SafeImage } from "@/components/safe-image";
 import {
   PublicCampaignAccessError,
   fetchPublicCampaignAccess,
@@ -305,15 +306,12 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                     <div className="field-reference-grid">
                       <div className="image-reference-card">
                         <div className="image-reference-frame">
-                          {booking.site.primary_image?.image_url ? (
-                            <img
-                              className="image-reference-asset"
-                              src={booking.site.primary_image.image_url}
-                              alt={booking.site.primary_image.caption || booking.site.name}
-                            />
-                          ) : (
-                            <div className="image-reference-empty">No site image available for this placement.</div>
-                          )}
+                          <SafeImage
+                            src={booking.site.primary_image?.image_url ?? null}
+                            alt={booking.site.primary_image?.caption || booking.site.name}
+                            className="image-reference-asset"
+                            fallback={<div className="image-reference-empty">No site image available for this placement.</div>}
+                          />
                         </div>
                         <div className="image-reference-copy">
                           <p className="site-code">Site reference</p>
@@ -325,15 +323,12 @@ export default function PublicCampaignPage({ params }: { params: { token: string
 
                       <div className="image-reference-card">
                         <div className="image-reference-frame">
-                          {booking.media_unit.primary_image?.image_url ? (
-                            <img
-                              className="image-reference-asset"
-                              src={booking.media_unit.primary_image.image_url}
-                              alt={booking.media_unit.primary_image.caption || booking.media_unit.unit_code}
-                            />
-                          ) : (
-                            <div className="image-reference-empty">No media unit image available for this placement.</div>
-                          )}
+                          <SafeImage
+                            src={booking.media_unit.primary_image?.image_url ?? null}
+                            alt={booking.media_unit.primary_image?.caption || booking.media_unit.unit_code}
+                            className="image-reference-asset"
+                            fallback={<div className="image-reference-empty">No media unit image available for this placement.</div>}
+                          />
                         </div>
                         <div className="image-reference-copy">
                           <p className="site-code">Media unit reference</p>
@@ -371,15 +366,12 @@ export default function PublicCampaignPage({ params }: { params: { token: string
                               const preview = getMediaPreview(media);
                               return (
                                 <article className="capture-preview-card" key={media.id}>
-                                  {preview ? (
-                                    <img
-                                      className="capture-preview-image"
-                                      src={preview}
-                                      alt={`POE evidence ${media.id}`}
-                                    />
-                                  ) : (
-                                    <div className="asset-image-placeholder">No preview available</div>
-                                  )}
+                                  <SafeImage
+                                    src={preview || null}
+                                    alt={`POE evidence ${media.id}`}
+                                    className="capture-preview-image"
+                                    fallback={<div className="asset-image-placeholder">No preview available</div>}
+                                  />
                                   <div className="capture-preview-name">
                                     <p className="site-copy">{formatStatusLabel(media.media_type)}</p>
                                     <p className="site-copy">{formatDateTime(media.captured_at)}</p>

@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { ImageLightbox } from "@/components/image-lightbox";
+import { SafeImage } from "@/components/safe-image";
 
 type ImageReferenceCardProps = {
   title: string;
@@ -25,13 +26,16 @@ export function ImageReferenceCard({
     <>
       <article className="image-reference-card">
         <div className="image-reference-frame">
-          {imageUrl ? (
-            <img className="image-reference-asset" src={imageUrl} alt={title} />
-          ) : (
-            <div className="image-reference-empty">
-              <span>No image available</span>
-            </div>
-          )}
+          <SafeImage
+            src={imageUrl}
+            alt={title}
+            className="image-reference-asset"
+            fallback={
+              <div className="image-reference-empty">
+                <span>No image available</span>
+              </div>
+            }
+          />
         </div>
         <div className="image-reference-copy">
           <div className="asset-head">

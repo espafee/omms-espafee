@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from apps.bookings.models import Booking
+from core.images import compress_field_image
 from core.models import TimeStampedModel
 
 
@@ -63,6 +64,10 @@ class ProofOfExecutionMedia(TimeStampedModel):
 
     class Meta:
         ordering = ["-captured_at", "-created_at"]
+
+    def save(self, *args, **kwargs):
+        compress_field_image(self.image)
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return self.media_url or (self.image.name if self.image else f"POE media {self.pk}")

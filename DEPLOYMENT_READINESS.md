@@ -108,11 +108,22 @@ python manage.py collectstatic --noinput
 ### Media Uploads
 
 - Local filesystem storage works for development and single-instance testing.
+- The current backend now generates absolute media URLs and can serve local `/media/` uploads when Django is running with local filesystem storage.
+- This is enough to unblock previews in development and simple beta environments, but it does not make uploaded files durable on every platform.
 - Beta/production should not rely on ephemeral instance storage for user uploads.
 - Prefer S3-compatible object storage for:
   - site images
   - media unit images
   - POE evidence uploads
+
+### Render-specific warning
+
+- Render web services do not provide durable local file persistence by default.
+- Uploaded media may disappear after redeploys, restarts, or instance replacement unless you attach persistent storage or move uploads to object storage.
+- Recommended production TODO:
+  - move `default` Django file storage to S3-compatible storage
+  - keep static files on WhiteNoise/CDN
+  - keep user-uploaded media out of the container filesystem
 
 If using S3-compatible storage, set:
 

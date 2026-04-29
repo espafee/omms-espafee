@@ -29,6 +29,14 @@ def generate_test_image(name="poe.png", color=(15, 118, 110)):
     return SimpleUploadedFile(name, file_obj.read(), content_type="image/png")
 
 
+def generate_large_test_image(name="poe-large.jpg"):
+    file_obj = io.BytesIO()
+    image = Image.effect_noise((3200, 2400), 96).convert("RGB")
+    image.save(file_obj, format="JPEG", quality=96)
+    file_obj.seek(0)
+    return SimpleUploadedFile(name, file_obj.read(), content_type="image/jpeg")
+
+
 @override_settings(MEDIA_URL="/media/")
 class PoeMediaAPITests(APITestCase):
     def setUp(self):
@@ -117,6 +125,8 @@ class PoeMediaAPITests(APITestCase):
         self.assertEqual(response.data["poe_record"], self.poe.id)
         self.assertEqual(response.data["captured_by"], self.operations.id)
         self.assertIn("/media/poe/", response.data["image_url"])
+        self.assertTrue(ProofOfExecutionMedia.objects.filter(pk=response.data["id"]).exists())
+        self.assertTrue(Path(ProofOfExecutionMedia.objects.get(pk=response.data["id"]).image.path).exists())
 
     def test_poe_media_list_is_retrievable(self):
         media = ProofOfExecutionMedia.objects.create(
@@ -163,3 +173,23 @@ class PoeMediaAPITests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_poe_evidence_images_are_compressed_before_save(self):
+        self.client.force_authenticate(user=self.operations)
+        original = generate_large_test_image()
+        original_size = original.size
+
+        response = self.client.post(
+            reverse("poe-media-list"),
+            {
+                "poe_record": self.poe.id,
+                "image": original,
+                "media_type": "image",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_media = ProofOfExecutionMedia.objects.get(pk=response.data["id"])
+        self.assertLess(saved_media.image.size, original_size)
+        self.assertTrue(saved_media.image.name.lower().endswith(".jpg"))
