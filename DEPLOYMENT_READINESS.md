@@ -45,9 +45,13 @@ Static / media:
 - `DJANGO_STATIC_ROOT`
 - `DJANGO_MEDIA_URL`
 - `DJANGO_MEDIA_ROOT`
+- `DJANGO_MEDIA_PUBLIC_BASE_URL`
 
 Optional external object storage:
 
+- `USE_S3_MEDIA`
+- `AWS_ACCESS_KEY_ID`
+- `AWS_SECRET_ACCESS_KEY`
 - `DJANGO_DEFAULT_FILE_STORAGE`
 - `DJANGO_STATICFILES_STORAGE`
 - `AWS_STORAGE_BUCKET_NAME`
@@ -56,6 +60,7 @@ Optional external object storage:
 - `AWS_S3_CUSTOM_DOMAIN`
 - `AWS_DEFAULT_ACL`
 - `AWS_QUERYSTRING_AUTH`
+- `AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL`
 
 ## Frontend Environment Variables
 
@@ -109,6 +114,8 @@ python manage.py collectstatic --noinput
 
 - Local filesystem storage works for development and single-instance testing.
 - The current backend now generates absolute media URLs and can serve local `/media/` uploads when Django is running with local filesystem storage.
+- In split deployments such as Render API + Vercel frontend, set `DJANGO_MEDIA_PUBLIC_BASE_URL` to the public backend origin, for example:
+  - `https://your-api.onrender.com`
 - This is enough to unblock previews in development and simple beta environments, but it does not make uploaded files durable on every platform.
 - Beta/production should not rely on ephemeral instance storage for user uploads.
 - Prefer S3-compatible object storage for:

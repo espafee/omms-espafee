@@ -2,6 +2,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from celery.schedules import crontab
+from django.core.exceptions import ImproperlyConfigured
 
 from .env import get_bool, get_database_config, get_env, get_int, get_list
 
@@ -43,8 +44,6 @@ LOCAL_APPS = [
     "apps.poe",
     "apps.billing",
 ]
-
-INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -105,13 +104,24 @@ USE_TZ = True
 
 STATIC_URL = get_env("DJANGO_STATIC_URL", "/static/")
 STATIC_ROOT = BASE_DIR / get_env("DJANGO_STATIC_ROOT", "staticfiles")
+
+# Local development keeps using filesystem media under MEDIA_ROOT. Production can
+# opt into S3-compatible object storage by setting USE_S3_MEDIA=true together with
+# the provider credentials below.
 MEDIA_URL = get_env("DJANGO_MEDIA_URL", "/media/")
 MEDIA_ROOT = BASE_DIR / get_env("DJANGO_MEDIA_ROOT", "media")
+MEDIA_PUBLIC_BASE_URL = get_env("DJANGO_MEDIA_PUBLIC_BASE_URL", "")
+USE_S3_MEDIA = get_bool("USE_S3_MEDIA", False)
 DEFAULT_FILE_STORAGE_BACKEND = get_env("DJANGO_DEFAULT_FILE_STORAGE", "django.core.files.storage.FileSystemStorage")
 STATICFILES_STORAGE_BACKEND = get_env(
     "DJANGO_STATICFILES_STORAGE",
     "django.contrib.staticfiles.storage.StaticFilesStorage",
 )
+
+if USE_S3_MEDIA:
+    THIRD_PARTY_APPS.append("storages")
+
+INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 STORAGES = {
     "default": {
@@ -128,6 +138,45 @@ AWS_S3_ENDPOINT_URL = get_env("AWS_S3_ENDPOINT_URL", "")
 AWS_S3_CUSTOM_DOMAIN = get_env("AWS_S3_CUSTOM_DOMAIN", "")
 AWS_DEFAULT_ACL = get_env("AWS_DEFAULT_ACL", "")
 AWS_QUERYSTRING_AUTH = get_bool("AWS_QUERYSTRING_AUTH", True)
+AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL = get_env("AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL", "")
+
+if USE_S3_MEDIA:
+    required_s3_settings = {
+        "AWS_ACCESS_KEY_ID": get_env("AWS_ACCESS_KEY_ID", ""),
+        "AWS_SECRET_ACCESS_KEY": get_env("AWS_SECRET_ACCESS_KEY", ""),
+        "AWS_STORAGE_BUCKET_NAME": AWS_STORAGE_BUCKET_NAME,
+        "AWS_S3_REGION_NAME": AWS_S3_REGION_NAME,
+        "AWS_S3_ENDPOINT_URL": AWS_S3_ENDPOINT_URL,
+    }
+    missing_s3_settings = [name for name, value in required_s3_settings.items() if not value]
+    if missing_s3_settings:
+        raise ImproperlyConfigured(
+            "USE_S3_MEDIA is enabled, but the following settings are missing: "
+            + ", ".join(missing_s3_settings)
+        )
+
+    s3_media_options = {
+        "access_key": required_s3_settings["AWS_ACCESS_KEY_ID"] or None,
+        "secret_key": required_s3_settings["AWS_SECRET_ACCESS_KEY"] or None,
+        "bucket_name": AWS_STORAGE_BUCKET_NAME,
+        "region_name": AWS_S3_REGION_NAME or None,
+        "endpoint_url": AWS_S3_ENDPOINT_URL or None,
+        "custom_domain": AWS_S3_CUSTOM_DOMAIN or None,
+        "default_acl": AWS_DEFAULT_ACL or None,
+        "querystring_auth": False,
+        "file_overwrite": False,
+        "location": "media",
+    }
+
+    if AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL:
+        s3_media_options["object_parameters"] = {
+            "CacheControl": AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL,
+        }
+
+    STORAGES["default"] = {
+        "BACKEND": "core.storage_backends.PublicMediaStorage",
+        "OPTIONS": s3_media_options,
+    }
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "users.User"

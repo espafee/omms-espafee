@@ -1,17 +1,13 @@
 from rest_framework import serializers
 
+from core.images import build_public_media_url
+
 from .models import MediaSite, MediaSiteImage, MediaUnit, MediaUnitImage, RateCard
 
 
 class AbsoluteMediaUrlMixin:
     def build_absolute_media_url(self, file_field):
-        if not file_field:
-            return None
-
-        request = self.context.get("request")
-        if request:
-            return request.build_absolute_uri(file_field.url)
-        return file_field.url
+        return build_public_media_url(file_field, request=self.context.get("request"))
 
 
 class MediaSiteImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerializer):

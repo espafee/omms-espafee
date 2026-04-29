@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from urllib.parse import urljoin
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from PIL import Image, ImageOps
 
@@ -13,6 +15,31 @@ LOCAL_MEDIA_STORAGE_BACKEND = "django.core.files.storage.FileSystemStorage"
 
 def is_local_media_storage_backend(backend_path: str | None) -> bool:
     return backend_path == LOCAL_MEDIA_STORAGE_BACKEND
+
+
+def build_public_media_url(file_field, request=None) -> str | None:
+    if not file_field:
+        return None
+
+    try:
+        file_url = file_field.url
+    except ValueError:
+        return None
+
+    if not file_url:
+        return None
+
+    if file_url.startswith(("http://", "https://")):
+        return file_url
+
+    public_base = getattr(settings, "MEDIA_PUBLIC_BASE_URL", "").strip()
+    if public_base:
+        return urljoin(f"{public_base.rstrip('/')}/", file_url.lstrip("/"))
+
+    if request:
+        return request.build_absolute_uri(file_url)
+
+    return file_url
 
 
 def compress_field_image(field_file, *, quality: int = IMAGE_QUALITY, max_dimension: int = MAX_IMAGE_DIMENSION) -> None:

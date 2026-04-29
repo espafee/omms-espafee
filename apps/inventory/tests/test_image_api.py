@@ -147,6 +147,77 @@ class InventoryImageAPITests(APITestCase):
         self.assertTrue(MediaUnitImage.objects.filter(pk=response.data["id"]).exists())
         self.assertTrue(Path(MediaUnitImage.objects.get(pk=response.data["id"]).image.path).exists())
 
+    @override_settings(MEDIA_PUBLIC_BASE_URL="https://omms-api.onrender.com")
+    def test_media_urls_can_use_public_base_override(self):
+        image = MediaSiteImage.objects.create(
+            site=self.site,
+            image=generate_test_image("site-public.png"),
+            caption="Public URL",
+            uploaded_by=self.operations,
+        )
+
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.get(reverse("inventory-sites-detail", args=[self.site.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["primary_image"]["id"], image.id)
+        self.assertTrue(response.data["primary_image"]["image_url"].startswith("https://omms-api.onrender.com/media/"))
+
+    @override_settings(
+        USE_S3_MEDIA=True,
+        MEDIA_PUBLIC_BASE_URL="",
+        STORAGES={
+            "default": {
+                "BACKEND": "apps.inventory.tests.storage_backends.FakePublicMediaStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        },
+    )
+    def test_media_urls_preserve_public_storage_urls_in_s3_mode(self):
+        image = MediaSiteImage.objects.create(
+            site=self.site,
+            image=generate_test_image("site-s3.png"),
+            caption="S3 style URL",
+            uploaded_by=self.operations,
+        )
+
+        self.client.force_authenticate(user=self.client_user)
+        response = self.client.get(reverse("inventory-sites-detail", args=[self.site.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["primary_image"]["id"], image.id)
+        self.assertTrue(response.data["primary_image"]["image_url"].startswith("https://cdn.example.com/media/"))
+
+    @override_settings(
+        USE_S3_MEDIA=True,
+        MEDIA_PUBLIC_BASE_URL="",
+        STORAGES={
+            "default": {
+                "BACKEND": "apps.inventory.tests.storage_backends.FakePublicMediaStorage",
+            },
+            "staticfiles": {
+                "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+            },
+        },
+    )
+    def test_upload_endpoint_returns_public_storage_url_in_s3_mode(self):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-site-images-list"),
+            {
+                "site": self.site.id,
+                "caption": "Public upload URL",
+                "image": generate_test_image("site-upload-s3.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(response.data["image_url"].startswith("https://cdn.example.com/media/"))
+
     def test_site_detail_exposes_primary_image_and_gallery(self):
         first = MediaSiteImage.objects.create(
             site=self.site,
