@@ -24,6 +24,7 @@ type ImageManagerCardProps = {
   onDelete: (imageId: number) => Promise<void>;
   headerAction?: ReactNode;
   badges?: Array<{ label: string; tone?: string }>;
+  showHeroPreview?: boolean;
 };
 
 export function ImageManagerCard({
@@ -42,6 +43,7 @@ export function ImageManagerCard({
   onDelete,
   headerAction,
   badges = [],
+  showHeroPreview = true,
 }: ImageManagerCardProps) {
   const safeImages = images ?? [];
   const safePrimaryImage = primaryImage ?? null;
@@ -172,23 +174,25 @@ export function ImageManagerCard({
           </div>
         ) : null}
 
-        <button
-          className="image-manager-hero"
-          type="button"
-          disabled={!safePrimaryImage?.image_url}
-          onClick={() => setLightboxImage(safePrimaryImage)}
-        >
-          <SafeImage
-            src={safePrimaryImage?.image_url ?? null}
-            alt={safePrimaryImage?.caption || title}
-            className="image-manager-hero-image"
-            fallback={
-              <div className="image-manager-empty">
-                <span>{emptyCopy}</span>
-              </div>
-            }
-          />
-        </button>
+        {showHeroPreview ? (
+          <button
+            className="image-manager-hero"
+            type="button"
+            disabled={!safePrimaryImage?.image_url}
+            onClick={() => setLightboxImage(safePrimaryImage)}
+          >
+            <SafeImage
+              src={safePrimaryImage?.image_url ?? null}
+              alt={safePrimaryImage?.caption || title}
+              className="image-manager-hero-image"
+              fallback={
+                <div className="image-manager-empty">
+                  <span>{emptyCopy}</span>
+                </div>
+              }
+            />
+          </button>
+        ) : null}
 
         <div className="image-thumb-grid">
           {safeImages.map((image) => (

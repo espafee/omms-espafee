@@ -8,9 +8,10 @@ type SafeImageProps = {
   alt: string;
   className: string;
   fallback: ReactNode;
+  loading?: "lazy" | "eager";
 };
 
-export function SafeImage({ src, alt, className, fallback }: SafeImageProps) {
+export function SafeImage({ src, alt, className, fallback, loading = "lazy" }: SafeImageProps) {
   const [failed, setFailed] = useState(false);
   const isDebugMode = process.env.NODE_ENV !== "production";
 
@@ -30,6 +31,8 @@ export function SafeImage({ src, alt, className, fallback }: SafeImageProps) {
       className={className}
       src={src}
       alt={alt}
+      loading={loading}
+      decoding="async"
       onError={() => {
         if (isDebugMode) {
           console.warn("[SafeImage] Failed to load image", { src, alt });

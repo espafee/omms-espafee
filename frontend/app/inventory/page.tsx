@@ -1123,6 +1123,7 @@ export default function InventoryPage() {
               ]}
               images={unit.image_gallery ?? []}
               primaryImage={unit.primary_image ?? null}
+              showHeroPreview={false}
               canManage={canManageImages}
               uploadLabel="Upload media unit photo"
               emptyCopy="No media unit photos have been uploaded yet."

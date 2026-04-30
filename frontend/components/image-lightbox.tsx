@@ -32,6 +32,7 @@ export function ImageLightbox({ imageUrl, title, subtitle, onClose }: ImageLight
           src={imageUrl}
           alt={title}
           className="lightbox-image"
+          loading="eager"
           fallback={
             <div className="image-reference-empty lightbox-image lightbox-image-fallback">
               <span>Preview unavailable</span>
