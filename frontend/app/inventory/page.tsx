@@ -1006,6 +1006,7 @@ export default function InventoryPage() {
               meta={`${site.city}, ${site.state} • ${site.site_type.replaceAll("_", " ")}`}
               images={site.image_gallery ?? []}
               primaryImage={site.primary_image ?? null}
+              showHeroPreview={false}
               canManage={canManageImages}
               uploadLabel="Upload site photo"
               emptyCopy="No site photos have been uploaded yet."
