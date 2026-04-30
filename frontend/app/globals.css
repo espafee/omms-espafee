@@ -1435,6 +1435,174 @@ textarea::placeholder {
   align-items: start;
 }
 
+.setup-stack {
+  display: grid;
+  gap: 22px;
+}
+
+.setup-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.22fr) minmax(280px, 0.78fr);
+  gap: 22px;
+  margin-bottom: 22px;
+}
+
+.setup-hero-copy,
+.setup-hero-panel,
+.setup-summary-card,
+.setup-panel {
+  border-radius: 28px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-md);
+}
+
+.setup-hero-copy {
+  padding: 28px 30px;
+  background:
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.12), transparent 32%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(255, 252, 245, 0.86));
+}
+
+.setup-kicker {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.setup-hero-copy h2,
+.setup-panel-head h2,
+.setup-section-header h3,
+.setup-test-copy h3 {
+  font-family: "Iowan Old Style", Georgia, serif;
+}
+
+.setup-hero-copy h2 {
+  margin: 18px 0 12px;
+  font-size: clamp(34px, 4vw, 44px);
+  line-height: 1.02;
+  color: #111827;
+}
+
+.setup-hero-copy > p {
+  margin: 0;
+  max-width: 42rem;
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--muted);
+}
+
+.setup-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.setup-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 118, 110, 0.12);
+  background: rgba(255, 255, 255, 0.78);
+  color: #1f2937;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.setup-pill-success {
+  color: var(--success);
+  border-color: rgba(22, 101, 52, 0.18);
+  background: rgba(22, 101, 52, 0.08);
+}
+
+.setup-hero-panel {
+  padding: 22px;
+}
+
+.setup-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+.setup-summary-card {
+  padding: 22px 20px;
+}
+
+.setup-panel {
+  padding: 26px;
+}
+
+.setup-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.setup-panel-head h2 {
+  margin: 8px 0 8px;
+  font-size: 30px;
+  line-height: 1.06;
+  color: #111827;
+}
+
+.setup-panel-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.setup-section-tag,
+.setup-status-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-section-tag {
+  background: rgba(217, 119, 6, 0.1);
+  color: #9a3412;
+}
+
+.setup-status-chip {
+  border: 1px solid rgba(15, 118, 110, 0.14);
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--accent-strong);
+}
+
+.setup-status-chip-soft {
+  border-color: rgba(68, 64, 60, 0.12);
+  background: rgba(255, 255, 255, 0.75);
+  color: #57534e;
+}
+
+.setup-status-chip-success {
+  border-color: rgba(22, 101, 52, 0.14);
+  background: rgba(22, 101, 52, 0.08);
+  color: var(--success);
+}
+
 .setup-brand-preview,
 .setup-test-card {
   display: flex;
@@ -1444,7 +1612,19 @@ textarea::placeholder {
   padding: 18px 20px;
   border-radius: 22px;
   border: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.76);
+}
+
+.setup-brand-preview-hero {
+  min-height: 100%;
+  align-items: stretch;
+  padding: 20px;
+}
+
+.setup-brand-copy {
+  display: grid;
+  align-content: center;
+  gap: 2px;
 }
 
 .setup-brand-mark {
@@ -1460,6 +1640,13 @@ textarea::placeholder {
   overflow: hidden;
 }
 
+.setup-brand-mark-small {
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
+  font-size: 18px;
+}
+
 .setup-brand-mark img {
   width: 100%;
   height: 100%;
@@ -1473,10 +1660,65 @@ textarea::placeholder {
   color: #111827;
 }
 
+.setup-mini-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 20px;
+  border: 1px dashed rgba(15, 118, 110, 0.16);
+  background: rgba(15, 118, 110, 0.04);
+}
+
+.setup-mini-preview-name {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.setup-section-card {
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  border-radius: 24px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.setup-section-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.setup-section-header h3,
+.setup-test-copy h3 {
+  margin: 0 0 6px;
+  font-size: 24px;
+  color: #111827;
+}
+
+.setup-section-header p,
+.setup-test-copy p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
 .setup-form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
+}
+
+.setup-upload-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 240px;
+  gap: 18px;
+  align-items: start;
 }
 
 .setup-checkbox-row {
@@ -1507,18 +1749,39 @@ textarea::placeholder {
   gap: 12px;
 }
 
+.setup-test-copy {
+  display: grid;
+  gap: 6px;
+  max-width: 26rem;
+}
+
 .setup-inline-input {
-  min-width: min(100%, 280px);
-  min-height: 50px;
+  min-width: min(100%, 320px);
+  min-height: 54px;
   padding: 0 16px;
   border-radius: 16px;
   border: 1px solid var(--line);
   background: white;
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+}
+
+.setup-secondary-action {
+  min-height: 54px;
+  padding: 0 18px;
+}
+
+.field-span-2 {
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 1279px) {
   .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .setup-hero,
+  .setup-overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .module-grid,
@@ -1543,6 +1806,10 @@ textarea::placeholder {
 
   .inventory-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .setup-upload-row {
+    grid-template-columns: 1fr;
   }
 
   .campaign-form-grid .field-span-2 {
@@ -1573,6 +1840,10 @@ textarea::placeholder {
   }
 
   .workspace-topbar {
+    flex-direction: column;
+  }
+
+  .setup-panel-head {
     flex-direction: column;
   }
 
@@ -1671,6 +1942,10 @@ textarea::placeholder {
   .setup-test-card {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .setup-panel {
+    padding: 22px;
   }
 
   .image-reference-card {
