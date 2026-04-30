@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ReactNode } from "react";
 
 type AppShellProps = {
-  active: "dashboard" | "inventory" | "campaigns" | "bookings" | "billing" | "poe";
+  active: "dashboard" | "inventory" | "campaigns" | "bookings" | "billing" | "poe" | "setup";
   roleLabel: string;
   userEmail: string;
   title: string;
@@ -24,6 +24,8 @@ export function AppShell({
   onLogout,
   children,
 }: AppShellProps) {
+  const showSetupNav = roleLabel.trim().toLowerCase() === "admin";
+
   return (
     <main className="dashboard-shell">
       <aside className="sidebar">
@@ -54,6 +56,11 @@ export function AppShell({
           <Link className={`nav-item ${active === "billing" ? "nav-item-active" : ""}`} href="/billing">
             Billing
           </Link>
+          {showSetupNav ? (
+            <Link className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
+              Setup
+            </Link>
+          ) : null}
         </nav>
 
         <div className="sidebar-foot">

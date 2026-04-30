@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from django.conf import settings
+from django.core.mail import send_mail
+from django.db import IntegrityError
+from django.utils import timezone
+
+from apps.bookings.models import Booking
+from apps.campaigns.services import CampaignAccessTokenService
+from apps.poe.models import ProofOfExecutionMedia
+
+from .models import EmailNotificationLog
+
+
+def build_frontend_public_url(path: str) -> str:
+    base = settings.FRONTEND_PUBLIC_BASE_URL.rstrip("/")
+    suffix = path if path.startswith("/") else f"/{path}"
+    return f"{base}{suffix}"
+
+
+def get_client_recipient(campaign) -> tuple[str, str]:
+    client = campaign.client
+    email = (getattr(client, "email", "") or "").strip()
+    name = (
+        getattr(client, "organization_name", "")
+        or getattr(client, "first_name", "")
+        or getattr(client, "username", "")
+        or email
+    ).strip()
+    return email, name
+
+
+def ensure_campaign_public_link(campaign, *, actor=None) -> str:
+    token_service = CampaignAccessTokenService()
+    access_token, _raw_token, _created = token_service.create_token(campaign=campaign, actor=actor)
+    if not access_token.public_path:
+        raise ValueError("Campaign share token did not produce a public path.")
+    return build_frontend_public_url(access_token.public_path)
+
+
+def format_booking_label(booking: Booking) -> str:
+    site = booking.media_unit.site
+    return (
+        f"- {site.name} ({site.code}) / {booking.media_unit.unit_code}"
+        f" | {site.city}, {site.state}"
+        f" | {booking.start_date:%d-%m-%Y} to {booking.end_date:%d-%m-%Y}"
+    )
+
+
+def format_poe_location(media: ProofOfExecutionMedia) -> str:
+    booking = media.poe_record.booking
+    site = booking.media_unit.site
+    return f"{site.name} ({site.code}) / {booking.media_unit.unit_code}"
+
+
+@dataclass
+class NotificationResult:
+    log: EmailNotificationLog
+    created: bool
+
+
+class NotificationService:
+    def _get_or_create_log(self, *, event_key: str, notification_type: str, campaign, booking=None, poe_record=None, poe_media=None, recipient_email: str, recipient_name: str, subject: str) -> NotificationResult:
+        try:
+            log, created = EmailNotificationLog.objects.get_or_create(
+                event_key=event_key,
+                defaults={
+                    "notification_type": notification_type,
+                    "campaign": campaign,
+                    "booking": booking,
+                    "poe_record": poe_record,
+                    "poe_media": poe_media,
+                    "recipient_email": recipient_email,
+                    "recipient_name": recipient_name,
+                    "subject": subject,
+                    "status": EmailNotificationLog.Status.PENDING,
+                },
+            )
+        except IntegrityError:
+            log = EmailNotificationLog.objects.get(event_key=event_key)
+            created = False
+        return NotificationResult(log=log, created=created)
+
+    def _send_logged_email(self, *, log: EmailNotificationLog, created: bool, recipient_email: str, body: str) -> NotificationResult:
+        if not created:
+            return NotificationResult(log=log, created=False)
+        if not recipient_email:
+            log.status = EmailNotificationLog.Status.SKIPPED
+            log.error_message = "No client email available for this campaign."
+            log.save(update_fields=["status", "error_message", "updated_at"])
+            return NotificationResult(log=log, created=True)
+
+        try:
+            send_mail(
+                subject=log.subject,
+                message=body,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[recipient_email],
+                fail_silently=False,
+            )
+        except Exception as exc:
+            log.status = EmailNotificationLog.Status.FAILED
+            log.error_message = str(exc)
+            log.save(update_fields=["status", "error_message", "updated_at"])
+            return NotificationResult(log=log, created=True)
+
+        log.status = EmailNotificationLog.Status.SENT
+        log.sent_at = timezone.now()
+        log.error_message = ""
+        log.save(update_fields=["status", "sent_at", "error_message", "updated_at"])
+        return NotificationResult(log=log, created=True)
+
+    def send_campaign_booked_notification(self, booking: Booking, *, actor=None) -> NotificationResult:
+        campaign = booking.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        subject = "Your Outdoor Media Campaign Has Been Created"
+        result = self._get_or_create_log(
+            event_key=f"campaign_booked:{campaign.id}",
+            notification_type=EmailNotificationLog.NotificationType.CAMPAIGN_BOOKED,
+            campaign=campaign,
+            booking=booking,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=subject,
+        )
+        if not result.created:
+            return result
+        if not recipient_email:
+            return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body="")
+        try:
+            public_link = ensure_campaign_public_link(campaign, actor=actor)
+            bookings = campaign.bookings.select_related("media_unit__site").order_by("start_date", "media_unit__unit_code")
+            booking_lines = "\n".join(format_booking_label(item) for item in bookings)
+            campaign_range = f"{campaign.start_date:%d-%m-%Y} to {campaign.end_date:%d-%m-%Y}" if campaign.start_date and campaign.end_date else "Not specified"
+            body = (
+                f"Dear {recipient_name or 'Client'},\n\n"
+                f"Your outdoor media campaign has been created successfully.\n\n"
+                f"Client: {recipient_name or '-'}\n"
+                f"Campaign: {campaign.name}\n"
+                f"Campaign Dates: {campaign_range}\n"
+                f"Booked Sites / Media Units:\n{booking_lines or '- No bookings listed -'}\n\n"
+                f"Campaign Link: {public_link}\n\n"
+                f"Regards,\n{settings.NOTIFICATION_COMPANY_NAME}"
+            )
+        except Exception as exc:
+            result.log.status = EmailNotificationLog.Status.FAILED
+            result.log.error_message = str(exc)
+            result.log.save(update_fields=["status", "error_message", "updated_at"])
+            return result
+        return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body=body)
+
+    def send_poe_uploaded_notification(self, media: ProofOfExecutionMedia, *, actor=None) -> NotificationResult:
+        campaign = media.poe_record.booking.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        subject = "Installation Proof Uploaded for Your Campaign"
+        result = self._get_or_create_log(
+            event_key=f"poe_uploaded:{media.id}",
+            notification_type=EmailNotificationLog.NotificationType.POE_UPLOADED,
+            campaign=campaign,
+            booking=media.poe_record.booking,
+            poe_record=media.poe_record,
+            poe_media=media,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=subject,
+        )
+        if not result.created:
+            return result
+        if not recipient_email:
+            return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body="")
+        try:
+            public_link = ensure_campaign_public_link(campaign, actor=actor)
+            captured_at = media.captured_at or media.created_at
+            body = (
+                f"Dear {recipient_name or 'Client'},\n\n"
+                f"Installation proof has been uploaded for your campaign.\n\n"
+                f"Campaign: {campaign.name}\n"
+                f"Installed Site / Media Unit: {format_poe_location(media)}\n"
+                f"Upload Timestamp: {captured_at:%d-%m-%Y %H:%M:%S}\n"
+                f"Campaign Link: {public_link}\n\n"
+                f"You can review the latest proof and campaign status at the link above.\n\n"
+                f"Regards,\n{settings.NOTIFICATION_COMPANY_NAME}"
+            )
+        except Exception as exc:
+            result.log.status = EmailNotificationLog.Status.FAILED
+            result.log.error_message = str(exc)
+            result.log.save(update_fields=["status", "error_message", "updated_at"])
+            return result
+        return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body=body)
+
+
+def trigger_campaign_booked_notification(booking: Booking, *, actor=None) -> None:
+    try:
+        NotificationService().send_campaign_booked_notification(booking, actor=actor)
+    except Exception:
+        # Notification failures must never block booking creation.
+        pass
+
+
+def trigger_poe_uploaded_notification(media: ProofOfExecutionMedia, *, actor=None) -> None:
+    try:
+        NotificationService().send_poe_uploaded_notification(media, actor=actor)
+    except Exception:
+        # Notification failures must never block POE media creation.
+        pass

@@ -5,6 +5,8 @@ from django.db.models.functions import Coalesce
 from core.services import BaseService
 from rest_framework.exceptions import ValidationError
 
+from apps.notifications.services import trigger_campaign_booked_notification
+
 from .models import Booking
 from .repositories import BookingRepository
 
@@ -35,7 +37,9 @@ class BookingService(BaseService):
             start_date=validated_data["start_date"],
             end_date=validated_data["end_date"],
         )
-        return super().create(actor=actor, **validated_data)
+        booking = super().create(actor=actor, **validated_data)
+        trigger_campaign_booked_notification(booking, actor=actor)
+        return booking
 
     def update(self, instance, actor=None, **validated_data):
         start_date = validated_data.get("start_date", instance.start_date)

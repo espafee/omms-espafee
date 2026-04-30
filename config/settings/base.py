@@ -43,6 +43,8 @@ LOCAL_APPS = [
     "apps.campaigns",
     "apps.poe",
     "apps.billing",
+    "apps.notifications",
+    "apps.setup",
 ]
 
 MIDDLEWARE = [
@@ -118,9 +120,6 @@ STATICFILES_STORAGE_BACKEND = get_env(
     "django.contrib.staticfiles.storage.StaticFilesStorage",
 )
 
-if USE_S3_MEDIA:
-    THIRD_PARTY_APPS.append("storages")
-
 INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 STORAGES = {
@@ -139,6 +138,16 @@ AWS_S3_CUSTOM_DOMAIN = get_env("AWS_S3_CUSTOM_DOMAIN", "")
 AWS_DEFAULT_ACL = get_env("AWS_DEFAULT_ACL", "")
 AWS_QUERYSTRING_AUTH = get_bool("AWS_QUERYSTRING_AUTH", True)
 AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL = get_env("AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL", "")
+AWS_PRIVATE_STORAGE_BUCKET_NAME = get_env("AWS_PRIVATE_STORAGE_BUCKET_NAME", "")
+AWS_PRIVATE_S3_ENDPOINT_URL = get_env("AWS_PRIVATE_S3_ENDPOINT_URL", AWS_S3_ENDPOINT_URL)
+AWS_PRIVATE_S3_REGION_NAME = get_env("AWS_PRIVATE_S3_REGION_NAME", AWS_S3_REGION_NAME)
+AWS_PRIVATE_ACCESS_KEY_ID = get_env("AWS_PRIVATE_ACCESS_KEY_ID", get_env("AWS_ACCESS_KEY_ID", ""))
+AWS_PRIVATE_SECRET_ACCESS_KEY = get_env("AWS_PRIVATE_SECRET_ACCESS_KEY", get_env("AWS_SECRET_ACCESS_KEY", ""))
+AWS_PRIVATE_SIGNED_URL_EXPIRY_SECONDS = get_int("AWS_PRIVATE_SIGNED_URL_EXPIRY_SECONDS", 900)
+
+if USE_S3_MEDIA or AWS_PRIVATE_STORAGE_BUCKET_NAME:
+    THIRD_PARTY_APPS.append("storages")
+    INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 if USE_S3_MEDIA:
     required_s3_settings = {
@@ -177,6 +186,27 @@ if USE_S3_MEDIA:
         "BACKEND": "core.storage_backends.PublicMediaStorage",
         "OPTIONS": s3_media_options,
     }
+
+PRIVATE_DOCUMENT_STORAGE_BACKEND = get_env(
+    "DJANGO_PRIVATE_DOCUMENT_STORAGE",
+    "core.storage_backends.PrivateDocumentStorage",
+)
+
+FRONTEND_PUBLIC_BASE_URL = get_env("FRONTEND_PUBLIC_BASE_URL", "http://localhost:3000")
+NOTIFICATION_COMPANY_NAME = get_env("NOTIFICATION_COMPANY_NAME", "OMMS Control")
+OMMS_ENCRYPTION_KEY = get_env("OMMS_ENCRYPTION_KEY", "")
+
+EMAIL_BACKEND = get_env(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend" if DEBUG else "django.core.mail.backends.smtp.EmailBackend",
+)
+DEFAULT_FROM_EMAIL = get_env("DEFAULT_FROM_EMAIL", "no-reply@example.com")
+EMAIL_HOST = get_env("EMAIL_HOST", "localhost")
+EMAIL_PORT = get_int("EMAIL_PORT", 25)
+EMAIL_HOST_USER = get_env("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = get_env("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = get_bool("EMAIL_USE_TLS", False)
+EMAIL_USE_SSL = get_bool("EMAIL_USE_SSL", False)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "users.User"

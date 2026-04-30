@@ -62,6 +62,16 @@ Optional external object storage:
 - `AWS_QUERYSTRING_AUTH`
 - `AWS_S3_OBJECT_PARAMETERS_CACHE_CONTROL`
 
+Private document storage:
+
+- `DJANGO_PRIVATE_DOCUMENT_STORAGE`
+- `AWS_PRIVATE_STORAGE_BUCKET_NAME`
+- `AWS_PRIVATE_S3_ENDPOINT_URL`
+- `AWS_PRIVATE_S3_REGION_NAME`
+- `AWS_PRIVATE_ACCESS_KEY_ID`
+- `AWS_PRIVATE_SECRET_ACCESS_KEY`
+- `AWS_PRIVATE_SIGNED_URL_EXPIRY_SECONDS`
+
 ## Frontend Environment Variables
 
 Required:
@@ -122,6 +132,11 @@ python manage.py collectstatic --noinput
   - site images
   - media unit images
   - POE evidence uploads
+- Keep sensitive documents on separate private storage:
+  - invoice PDFs
+  - contracts
+  - receipts
+  - internal files
 
 ### Render-specific warning
 
@@ -131,6 +146,7 @@ python manage.py collectstatic --noinput
   - move `default` Django file storage to S3-compatible storage
   - keep static files on WhiteNoise/CDN
   - keep user-uploaded media out of the container filesystem
+  - keep sensitive documents on a separate signed-URL bucket/prefix
 
 If using S3-compatible storage, set:
 
@@ -138,6 +154,19 @@ If using S3-compatible storage, set:
 - `AWS_STORAGE_BUCKET_NAME`
 - `AWS_S3_ENDPOINT_URL`
 - any required bucket region/domain/auth options
+
+For private document storage, also set:
+
+- `DJANGO_PRIVATE_DOCUMENT_STORAGE`
+- `AWS_PRIVATE_STORAGE_BUCKET_NAME`
+- `AWS_PRIVATE_S3_ENDPOINT_URL`
+- `AWS_PRIVATE_S3_REGION_NAME`
+- `AWS_PRIVATE_ACCESS_KEY_ID`
+- `AWS_PRIVATE_SECRET_ACCESS_KEY`
+- `AWS_PRIVATE_SIGNED_URL_EXPIRY_SECONDS`
+
+Private documents should never reuse the public image bucket/custom domain.
+Serve them only through short-lived signed URLs.
 
 ## Auth and Security Notes
 

@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from django.utils import timezone
 
+from apps.notifications.services import trigger_poe_uploaded_notification
 from core.services import BaseService
 
 from .models import ProofOfExecution
@@ -74,7 +75,9 @@ class ProofOfExecutionMediaService(BaseService):
             validated_data["captured_by"] = actor
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
-        return super().create(actor=actor, **validated_data)
+        media = super().create(actor=actor, **validated_data)
+        trigger_poe_uploaded_notification(media, actor=actor)
+        return media
 
 
 class ProofOfExecutionVerificationLogService(BaseService):

@@ -1431,6 +1431,91 @@ textarea::placeholder {
   min-width: 190px;
 }
 
+.setup-grid {
+  align-items: start;
+}
+
+.setup-brand-preview,
+.setup-test-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 22px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.setup-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 24px;
+  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
+  color: white;
+  font-size: 24px;
+  font-weight: 700;
+  overflow: hidden;
+}
+
+.setup-brand-mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.setup-brand-name {
+  margin: 6px 0 0;
+  font-size: 20px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.setup-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.setup-checkbox-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.setup-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #44403c;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setup-checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.setup-test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.setup-inline-input {
+  min-width: min(100%, 280px);
+  min-height: 50px;
+  padding: 0 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
 @media (max-width: 1279px) {
   .summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1438,6 +1523,7 @@ textarea::placeholder {
 
   .module-grid,
   .activity-strip,
+  .setup-form-grid,
   .inventory-layout,
   .campaign-layout,
   .bookings-layout,
@@ -1494,7 +1580,8 @@ textarea::placeholder {
   .booking-form-grid,
   .poe-form-grid,
   .site-form-grid,
-  .client-form-grid {
+  .client-form-grid,
+  .setup-form-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1530,6 +1617,7 @@ textarea::placeholder {
   .summary-row,
   .module-grid,
   .activity-strip,
+  .setup-form-grid,
   .campaign-form-grid,
   .booking-form-grid,
   .poe-form-grid,
@@ -1577,6 +1665,12 @@ textarea::placeholder {
   .field-actions,
   .lightbox-head {
     flex-direction: column;
+  }
+
+  .setup-brand-preview,
+  .setup-test-card {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .image-reference-card {
