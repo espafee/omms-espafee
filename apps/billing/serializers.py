@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import Invoice, InvoiceLine, Payment
+from .models import Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 
 
 class InvoiceSummarySerializer(serializers.Serializer):
@@ -14,6 +14,20 @@ class InvoiceSummarySerializer(serializers.Serializer):
     overdue_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_paid = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+
+
+class SupplierProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupplierProfile
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InvoiceSequenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvoiceSequence
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
@@ -31,10 +45,34 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
+    pdf_file = serializers.SerializerMethodField()
     lines = InvoiceLineSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
+
+    def get_pdf_file(self, obj):
+        return obj.pdf_file.name if obj.pdf_file else None
 
     class Meta:
         model = Invoice
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "invoice_number",
+            "financial_year",
+            "status",
+            "issued_at",
+            "issued_by",
+            "cancelled_at",
+            "cancelled_by",
+            "taxable_value_total",
+            "discount_total",
+            "cgst_total",
+            "sgst_total",
+            "igst_total",
+            "cess_total",
+            "total_tax",
+            "grand_total",
+            "pdf_file",
+        ]

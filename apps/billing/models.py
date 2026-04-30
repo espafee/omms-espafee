@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from apps.bookings.models import Booking
@@ -5,25 +6,140 @@ from apps.campaigns.models import Campaign
 from core.models import TimeStampedModel
 
 
+class SupplierProfile(TimeStampedModel):
+    legal_name = models.CharField(max_length=255)
+    trade_name = models.CharField(max_length=255, blank=True)
+    gstin = models.CharField(max_length=15, unique=True)
+    address_line_1 = models.CharField(max_length=255)
+    address_line_2 = models.CharField(max_length=255, blank=True)
+    city = models.CharField(max_length=100)
+    state = models.CharField(max_length=100)
+    postal_code = models.CharField(max_length=20)
+    state_code = models.CharField(max_length=10)
+    country = models.CharField(max_length=100, default="India")
+    contact_email = models.EmailField(blank=True)
+    contact_phone = models.CharField(max_length=30, blank=True)
+    bank_details = models.TextField(blank=True)
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["legal_name"]
+
+    def __str__(self) -> str:
+        return self.legal_name
+
+
+class InvoiceSequence(TimeStampedModel):
+    class DocumentType(models.TextChoices):
+        INVOICE = "INV", "Invoice"
+
+    document_type = models.CharField(max_length=10, choices=DocumentType.choices)
+    financial_year = models.CharField(max_length=7)
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        unique_together = ("document_type", "financial_year")
+        ordering = ["document_type", "-financial_year"]
+
+    def __str__(self) -> str:
+        return f"{self.document_type}/{self.financial_year}/{self.last_number:04d}"
+
+
 class Invoice(TimeStampedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
         ISSUED = "issued", "Issued"
+        CANCELLED = "cancelled", "Cancelled"
         PARTIALLY_PAID = "partially_paid", "Partially Paid"
         PAID = "paid", "Paid"
         OVERDUE = "overdue", "Overdue"
 
     campaign = models.ForeignKey(Campaign, related_name="invoices", on_delete=models.CASCADE)
-    invoice_number = models.CharField(max_length=50, unique=True)
-    issue_date = models.DateField()
-    due_date = models.DateField()
-    subtotal = models.DecimalField(max_digits=12, decimal_places=2)
+    supplier_profile = models.ForeignKey(
+        SupplierProfile,
+        related_name="invoices",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
+    invoice_number = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    financial_year = models.CharField(max_length=7, blank=True)
+    issue_date = models.DateField(null=True, blank=True)
+    invoice_date = models.DateField(null=True, blank=True)
+    due_date = models.DateField(null=True, blank=True)
+    payment_terms = models.CharField(max_length=255, blank=True)
+    reverse_charge = models.BooleanField(default=False)
+    currency_code = models.CharField(max_length=3, default="INR")
+
+    supplier_legal_name = models.CharField(max_length=255, blank=True)
+    supplier_trade_name = models.CharField(max_length=255, blank=True)
+    supplier_gstin = models.CharField(max_length=15, blank=True)
+    supplier_address_line_1 = models.CharField(max_length=255, blank=True)
+    supplier_address_line_2 = models.CharField(max_length=255, blank=True)
+    supplier_city = models.CharField(max_length=100, blank=True)
+    supplier_state = models.CharField(max_length=100, blank=True)
+    supplier_postal_code = models.CharField(max_length=20, blank=True)
+    supplier_state_code = models.CharField(max_length=10, blank=True)
+    supplier_country = models.CharField(max_length=100, blank=True, default="India")
+    supplier_contact_email = models.EmailField(blank=True)
+    supplier_contact_phone = models.CharField(max_length=30, blank=True)
+
+    client_legal_name = models.CharField(max_length=255, blank=True)
+    client_gstin = models.CharField(max_length=15, blank=True)
+    client_billing_address_line_1 = models.CharField(max_length=255, blank=True)
+    client_billing_address_line_2 = models.CharField(max_length=255, blank=True)
+    client_billing_city = models.CharField(max_length=100, blank=True)
+    client_billing_state = models.CharField(max_length=100, blank=True)
+    client_billing_postal_code = models.CharField(max_length=20, blank=True)
+    client_billing_state_code = models.CharField(max_length=10, blank=True)
+    client_billing_country = models.CharField(max_length=100, blank=True, default="India")
+
+    place_of_supply_state = models.CharField(max_length=100, blank=True)
+    place_of_supply_state_code = models.CharField(max_length=10, blank=True)
+
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    taxable_value_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    total_amount = models.DecimalField(max_digits=12, decimal_places=2)
+    cgst_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sgst_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    igst_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cess_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_tax = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    grand_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    pdf_file = models.FileField(upload_to="invoices/", blank=True, null=True, max_length=500)
+
+    issued_at = models.DateTimeField(null=True, blank=True)
+    issued_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issued_invoices",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+    cancelled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="cancelled_invoices",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    cancellation_reason = models.TextField(blank=True)
+
+    irn = models.CharField(max_length=100, blank=True)
+    acknowledgement_number = models.CharField(max_length=100, blank=True)
+    acknowledgement_date = models.DateTimeField(null=True, blank=True)
+    signed_qr_payload = models.TextField(blank=True)
+    signed_qr_reference = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return self.invoice_number
+        return self.invoice_number or f"Draft invoice #{self.pk}"
 
 
 class InvoiceLine(TimeStampedModel):
@@ -35,13 +151,40 @@ class InvoiceLine(TimeStampedModel):
         null=True,
         blank=True,
     )
-    description = models.CharField(max_length=255)
+    line_number = models.PositiveIntegerField(default=1)
+    description = models.CharField(max_length=255, blank=True)
+    item_description = models.CharField(max_length=255, blank=True)
+    sac_code = models.CharField(max_length=20, blank=True)
+    hsn_code = models.CharField(max_length=20, blank=True)
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
-    unit_price = models.DecimalField(max_digits=12, decimal_places=2)
-    line_total = models.DecimalField(max_digits=12, decimal_places=2)
+    unit_of_measure = models.CharField(max_length=30, blank=True)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gross_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    discount_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    taxable_value = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    gst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    cgst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    cgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    sgst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    sgst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    igst_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    igst_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cess_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    cess_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    line_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ["line_number", "id"]
+
+    def save(self, *args, **kwargs):
+        if self.item_description and not self.description:
+            self.description = self.item_description
+        if self.description and not self.item_description:
+            self.item_description = self.description
+        super().save(*args, **kwargs)
 
     def __str__(self) -> str:
-        return self.description
+        return self.item_description or self.description or f"Invoice line {self.pk}"
 
 
 class Payment(TimeStampedModel):
@@ -58,4 +201,5 @@ class Payment(TimeStampedModel):
     reference_number = models.CharField(max_length=100, blank=True)
 
     def __str__(self) -> str:
-        return f"{self.invoice.invoice_number} - {self.amount}"
+        invoice_label = self.invoice.invoice_number or f"Draft #{self.invoice_id}"
+        return f"{invoice_label} - {self.amount}"
