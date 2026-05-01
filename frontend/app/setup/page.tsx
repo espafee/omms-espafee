@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -96,6 +96,160 @@ function readEmailForm(settings: OrganizationEmailSettings): EmailSettingsForm {
   };
 }
 
+function SetupStatusBadge({
+  tone,
+  children,
+}: {
+  tone: "success" | "pending" | "neutral";
+  children: ReactNode;
+}) {
+  const tones = {
+    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
+    pending: "border-amber-200 bg-amber-50 text-amber-700",
+    neutral: "border-stone-200 bg-white text-stone-600",
+  } as const;
+
+  return (
+    <span
+      className={`inline-flex min-h-8 items-center rounded-full border px-3 text-[11px] font-semibold uppercase tracking-[0.18em] ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function SetupHeaderBadge({
+  tone,
+  children,
+}: {
+  tone: "neutral" | "pending";
+  children: ReactNode;
+}) {
+  const tones = {
+    neutral: "border-stone-200 bg-white text-stone-600",
+    pending: "border-amber-200 bg-amber-50 text-amber-700",
+  } as const;
+
+  return (
+    <span
+      className={`inline-flex min-h-10 items-center rounded-full border px-4 text-sm font-semibold ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
+}
+
+function SetupCard({
+  title,
+  subtitle,
+  headerAction,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  headerAction?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:p-7">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">{title}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{subtitle}</p>
+        </div>
+        {headerAction ? <div className="flex flex-wrap gap-2 sm:justify-end">{headerAction}</div> : null}
+      </div>
+      {children}
+    </article>
+  );
+}
+
+function FormGroup({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-[20px] border border-stone-200 bg-stone-50/70 p-5">
+      <div className="mb-5">
+        <h3 className="text-xl font-semibold tracking-[-0.02em] text-slate-900">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-slate-500">{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function SetupStep({
+  step,
+  title,
+  description,
+  state,
+  isLast,
+}: {
+  step: number;
+  title: string;
+  description: string;
+  state: "active" | "pending" | "complete";
+  isLast?: boolean;
+}) {
+  const circleClass =
+    state === "active"
+      ? "border-teal-700 bg-teal-700 text-white"
+      : state === "complete"
+        ? "border-teal-200 bg-teal-50 text-teal-700"
+        : "border-stone-200 bg-white text-stone-500";
+  const lineClass = state === "complete" ? "bg-teal-200" : "bg-stone-200";
+
+  return (
+    <div className="relative flex gap-4">
+      <div className="relative flex flex-col items-center">
+        <div
+          className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full border text-sm font-semibold ${circleClass}`}
+        >
+          {step}
+        </div>
+        {isLast ? null : <div className={`mt-2 h-full min-h-[44px] w-px ${lineClass}`} />}
+      </div>
+      <div className="pt-1">
+        <p className="text-base font-semibold text-slate-900">{title}</p>
+        <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function WorkspaceStatusRow({
+  label,
+  value,
+  status,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string;
+  status: string;
+  tone: "success" | "pending";
+  icon: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-[18px] border border-stone-200 bg-white px-4 py-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-50 text-sm font-semibold text-teal-700">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-slate-900">{label}</p>
+        <p className="mt-1 text-sm text-slate-500">{value}</p>
+      </div>
+      <SetupStatusBadge tone={tone}>{status}</SetupStatusBadge>
+    </div>
+  );
+}
+
 export default function SetupPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -189,6 +343,20 @@ export default function SetupPage() {
 
   const companyCompletion = `${companyChecklist.filter(Boolean).length}/${companyChecklist.length}`;
   const emailConfigured = Boolean(emailForm.from_email && emailForm.smtp_host && emailForm.smtp_port);
+  const companyComplete = companyChecklist.every(Boolean);
+  const smtpLabel = emailSettings?.email_verified ? "Verified" : emailConfigured ? "Configured" : "Pending";
+  const companyStatusValue = companyComplete
+    ? "Profile saved"
+    : companyProfile?.company_name
+      ? "Partially configured"
+      : "Using fallback";
+  const companyStatusBadge = companyComplete ? "Complete" : "Incomplete";
+  const smtpStatusValue = emailConfigured
+    ? emailSettings?.email_verified
+      ? "Verified sender"
+      : "Sender configured"
+    : "Not configured";
+  const smtpStatusBadge = emailConfigured ? "Configured" : "Pending";
 
   function handleLogout() {
     clearAuthSession();
@@ -295,317 +463,413 @@ export default function SetupPage() {
       roleLabel={user?.role ?? "Admin"}
       userEmail={user?.email ?? "Loading user..."}
       title="Organization setup"
-      eyebrow="White-label foundation"
-      description="Configure the single-tenant OMMS brand, GST details, and SMTP connection before layering invoice and notification workflows on top."
+      eyebrow="Admin setup"
+      description="Configure company profile and email settings for OMMS."
+      hideWorkspaceHeader
       onLogout={handleLogout}
     >
       {pageError ? <p className="error dashboard-error">{pageError}</p> : null}
-
-      <section className="setup-page-head">
-        <div className="setup-page-copy">
-          <span className="setup-kicker">Admin onboarding</span>
-          <h2>White-label OMMS before the rest of the workflows go live.</h2>
-          <p>
-            Set the company identity and sender configuration once, then let invoicing, email, and client-facing
-            experiences inherit the same polished brand surface.
-          </p>
-        </div>
-        <aside className="setup-command-card">
-          <div className="setup-command-top">
-            <div>
-              <p className="stat-label">Active workspace brand</p>
-              <p className="setup-command-name">{brandingName}</p>
+      <section className="flex w-full max-w-none flex-col gap-6">
+        <header className="rounded-[22px] border border-stone-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:px-6">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex items-start gap-4">
+              <button
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-stone-50 text-xl text-slate-700 transition hover:bg-white"
+                type="button"
+                onClick={() => router.push("/dashboard")}
+                aria-label="Back to dashboard"
+              >
+                ←
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-[30px] font-semibold tracking-[-0.03em] text-slate-900">Organization setup</h1>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  Configure company profile and email settings for OMMS.
+                </p>
+              </div>
             </div>
-            <span className="setup-status-chip setup-status-chip-soft">{companyCompletion} complete</span>
+            <div className="flex flex-wrap gap-3 lg:justify-end">
+              <SetupHeaderBadge tone="neutral">{companyCompletion} completed</SetupHeaderBadge>
+              <SetupHeaderBadge tone="pending">SMTP {smtpLabel.toLowerCase()}</SetupHeaderBadge>
+            </div>
           </div>
-          <div className="setup-brand-preview setup-brand-preview-hero">
-            <div className="setup-brand-mark">
-              {companyProfile?.logo_url ? (
-                <img src={companyProfile.logo_url} alt={`${brandingName} logo`} />
-              ) : (
-                <span>{brandingName.slice(0, 2).toUpperCase()}</span>
-              )}
-            </div>
-            <div className="setup-brand-copy">
-              <p className="stat-label">Active branding</p>
-              <p className="setup-brand-name">{brandingName}</p>
-              <p className="helper">
-                {companyProfile?.company_name
-                  ? "This name will flow into future invoices, emails, and branded client surfaces."
-                  : "OMMS stays as the fallback until you save your company identity."}
+        </header>
+
+        <section className="grid gap-6 xl:grid-cols-[190px_minmax(0,1fr)_280px] 2xl:grid-cols-[220px_minmax(0,1fr)_300px]">
+          <aside className="order-1 min-w-0">
+            <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
+              <div className="space-y-8">
+                <SetupStep
+                  step={1}
+                  title="Company Profile"
+                  description="Branding, business and compliance"
+                  state={companyComplete ? "complete" : "active"}
+                />
+                <SetupStep
+                  step={2}
+                  title="Email Settings"
+                  description="SMTP configuration and sender identity"
+                  state={emailConfigured ? "complete" : "pending"}
+                  isLast
+                />
+              </div>
+            </article>
+          </aside>
+
+          <aside className="order-2 min-w-0 xl:order-3">
+            <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
+              <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">Workspace summary</h2>
+
+              <div className="mt-6 flex flex-col items-center rounded-[22px] border border-stone-200 bg-stone-50/70 px-5 py-6 text-center">
+                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-[24px] bg-teal-700 text-[30px] font-semibold text-white shadow-[0_10px_28px_rgba(15,118,110,0.18)]">
+                  {companyProfile?.logo_url ? (
+                    <img className="h-full w-full object-cover" src={companyProfile.logo_url} alt={`${brandingName} logo`} />
+                  ) : (
+                    <span>{brandingName.slice(0, 2).toUpperCase()}</span>
+                  )}
+                </div>
+                <p className="mt-5 text-[30px] font-semibold tracking-[-0.03em] text-slate-900">{brandingName}</p>
+                <span className="mt-3 inline-flex min-h-9 items-center rounded-full bg-teal-50 px-4 text-sm font-semibold text-teal-700">
+                  Active workspace brand
+                </span>
+              </div>
+
+              <div className="my-6 h-px bg-stone-200" />
+
+              <div className="space-y-3">
+                <WorkspaceStatusRow
+                  label="Company profile"
+                  value={companyStatusValue}
+                  status={companyStatusBadge}
+                  tone={companyComplete ? "success" : "pending"}
+                  icon="CP"
+                />
+                <WorkspaceStatusRow
+                  label="SMTP status"
+                  value={smtpStatusValue}
+                  status={smtpStatusBadge}
+                  tone={emailConfigured ? "success" : "pending"}
+                  icon="SM"
+                />
+              </div>
+
+              <p className="mt-6 text-center text-sm leading-6 text-slate-500">
+                Complete all steps to make OMMS your official brand.
               </p>
-            </div>
-          </div>
-          <div className="setup-command-meta">
-            <div className="setup-command-stat">
-              <span>Company profile</span>
-              <strong>{companyProfile?.company_name || "Using fallback"}</strong>
-            </div>
-            <div className="setup-command-stat">
-              <span>SMTP status</span>
-              <strong>{emailSettings?.email_verified ? "Verified" : emailConfigured ? "Configured" : "Pending"}</strong>
-            </div>
-          </div>
-        </aside>
-      </section>
+            </article>
+          </aside>
 
-      <section className="setup-stepper" aria-label="Setup flow">
-        <article className="setup-step-item setup-step-item-active">
-          <span className="setup-step-count">1</span>
-          <div>
-            <p className="setup-step-title">Company Profile</p>
-            <p className="setup-step-copy">Brand, GST, invoice prefix, banking, and signatory defaults.</p>
-          </div>
-        </article>
-        <article className={`setup-step-item ${emailConfigured ? "setup-step-item-active" : ""}`}>
-          <span className="setup-step-count">2</span>
-          <div>
-            <p className="setup-step-title">Email Settings</p>
-            <p className="setup-step-copy">Sender identity, SMTP credentials, and live verification.</p>
-          </div>
-        </article>
-      </section>
+          <div className="order-3 min-w-0 space-y-6 xl:order-2">
+            <SetupCard
+              title="Company Profile"
+              subtitle="Set up your organization's identity and business details."
+              headerAction={
+                <SetupStatusBadge tone={companyComplete ? "success" : "pending"}>
+                  {companyComplete ? "Complete" : "In progress"}
+                </SetupStatusBadge>
+              }
+            >
+              {companyError ? <p className="error">{companyError}</p> : null}
+              {companySuccess ? <p className="success">{companySuccess}</p> : null}
 
-      <section className="setup-stack">
-        <article className="module-card module-card-wide setup-panel">
-          <div className="setup-panel-head">
-            <div>
-              <span className="setup-section-tag">Step 1</span>
-              <h2>Company Profile</h2>
-              <p className="helper">
-                Set the seller identity that OMMS will use for branding, GST-facing records, and invoice defaults.
-              </p>
-            </div>
-            <div className="setup-panel-meta">
-              <span className="setup-status-chip">Completion {companyCompletion}</span>
-              <span className="setup-status-chip setup-status-chip-soft">{brandingName}</span>
-            </div>
-          </div>
-          {companyError ? <p className="error">{companyError}</p> : null}
-          {companySuccess ? <p className="success">{companySuccess}</p> : null}
+              <form className="form mt-0 gap-5" onSubmit={handleCompanySubmit}>
+                <FormGroup
+                  title="Branding"
+                  subtitle="This will be used across invoices, emails and client-facing experiences."
+                >
+                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_260px]">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="field">
+                        <label htmlFor="company_name">Company Name</label>
+                        <input
+                          id="company_name"
+                          name="company_name"
+                          value={companyForm.company_name}
+                          onChange={handleCompanyChange}
+                          placeholder="Enter company name"
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="legal_name">Legal Name</label>
+                        <input
+                          id="legal_name"
+                          name="legal_name"
+                          value={companyForm.legal_name}
+                          onChange={handleCompanyChange}
+                          placeholder="Enter legal name"
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="communication_email">Communication Email</label>
+                        <input
+                          id="communication_email"
+                          name="communication_email"
+                          type="email"
+                          value={companyForm.communication_email}
+                          onChange={handleCompanyChange}
+                          placeholder="team@company.com"
+                        />
+                      </div>
+                      <div className="field">
+                        <label htmlFor="phone">Phone</label>
+                        <input
+                          id="phone"
+                          name="phone"
+                          value={companyForm.phone}
+                          onChange={handleCompanyChange}
+                          placeholder="+91 98765 43210"
+                        />
+                      </div>
+                      <div className="field md:col-span-2">
+                        <label htmlFor="address">Address</label>
+                        <textarea
+                          id="address"
+                          name="address"
+                          value={companyForm.address}
+                          onChange={handleCompanyChange}
+                          placeholder="Enter registered office address"
+                        />
+                      </div>
+                    </div>
 
-          <form className="form" onSubmit={handleCompanySubmit}>
-            <div className="setup-section-card">
-              <div className="setup-section-header">
-                <div>
-                  <h3>Identity and communication</h3>
-                  <p>Define the commercial brand and the main points of contact your team will use externally.</p>
-                </div>
-              </div>
-              <div className="setup-form-grid">
-                <div className="field">
-                  <label htmlFor="company_name">Company name</label>
-                  <input id="company_name" name="company_name" value={companyForm.company_name} onChange={handleCompanyChange} placeholder="OMMS Media" />
-                </div>
-                <div className="field">
-                  <label htmlFor="legal_name">Legal name</label>
-                  <input id="legal_name" name="legal_name" value={companyForm.legal_name} onChange={handleCompanyChange} placeholder="Outdoor Media Management Services Pvt. Ltd." />
-                </div>
-                <div className="field">
-                  <label htmlFor="communication_email">Communication email</label>
-                  <input id="communication_email" name="communication_email" type="email" value={companyForm.communication_email} onChange={handleCompanyChange} placeholder="hello@yourcompany.com" />
-                </div>
-                <div className="field">
-                  <label htmlFor="phone">Phone</label>
-                  <input id="phone" name="phone" value={companyForm.phone} onChange={handleCompanyChange} placeholder="+91 98765 43210" />
-                </div>
-                <div className="field field-span-2">
-                  <label htmlFor="address">Address</label>
-                  <textarea id="address" name="address" value={companyForm.address} onChange={handleCompanyChange} placeholder="Registered office address" />
-                </div>
-              </div>
-            </div>
-
-            <div className="setup-section-card">
-              <div className="setup-section-header">
-                <div>
-                  <h3>Tax and billing defaults</h3>
-                  <p>These values become the starting point for GST-ready billing and document generation.</p>
-                </div>
-              </div>
-              <div className="setup-form-grid">
-                <div className="field">
-                  <label htmlFor="gstin">GSTIN</label>
-                  <input id="gstin" name="gstin" value={companyForm.gstin} onChange={handleCompanyChange} placeholder="22AAAAA0000A1Z5" />
-                </div>
-                <div className="field">
-                  <label htmlFor="state_code">State code</label>
-                  <input id="state_code" name="state_code" value={companyForm.state_code} onChange={handleCompanyChange} placeholder="01" />
-                </div>
-                <div className="field">
-                  <label htmlFor="invoice_prefix">Invoice prefix</label>
-                  <input id="invoice_prefix" name="invoice_prefix" value={companyForm.invoice_prefix} onChange={handleCompanyChange} placeholder="INV" />
-                </div>
-                <div className="field">
-                  <label htmlFor="authorised_signatory">Authorised signatory</label>
-                  <input id="authorised_signatory" name="authorised_signatory" value={companyForm.authorised_signatory} onChange={handleCompanyChange} placeholder="Authorised signatory name" />
-                </div>
-                <div className="field field-span-2">
-                  <label htmlFor="bank_details">Bank details</label>
-                  <textarea id="bank_details" name="bank_details" value={companyForm.bank_details} onChange={handleCompanyChange} placeholder="Account holder, bank, branch, account number, IFSC" />
-                </div>
-              </div>
-            </div>
-
-            <div className="setup-section-card">
-              <div className="setup-section-header">
-                <div>
-                  <h3>Brand asset</h3>
-                  <p>Upload a clean logo now so future invoices and branded screens can pick it up automatically.</p>
-                </div>
-              </div>
-              <div className="setup-upload-row">
-                <div className="field">
-                  <label htmlFor="logo">Logo</label>
-                  <input
-                    id="logo"
-                    name="logo"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                    onChange={(event) => setLogoFile(event.target.files?.[0] ?? null)}
-                  />
-                  <p className="field-help">PNG or JPEG works best for the current OMMS theme.</p>
-                </div>
-                <div className="setup-mini-preview">
-                  <div className="setup-brand-mark setup-brand-mark-small">
-                    {companyProfile?.logo_url ? (
-                      <img src={companyProfile.logo_url} alt={`${brandingName} logo`} />
-                    ) : (
-                      <span>{brandingName.slice(0, 2).toUpperCase()}</span>
-                    )}
+                    <div className="field">
+                      <label htmlFor="logo">Brand Logo</label>
+                      <label
+                        htmlFor="logo"
+                        className="flex min-h-[230px] cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed border-stone-300 bg-white px-6 py-8 text-center transition hover:border-teal-300 hover:bg-teal-50/40"
+                      >
+                        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-teal-50 text-2xl text-teal-700">
+                          ⤴
+                        </div>
+                        {companyProfile?.logo_url ? (
+                          <div className="mb-4 overflow-hidden rounded-[18px] border border-stone-200 bg-stone-50">
+                            <img
+                              className="h-24 w-24 object-cover"
+                              src={companyProfile.logo_url}
+                              alt={`${brandingName} logo preview`}
+                            />
+                          </div>
+                        ) : null}
+                        <p className="text-base font-semibold text-slate-900">
+                          {logoFile ? logoFile.name : "Upload logo"}
+                        </p>
+                        <p className="mt-2 text-sm text-slate-500">PNG, JPG up to 2MB</p>
+                      </label>
+                      <input
+                        id="logo"
+                        name="logo"
+                        className="sr-only"
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        onChange={(event) => setLogoFile(event.target.files?.[0] ?? null)}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <p className="stat-label">Preview</p>
-                    <p className="setup-mini-preview-name">{brandingName}</p>
+                </FormGroup>
+
+                <FormGroup
+                  title="Business Details"
+                  subtitle="Legal and tax information for invoicing and compliance."
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="field">
+                      <label htmlFor="gstin">GST Number</label>
+                      <input
+                        id="gstin"
+                        name="gstin"
+                        value={companyForm.gstin}
+                        onChange={handleCompanyChange}
+                        placeholder="Enter GST number"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="invoice_prefix">Invoice Prefix</label>
+                      <input
+                        id="invoice_prefix"
+                        name="invoice_prefix"
+                        value={companyForm.invoice_prefix}
+                        onChange={handleCompanyChange}
+                        placeholder="Enter invoice prefix"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="state_code">State Code</label>
+                      <input
+                        id="state_code"
+                        name="state_code"
+                        value={companyForm.state_code}
+                        onChange={handleCompanyChange}
+                        placeholder="Enter state code"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="authorised_signatory">Authorised Signatory</label>
+                      <input
+                        id="authorised_signatory"
+                        name="authorised_signatory"
+                        value={companyForm.authorised_signatory}
+                        onChange={handleCompanyChange}
+                        placeholder="Enter signatory name"
+                      />
+                    </div>
+                    <div className="field md:col-span-2">
+                      <label htmlFor="bank_details">Bank Details</label>
+                      <textarea
+                        id="bank_details"
+                        name="bank_details"
+                        value={companyForm.bank_details}
+                        onChange={handleCompanyChange}
+                        placeholder="Account holder, bank name, account number, branch, IFSC"
+                      />
+                    </div>
                   </div>
+                </FormGroup>
+
+                <div className="form-actions justify-end pt-1">
+                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingCompany}>
+                    {isSavingCompany ? "Saving profile..." : "Save & Continue"}
+                  </button>
                 </div>
-              </div>
-            </div>
+              </form>
+            </SetupCard>
 
-            <div className="form-actions">
-              <button className="submit" type="submit" disabled={isSavingCompany}>
-                {isSavingCompany ? "Saving profile..." : "Save company profile"}
-              </button>
-            </div>
-          </form>
-        </article>
+            <SetupCard
+              title="Email Settings"
+              subtitle="Configure sender identity and SMTP credentials."
+              headerAction={
+                <SetupStatusBadge tone={emailConfigured ? "success" : "pending"}>
+                  {emailConfigured ? "Configured" : "Pending"}
+                </SetupStatusBadge>
+              }
+            >
+              {emailError ? <p className="error">{emailError}</p> : null}
+              {emailSuccess ? <p className="success">{emailSuccess}</p> : null}
+              {testEmailSuccess ? <p className="success">{testEmailSuccess}</p> : null}
 
-        <article className="module-card module-card-wide setup-panel">
-          <div className="setup-panel-head">
-            <div>
-              <span className="setup-section-tag">Step 2</span>
-              <h2>Email Settings</h2>
-              <p className="helper">
-                Configure a sender identity for future workflow emails. Credentials stay encrypted and private.
-              </p>
-            </div>
-            <div className="setup-panel-meta">
-              <span className={`setup-status-chip ${emailSettings?.email_verified ? "setup-status-chip-success" : ""}`}>
-                {emailSettings?.email_verified ? "SMTP verified" : "Verification pending"}
-              </span>
-              <span className="setup-status-chip setup-status-chip-soft">
-                {emailSettings?.has_smtp_password ? "Password stored" : "Password missing"}
-              </span>
-            </div>
+              <form className="form mt-0 gap-5" onSubmit={handleEmailSubmit}>
+                <FormGroup
+                  title="Sender Identity"
+                  subtitle="Choose the visible sender addresses OMMS will use for workflow emails."
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="field">
+                      <label htmlFor="from_email">From Email</label>
+                      <input
+                        id="from_email"
+                        name="from_email"
+                        type="email"
+                        value={emailForm.from_email}
+                        onChange={handleEmailChange}
+                        placeholder="no-reply@yourcompany.com"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="reply_to_email">Reply-to Email</label>
+                      <input
+                        id="reply_to_email"
+                        name="reply_to_email"
+                        type="email"
+                        value={emailForm.reply_to_email}
+                        onChange={handleEmailChange}
+                        placeholder="support@yourcompany.com"
+                      />
+                    </div>
+                  </div>
+                </FormGroup>
+
+                <FormGroup
+                  title="SMTP Connection"
+                  subtitle="Store the server credentials securely so OMMS can deliver notifications later."
+                >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="field">
+                      <label htmlFor="smtp_host">SMTP Host</label>
+                      <input
+                        id="smtp_host"
+                        name="smtp_host"
+                        value={emailForm.smtp_host}
+                        onChange={handleEmailChange}
+                        placeholder="smtp.provider.com"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="smtp_port">SMTP Port</label>
+                      <input
+                        id="smtp_port"
+                        name="smtp_port"
+                        type="number"
+                        min="1"
+                        value={emailForm.smtp_port}
+                        onChange={handleEmailChange}
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="smtp_username">SMTP Username</label>
+                      <input
+                        id="smtp_username"
+                        name="smtp_username"
+                        value={emailForm.smtp_username}
+                        onChange={handleEmailChange}
+                        placeholder="smtp-user"
+                      />
+                    </div>
+                    <div className="field">
+                      <label htmlFor="smtp_password">SMTP Password</label>
+                      <input
+                        id="smtp_password"
+                        name="smtp_password"
+                        type="password"
+                        value={emailForm.smtp_password}
+                        onChange={handleEmailChange}
+                        placeholder={emailSettings?.has_smtp_password ? "Leave blank to keep current password" : "Enter SMTP password"}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700">
+                      <input type="checkbox" name="use_tls" checked={emailForm.use_tls} onChange={handleEmailChange} />
+                      <span>Use TLS</span>
+                    </label>
+                    <label className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700">
+                      <input type="checkbox" name="use_ssl" checked={emailForm.use_ssl} onChange={handleEmailChange} />
+                      <span>Use SSL</span>
+                    </label>
+                  </div>
+                </FormGroup>
+
+                <FormGroup
+                  title="Verification"
+                  subtitle="Send a test email to confirm the connection works before live notifications depend on it."
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row">
+                    <input
+                      className="min-h-[54px] flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-sm shadow-sm"
+                      type="email"
+                      value={testRecipientEmail}
+                      onChange={(event) => setTestRecipientEmail(event.target.value)}
+                      placeholder="recipient@example.com"
+                    />
+                    <button
+                      className="ghost min-h-[54px] shrink-0 px-5"
+                      type="button"
+                      onClick={handleSendTestEmail}
+                      disabled={isSendingTest}
+                    >
+                      {isSendingTest ? "Sending..." : "Send test email"}
+                    </button>
+                  </div>
+                </FormGroup>
+
+                <div className="form-actions justify-end pt-1">
+                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingEmail}>
+                    {isSavingEmail ? "Saving email settings..." : "Save email settings"}
+                  </button>
+                </div>
+              </form>
+            </SetupCard>
           </div>
-          {emailError ? <p className="error">{emailError}</p> : null}
-          {emailSuccess ? <p className="success">{emailSuccess}</p> : null}
-          {testEmailSuccess ? <p className="success">{testEmailSuccess}</p> : null}
-
-          <form className="form" onSubmit={handleEmailSubmit}>
-            <div className="setup-section-card">
-              <div className="setup-section-header">
-                <div>
-                  <h3>Sender identity</h3>
-                  <p>Choose the visible sender addresses clients will see when OMMS sends workflow emails later.</p>
-                </div>
-              </div>
-              <div className="setup-form-grid">
-                <div className="field">
-                  <label htmlFor="from_email">From email</label>
-                  <input id="from_email" name="from_email" type="email" value={emailForm.from_email} onChange={handleEmailChange} placeholder="no-reply@yourcompany.com" />
-                </div>
-                <div className="field">
-                  <label htmlFor="reply_to_email">Reply-to email</label>
-                  <input id="reply_to_email" name="reply_to_email" type="email" value={emailForm.reply_to_email} onChange={handleEmailChange} placeholder="support@yourcompany.com" />
-                </div>
-              </div>
-            </div>
-
-            <div className="setup-section-card">
-              <div className="setup-section-header">
-                <div>
-                  <h3>SMTP connection</h3>
-                  <p>Store the server credentials securely now, then verify with a live test send below.</p>
-                </div>
-              </div>
-              <div className="setup-form-grid">
-                <div className="field">
-                  <label htmlFor="smtp_host">SMTP host</label>
-                  <input id="smtp_host" name="smtp_host" value={emailForm.smtp_host} onChange={handleEmailChange} placeholder="smtp.provider.com" />
-                </div>
-                <div className="field">
-                  <label htmlFor="smtp_port">SMTP port</label>
-                  <input id="smtp_port" name="smtp_port" type="number" min="1" value={emailForm.smtp_port} onChange={handleEmailChange} />
-                </div>
-                <div className="field">
-                  <label htmlFor="smtp_username">SMTP username</label>
-                  <input id="smtp_username" name="smtp_username" value={emailForm.smtp_username} onChange={handleEmailChange} placeholder="smtp-user" />
-                </div>
-                <div className="field">
-                  <label htmlFor="smtp_password">SMTP password</label>
-                  <input
-                    id="smtp_password"
-                    name="smtp_password"
-                    type="password"
-                    value={emailForm.smtp_password}
-                    onChange={handleEmailChange}
-                    placeholder={emailSettings?.has_smtp_password ? "Leave blank to keep current password" : ""}
-                  />
-                </div>
-              </div>
-
-              <div className="setup-checkbox-row">
-                <label className="setup-checkbox">
-                  <input type="checkbox" name="use_tls" checked={emailForm.use_tls} onChange={handleEmailChange} />
-                  <span>Use TLS</span>
-                </label>
-                <label className="setup-checkbox">
-                  <input type="checkbox" name="use_ssl" checked={emailForm.use_ssl} onChange={handleEmailChange} />
-                  <span>Use SSL</span>
-                </label>
-              </div>
-            </div>
-
-            <div className="form-actions">
-              <button className="submit" type="submit" disabled={isSavingEmail}>
-                {isSavingEmail ? "Saving email settings..." : "Save email settings"}
-              </button>
-            </div>
-          </form>
-
-          <div className="setup-test-card">
-            <div className="setup-test-copy">
-              <span className="setup-section-tag">Verification</span>
-              <h3>Send a live SMTP check</h3>
-              <p className="helper">
-                Confirm the mailbox and server path work end to end before later notification flows depend on them.
-              </p>
-            </div>
-            <div className="setup-test-actions">
-              <input
-                className="setup-inline-input"
-                type="email"
-                value={testRecipientEmail}
-                onChange={(event) => setTestRecipientEmail(event.target.value)}
-                placeholder="recipient@example.com"
-              />
-              <button className="ghost setup-secondary-action" type="button" onClick={handleSendTestEmail} disabled={isSendingTest}>
-                {isSendingTest ? "Sending..." : "Send test email"}
-              </button>
-            </div>
-          </div>
-        </article>
+        </section>
       </section>
     </AppShell>
   );
