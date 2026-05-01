@@ -43,6 +43,33 @@ class SetupService:
         if cls.is_effectively_locked():
             raise PermissionDenied("Setup is locked. Request an email OTP unlock before making changes.")
 
+    @staticmethod
+    def _mask_email(email: str) -> str:
+        local, separator, domain = email.partition("@")
+        if not separator or not local or not domain:
+            return "the Super Admin email"
+        if len(local) <= 2:
+            masked_local = f"{local[0]}***"
+        else:
+            masked_local = f"{local[0]}***{local[-1]}"
+        return f"{masked_local}@{domain}"
+
+    @staticmethod
+    def _unlock_otp_error(reason: str) -> serializers.ValidationError:
+        return serializers.ValidationError(
+            {
+                "detail": "Unable to send unlock OTP.",
+                "error": reason,
+            }
+        )
+
+    @classmethod
+    def _validate_unlock_email_settings(cls, email_settings: OrganizationEmailSettings) -> None:
+        if not email_settings.from_email or not email_settings.smtp_host:
+            raise cls._unlock_otp_error("SMTP settings are not configured.")
+        if not email_settings.email_verified:
+            raise cls._unlock_otp_error("SMTP test has not been verified.")
+
     @classmethod
     def get_setup_status(cls) -> dict:
         profile = cls.get_company_profile()
@@ -149,12 +176,22 @@ class SetupService:
         return cls.get_setup_status()
 
     @classmethod
-    @transaction.atomic
     def request_unlock_otp(cls, *, actor) -> dict:
         profile = cls.get_company_profile()
-        recipient_email = getattr(actor, "email", "") or profile.communication_email
+        if not cls.is_effectively_locked(profile):
+            raise cls._unlock_otp_error("Setup is not locked.")
+
+        recipient_email = getattr(actor, "email", "")
         if not recipient_email:
-            raise serializers.ValidationError({"detail": "A Super Admin email address is required to send an unlock OTP."})
+            raise cls._unlock_otp_error("Super admin email is missing.")
+
+        email_settings = cls.get_email_settings()
+        cls._validate_unlock_email_settings(email_settings)
+
+        try:
+            connection = cls._build_email_connection(email_settings)
+        except serializers.ValidationError as exc:
+            raise cls._unlock_otp_error("SMTP settings are not configured.") from exc
 
         otp = f"{secrets.randbelow(1_000_000):06d}"
         expires_at = timezone.now() + timezone.timedelta(minutes=10)
@@ -178,21 +215,42 @@ class SetupService:
             f"OTP: {otp}\n\n"
             "This OTP expires in 10 minutes. If you did not request this, ignore this email."
         )
-        email_settings = cls.get_email_settings()
-        from_email = email_settings.from_email or settings.DEFAULT_FROM_EMAIL
+        from_email = email_settings.from_email
         reply_to = [email_settings.reply_to_email] if email_settings.reply_to_email else None
-        EmailMessage(
+        message = EmailMessage(
             subject=subject,
             body=body,
             from_email=from_email,
             to=[recipient_email],
             reply_to=reply_to,
-            connection=get_connection(),
-        ).send(fail_silently=False)
+            connection=connection,
+        )
+        try:
+            message.send(fail_silently=False)
+        except Exception as exc:
+            profile.setup_unlock_otp_hash = ""
+            profile.setup_unlock_otp_expires_at = None
+            profile.setup_unlock_attempts = 0
+            profile.save(
+                update_fields=[
+                    "setup_unlock_otp_hash",
+                    "setup_unlock_otp_expires_at",
+                    "setup_unlock_attempts",
+                    "updated_at",
+                ]
+            )
+            cls._audit(
+                SetupAuditLog.Action.OTP_FAILED,
+                actor=actor,
+                message="OTP request failed: email delivery failed.",
+            )
+            raise cls._unlock_otp_error("Email delivery failed.") from exc
+
         cls._audit(SetupAuditLog.Action.OTP_REQUESTED, actor=actor, message="Setup unlock OTP requested.")
         return {
             "status": "otp_sent",
             "expires_at": expires_at,
+            "recipient_email": cls._mask_email(recipient_email),
         }
 
     @classmethod

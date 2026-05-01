@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+from unittest.mock import patch
 
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -32,6 +33,20 @@ class SetupApiTests(TestCase):
         image = Image.new("RGB", (40, 40), color="navy")
         image.save(buffer, format="PNG")
         return SimpleUploadedFile("logo.png", buffer.getvalue(), content_type="image/png")
+
+    def _configure_verified_email_settings(self):
+        email_settings, _ = OrganizationEmailSettings.objects.get_or_create(singleton_key=1)
+        email_settings.from_email = "mailer@example.com"
+        email_settings.reply_to_email = "reply@example.com"
+        email_settings.smtp_host = "smtp.example.com"
+        email_settings.smtp_port = 587
+        email_settings.smtp_username = "mailer"
+        email_settings.use_tls = True
+        email_settings.use_ssl = False
+        email_settings.email_verified = True
+        email_settings.set_smtp_password("super-secret-password")
+        email_settings.save()
+        return email_settings
 
     def test_admin_can_fetch_default_company_profile_with_omms_fallback(self):
         self._authenticate(self.admin)
@@ -180,12 +195,14 @@ class SetupApiTests(TestCase):
 
     def test_unlock_otp_is_emailed_hashed_and_unlocks_temporarily(self):
         self._authenticate(self.admin)
+        self._configure_verified_email_settings()
         self.client.post("/api/v1/setup/submit/", {}, format="json")
 
         request_response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
 
         self.assertEqual(request_response.status_code, 200)
         self.assertEqual(request_response.data["status"], "otp_sent")
+        self.assertEqual(request_response.data["recipient_email"], "a***n@example.com")
         self.assertEqual(len(mail.outbox), 1)
         otp = mail.outbox[0].body.split("OTP: ")[1].split("\n")[0].strip()
         self.assertRegex(otp, r"^\d{6}$")
@@ -213,6 +230,7 @@ class SetupApiTests(TestCase):
 
     def test_unlock_otp_rejects_after_three_failed_attempts(self):
         self._authenticate(self.admin)
+        self._configure_verified_email_settings()
         self.client.post("/api/v1/setup/submit/", {}, format="json")
         self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
 
@@ -227,6 +245,7 @@ class SetupApiTests(TestCase):
 
     def test_manual_lock_relocks_unlocked_setup(self):
         self._authenticate(self.admin)
+        self._configure_verified_email_settings()
         self.client.post("/api/v1/setup/submit/", {}, format="json")
         self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
         otp = mail.outbox[0].body.split("OTP: ")[1].split("\n")[0].strip()
@@ -237,3 +256,63 @@ class SetupApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.data["setup_locked"])
         self.assertTrue(SetupAuditLog.objects.filter(action=SetupAuditLog.Action.LOCKED).exists())
+
+    def test_unlock_otp_request_requires_locked_setup(self):
+        self._authenticate(self.admin)
+        self._configure_verified_email_settings()
+
+        response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "Unable to send unlock OTP.")
+        self.assertEqual(response.data["error"], "Setup is not locked.")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_unlock_otp_request_requires_super_admin_email(self):
+        self.admin.email = ""
+        self.admin.save(update_fields=["email"])
+        self._authenticate(self.admin)
+        self._configure_verified_email_settings()
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+
+        response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "Unable to send unlock OTP.")
+        self.assertEqual(response.data["error"], "Super admin email is missing.")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_unlock_otp_request_requires_verified_smtp_settings(self):
+        self._authenticate(self.admin)
+        OrganizationEmailSettings.objects.create(
+            from_email="mailer@example.com",
+            smtp_host="smtp.example.com",
+            smtp_port=587,
+            smtp_username="mailer",
+            use_tls=True,
+            use_ssl=False,
+            email_verified=False,
+        )
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+
+        response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "Unable to send unlock OTP.")
+        self.assertEqual(response.data["error"], "SMTP test has not been verified.")
+        self.assertEqual(len(mail.outbox), 0)
+
+    def test_unlock_otp_email_failure_returns_safe_error_and_does_not_store_otp(self):
+        self._authenticate(self.admin)
+        self._configure_verified_email_settings()
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+
+        with patch("apps.setup.services.EmailMessage.send", side_effect=Exception("smtp exploded")):
+            response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "Unable to send unlock OTP.")
+        self.assertEqual(response.data["error"], "Email delivery failed.")
+        profile = CompanyProfile.objects.get(singleton_key=1)
+        self.assertEqual(profile.setup_unlock_otp_hash, "")
+        self.assertTrue(SetupAuditLog.objects.filter(action=SetupAuditLog.Action.OTP_FAILED).exists())

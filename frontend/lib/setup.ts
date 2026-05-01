@@ -54,6 +54,7 @@ export type SetupStatus = {
 export type SetupOtpRequestResponse = {
   status: string;
   expires_at: string;
+  recipient_email: string;
 };
 
 export async function fetchSetupStatus() {

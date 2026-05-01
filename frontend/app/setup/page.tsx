@@ -4,7 +4,7 @@ import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useState } from 
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
-import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
+import { ApiError, clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
   fetchCompanyProfile,
   fetchOrganizationEmailSettings,
@@ -100,6 +100,14 @@ function readEmailForm(settings: OrganizationEmailSettings): EmailSettingsForm {
     use_tls: settings.use_tls ?? true,
     use_ssl: settings.use_ssl ?? false,
   };
+}
+
+function getSetupErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    const backendReason = error.fieldErrors.error?.[0];
+    return backendReason ? `${error.message} ${backendReason}` : error.message;
+  }
+  return error instanceof Error ? error.message : fallback;
 }
 
 function SetupStatusBadge({
@@ -525,9 +533,9 @@ export default function SetupPage() {
       const response = await requestSetupUnlockOtp();
       setOtpRequestedUntil(response.expires_at);
       setUnlockOtp("");
-      setSetupActionMessage("Unlock OTP sent to the Super Admin email.");
+      setSetupActionMessage(`Unlock OTP sent to ${response.recipient_email}.`);
     } catch (requestError) {
-      setPageError(requestError instanceof Error ? requestError.message : "Unable to request unlock OTP.");
+      setPageError(getSetupErrorMessage(requestError, "Unable to request unlock OTP."));
     } finally {
       setIsRequestingOtp(false);
     }
