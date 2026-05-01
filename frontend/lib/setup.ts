@@ -15,6 +15,9 @@ export type CompanyProfile = {
   bank_details: string;
   authorised_signatory: string;
   branding_name: string;
+  setup_status: "draft" | "submitted";
+  setup_locked: boolean;
+  setup_unlocked_until: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -38,6 +41,52 @@ export type TestEmailResponse = {
   status: string;
   recipient_email: string;
 };
+
+export type SetupStatus = {
+  setup_status: "draft" | "submitted";
+  setup_locked: boolean;
+  setup_unlocked_until: string | null;
+  setup_unlock_otp_expires_at: string | null;
+  setup_unlock_attempts: number;
+  max_unlock_attempts: number;
+};
+
+export type SetupOtpRequestResponse = {
+  status: string;
+  expires_at: string;
+};
+
+export async function fetchSetupStatus() {
+  return apiFetch<SetupStatus>("setup/status/");
+}
+
+export async function submitSetup() {
+  return apiFetch<SetupStatus>("setup/submit/", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function lockSetup() {
+  return apiFetch<SetupStatus>("setup/lock/", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function requestSetupUnlockOtp() {
+  return apiFetch<SetupOtpRequestResponse>("setup/unlock/request-otp/", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function verifySetupUnlockOtp(otp: string) {
+  return apiFetch<SetupStatus>("setup/unlock/verify-otp/", {
+    method: "POST",
+    body: JSON.stringify({ otp }),
+  });
+}
 
 export async function fetchCompanyProfile() {
   return apiFetch<CompanyProfile>("setup/company-profile/");

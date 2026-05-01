@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from django.db import models
+from django.conf import settings
 
 from core.crypto import decrypt_text, encrypt_text
 from core.models import TimeStampedModel
@@ -18,6 +19,10 @@ class SingletonModel(TimeStampedModel):
 
 
 class CompanyProfile(SingletonModel):
+    class SetupStatus(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SUBMITTED = "submitted", "Submitted"
+
     company_name = models.CharField(max_length=255, blank=True)
     legal_name = models.CharField(max_length=255, blank=True)
     logo = models.ImageField(upload_to="branding/logos/", blank=True, null=True)
@@ -29,6 +34,13 @@ class CompanyProfile(SingletonModel):
     invoice_prefix = models.CharField(max_length=20, blank=True, default="INV")
     bank_details = models.TextField(blank=True)
     authorised_signatory = models.CharField(max_length=255, blank=True)
+    setup_status = models.CharField(max_length=20, choices=SetupStatus.choices, default=SetupStatus.DRAFT)
+    setup_locked = models.BooleanField(default=False)
+    setup_unlocked_until = models.DateTimeField(blank=True, null=True)
+    setup_unlock_requested_at = models.DateTimeField(blank=True, null=True)
+    setup_unlock_otp_hash = models.CharField(max_length=255, blank=True)
+    setup_unlock_otp_expires_at = models.DateTimeField(blank=True, null=True)
+    setup_unlock_attempts = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         verbose_name = "Company profile"
@@ -40,6 +52,26 @@ class CompanyProfile(SingletonModel):
     @property
     def branding_name(self) -> str:
         return self.company_name or self.legal_name or "OMMS"
+
+
+class SetupAuditLog(TimeStampedModel):
+    class Action(models.TextChoices):
+        SUBMITTED = "submitted", "Setup submitted"
+        OTP_REQUESTED = "otp_requested", "OTP requested"
+        OTP_VERIFIED = "otp_verified", "OTP verified"
+        OTP_FAILED = "otp_failed", "OTP verification failed"
+        UNLOCKED = "unlocked", "Setup unlocked"
+        LOCKED = "locked", "Setup locked"
+
+    action = models.CharField(max_length=40, choices=Action.choices)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, blank=True, null=True, on_delete=models.SET_NULL)
+    message = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.action} at {self.created_at:%Y-%m-%d %H:%M}"
 
 
 class OrganizationEmailSettings(SingletonModel):

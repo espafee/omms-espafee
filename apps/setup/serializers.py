@@ -29,16 +29,29 @@ class CompanyProfileSerializer(serializers.ModelSerializer):
             "bank_details",
             "authorised_signatory",
             "branding_name",
+            "setup_status",
+            "setup_locked",
+            "setup_unlocked_until",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "branding_name", "created_at", "updated_at", "logo_url"]
+        read_only_fields = [
+            "id",
+            "branding_name",
+            "created_at",
+            "updated_at",
+            "logo_url",
+            "setup_status",
+            "setup_locked",
+            "setup_unlocked_until",
+        ]
 
     def get_logo_url(self, obj: CompanyProfile) -> str | None:
         return build_public_media_url(obj.logo, request=self.context.get("request"))
 
     def update(self, instance: CompanyProfile, validated_data):
-        return SetupService.update_company_profile(**validated_data)
+        request = self.context.get("request")
+        return SetupService.update_company_profile(actor=getattr(request, "user", None), **validated_data)
 
 
 class OrganizationEmailSettingsSerializer(serializers.ModelSerializer):
@@ -73,8 +86,17 @@ class OrganizationEmailSettingsSerializer(serializers.ModelSerializer):
 
     def update(self, instance: OrganizationEmailSettings, validated_data):
         smtp_password = validated_data.pop("smtp_password", None)
-        return SetupService.update_email_settings(smtp_password=smtp_password, **validated_data)
+        request = self.context.get("request")
+        return SetupService.update_email_settings(
+            actor=getattr(request, "user", None),
+            smtp_password=smtp_password,
+            **validated_data,
+        )
 
 
 class TestEmailSerializer(serializers.Serializer):
     recipient_email = serializers.EmailField(required=False, allow_blank=False)
+
+
+class SetupUnlockVerifySerializer(serializers.Serializer):
+    otp = serializers.RegexField(regex=r"^\d{6}$", trim_whitespace=True)

@@ -5,10 +5,11 @@ from io import BytesIO
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.setup.models import CompanyProfile, OrganizationEmailSettings
+from apps.setup.models import CompanyProfile, OrganizationEmailSettings, SetupAuditLog
 from apps.users.models import User
 
 
@@ -157,3 +158,82 @@ class SetupApiTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.data["email_verified"])
+
+    def test_setup_submit_locks_future_updates(self):
+        self._authenticate(self.admin)
+        response = self.client.post("/api/v1/setup/submit/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["setup_locked"])
+        profile = CompanyProfile.objects.get(singleton_key=1)
+        self.assertEqual(profile.setup_status, CompanyProfile.SetupStatus.SUBMITTED)
+        self.assertTrue(profile.setup_locked)
+        self.assertTrue(SetupAuditLog.objects.filter(action=SetupAuditLog.Action.SUBMITTED).exists())
+
+        update_response = self.client.patch(
+            "/api/v1/setup/company-profile/",
+            {"company_name": "Blocked"},
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, 403)
+
+    def test_unlock_otp_is_emailed_hashed_and_unlocks_temporarily(self):
+        self._authenticate(self.admin)
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+
+        request_response = self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        self.assertEqual(request_response.status_code, 200)
+        self.assertEqual(request_response.data["status"], "otp_sent")
+        self.assertEqual(len(mail.outbox), 1)
+        otp = mail.outbox[0].body.split("OTP: ")[1].split("\n")[0].strip()
+        self.assertRegex(otp, r"^\d{6}$")
+        profile = CompanyProfile.objects.get(singleton_key=1)
+        self.assertNotEqual(profile.setup_unlock_otp_hash, otp)
+        self.assertTrue(profile.setup_unlock_otp_hash)
+
+        verify_response = self.client.post("/api/v1/setup/unlock/verify-otp/", {"otp": otp}, format="json")
+
+        self.assertEqual(verify_response.status_code, 200)
+        self.assertFalse(verify_response.data["setup_locked"])
+        profile.refresh_from_db()
+        self.assertFalse(profile.setup_locked)
+        self.assertGreater(profile.setup_unlocked_until, timezone.now())
+        self.assertEqual(profile.setup_unlock_otp_hash, "")
+        self.assertTrue(SetupAuditLog.objects.filter(action=SetupAuditLog.Action.UNLOCKED).exists())
+
+        update_response = self.client.patch(
+            "/api/v1/setup/company-profile/",
+            {"company_name": "Unlocked"},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, 200)
+        self.assertEqual(update_response.data["company_name"], "Unlocked")
+
+    def test_unlock_otp_rejects_after_three_failed_attempts(self):
+        self._authenticate(self.admin)
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+        self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+
+        for _ in range(3):
+            response = self.client.post("/api/v1/setup/unlock/verify-otp/", {"otp": "000000"}, format="json")
+            self.assertEqual(response.status_code, 400)
+
+        response = self.client.post("/api/v1/setup/unlock/verify-otp/", {"otp": "111111"}, format="json")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("Too many failed attempts", str(response.data))
+
+    def test_manual_lock_relocks_unlocked_setup(self):
+        self._authenticate(self.admin)
+        self.client.post("/api/v1/setup/submit/", {}, format="json")
+        self.client.post("/api/v1/setup/unlock/request-otp/", {}, format="json")
+        otp = mail.outbox[0].body.split("OTP: ")[1].split("\n")[0].strip()
+        self.client.post("/api/v1/setup/unlock/verify-otp/", {"otp": otp}, format="json")
+
+        response = self.client.post("/api/v1/setup/lock/", {}, format="json")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data["setup_locked"])
+        self.assertTrue(SetupAuditLog.objects.filter(action=SetupAuditLog.Action.LOCKED).exists())

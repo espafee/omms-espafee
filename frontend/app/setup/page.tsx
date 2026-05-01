@@ -8,11 +8,17 @@ import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } fro
 import {
   fetchCompanyProfile,
   fetchOrganizationEmailSettings,
+  fetchSetupStatus,
+  lockSetup,
+  requestSetupUnlockOtp,
   sendOrganizationTestEmail,
+  submitSetup,
   updateCompanyProfile,
   updateOrganizationEmailSettings,
+  verifySetupUnlockOtp,
   type CompanyProfile,
   type OrganizationEmailSettings,
+  type SetupStatus,
 } from "@/lib/setup";
 
 type CompanyProfileForm = {
@@ -255,20 +261,29 @@ export default function SetupPage() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [companyProfile, setCompanyProfile] = useState<CompanyProfile | null>(null);
   const [emailSettings, setEmailSettings] = useState<OrganizationEmailSettings | null>(null);
+  const [setupStatus, setSetupStatus] = useState<SetupStatus | null>(null);
   const [companyForm, setCompanyForm] = useState<CompanyProfileForm>(emptyCompanyForm);
   const [emailForm, setEmailForm] = useState<EmailSettingsForm>(emptyEmailForm);
   const [testRecipientEmail, setTestRecipientEmail] = useState("");
+  const [unlockOtp, setUnlockOtp] = useState("");
+  const [otpRequestedUntil, setOtpRequestedUntil] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingCompany, setIsSavingCompany] = useState(false);
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [isSendingTest, setIsSendingTest] = useState(false);
+  const [isSubmittingSetup, setIsSubmittingSetup] = useState(false);
+  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [isLockingSetup, setIsLockingSetup] = useState(false);
+  const [isReviewingSetup, setIsReviewingSetup] = useState(false);
   const [pageError, setPageError] = useState("");
   const [companyError, setCompanyError] = useState("");
   const [companySuccess, setCompanySuccess] = useState("");
   const [emailError, setEmailError] = useState("");
   const [emailSuccess, setEmailSuccess] = useState("");
   const [testEmailSuccess, setTestEmailSuccess] = useState("");
+  const [setupActionMessage, setSetupActionMessage] = useState("");
 
   useEffect(() => {
     const token = getAccessToken();
@@ -298,9 +313,14 @@ export default function SetupPage() {
         }
         setUser(profile);
 
-        const [company, email] = await Promise.all([fetchCompanyProfile(), fetchOrganizationEmailSettings()]);
+        const [company, email, lifecycle] = await Promise.all([
+          fetchCompanyProfile(),
+          fetchOrganizationEmailSettings(),
+          fetchSetupStatus(),
+        ]);
         setCompanyProfile(company);
         setEmailSettings(email);
+        setSetupStatus(lifecycle);
         setCompanyForm(readCompanyForm(company));
         setEmailForm(readEmailForm(email));
         setTestRecipientEmail(company.communication_email || email.reply_to_email || email.from_email || "");
@@ -357,6 +377,16 @@ export default function SetupPage() {
       : "Sender configured"
     : "Not configured";
   const smtpStatusBadge = emailConfigured ? "Configured" : "Pending";
+  const setupLocked = Boolean(setupStatus?.setup_locked);
+  const setupSubmitted = setupStatus?.setup_status === "submitted";
+  const setupTemporarilyUnlocked = setupSubmitted && !setupLocked && Boolean(setupStatus?.setup_unlocked_until);
+  const setupReadOnly = setupLocked;
+  const unlockExpiryLabel = setupStatus?.setup_unlocked_until
+    ? new Date(setupStatus.setup_unlocked_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
+  const otpExpiryLabel = otpRequestedUntil
+    ? new Date(otpRequestedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
 
   function handleLogout() {
     clearAuthSession();
@@ -378,6 +408,10 @@ export default function SetupPage() {
 
   async function handleCompanySubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (setupReadOnly) {
+      setCompanyError("Setup is locked. Request an email OTP unlock before making changes.");
+      return;
+    }
     setIsSavingCompany(true);
     setCompanyError("");
     setCompanySuccess("");
@@ -408,6 +442,10 @@ export default function SetupPage() {
 
   async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (setupReadOnly) {
+      setEmailError("Setup is locked. Request an email OTP unlock before making changes.");
+      return;
+    }
     setIsSavingEmail(true);
     setEmailError("");
     setEmailSuccess("");
@@ -442,6 +480,10 @@ export default function SetupPage() {
   }
 
   async function handleSendTestEmail() {
+    if (setupReadOnly) {
+      setEmailError("Setup is locked. Request an email OTP unlock before testing email settings.");
+      return;
+    }
     setIsSendingTest(true);
     setEmailError("");
     setTestEmailSuccess("");
@@ -454,6 +496,74 @@ export default function SetupPage() {
       setEmailError(sendError instanceof Error ? sendError.message : "Unable to send the test email.");
     } finally {
       setIsSendingTest(false);
+    }
+  }
+
+  async function handleSubmitSetup() {
+    setIsSubmittingSetup(true);
+    setPageError("");
+    setSetupActionMessage("");
+
+    try {
+      const updated = await submitSetup();
+      setSetupStatus(updated);
+      setIsReviewingSetup(false);
+      setSetupActionMessage("Setup submitted and locked.");
+    } catch (submitError) {
+      setPageError(submitError instanceof Error ? submitError.message : "Unable to submit setup.");
+    } finally {
+      setIsSubmittingSetup(false);
+    }
+  }
+
+  async function handleRequestUnlockOtp() {
+    setIsRequestingOtp(true);
+    setPageError("");
+    setSetupActionMessage("");
+
+    try {
+      const response = await requestSetupUnlockOtp();
+      setOtpRequestedUntil(response.expires_at);
+      setUnlockOtp("");
+      setSetupActionMessage("Unlock OTP sent to the Super Admin email.");
+    } catch (requestError) {
+      setPageError(requestError instanceof Error ? requestError.message : "Unable to request unlock OTP.");
+    } finally {
+      setIsRequestingOtp(false);
+    }
+  }
+
+  async function handleVerifyUnlockOtp() {
+    setIsVerifyingOtp(true);
+    setPageError("");
+    setSetupActionMessage("");
+
+    try {
+      const updated = await verifySetupUnlockOtp(unlockOtp.trim());
+      setSetupStatus(updated);
+      setOtpRequestedUntil(null);
+      setUnlockOtp("");
+      setSetupActionMessage("Setup temporarily unlocked.");
+    } catch (verifyError) {
+      setPageError(verifyError instanceof Error ? verifyError.message : "Unable to verify unlock OTP.");
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  }
+
+  async function handleLockSetup() {
+    setIsLockingSetup(true);
+    setPageError("");
+    setSetupActionMessage("");
+
+    try {
+      const updated = await lockSetup();
+      setSetupStatus(updated);
+      setSetupActionMessage("Setup locked.");
+    } catch (lockError) {
+      setPageError(lockError instanceof Error ? lockError.message : "Unable to lock setup.");
+    } finally {
+      setIsLockingSetup(false);
     }
   }
 
@@ -494,6 +604,78 @@ export default function SetupPage() {
             </div>
           </div>
         </header>
+
+        {setupLocked ? (
+          <section className="rounded-lg border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#0F172A]">Setup is locked</p>
+                <p className="mt-1 text-sm leading-6 text-[#4B635A]">
+                  Fields are read-only. Request an email OTP to temporarily unlock setup changes.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <button className="ghost" type="button" onClick={handleRequestUnlockOtp} disabled={isRequestingOtp}>
+                  {isRequestingOtp ? "Sending OTP..." : "Request unlock OTP"}
+                </button>
+                <input
+                  className="min-h-[46px] rounded-md border border-[#DDE8E3] bg-white px-3 text-sm focus:border-[#064E3B] focus:outline-none focus:ring-4 focus:ring-[rgba(6,78,59,0.10)]"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={unlockOtp}
+                  onChange={(event) => setUnlockOtp(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="6 digit OTP"
+                />
+                <button
+                  className="submit"
+                  type="button"
+                  onClick={handleVerifyUnlockOtp}
+                  disabled={isVerifyingOtp || unlockOtp.length !== 6}
+                >
+                  {isVerifyingOtp ? "Verifying..." : "Verify & Unlock"}
+                </button>
+              </div>
+            </div>
+            {otpExpiryLabel ? <p className="mt-3 text-sm text-[#4B635A]">OTP expires at {otpExpiryLabel}.</p> : null}
+          </section>
+        ) : null}
+
+        {setupTemporarilyUnlocked ? (
+          <section className="rounded-lg border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <p className="text-sm font-semibold text-[#064E3B]">
+                Setup temporarily unlocked{unlockExpiryLabel ? ` until ${unlockExpiryLabel}` : ""}.
+              </p>
+              <button className="ghost" type="button" onClick={handleLockSetup} disabled={isLockingSetup}>
+                {isLockingSetup ? "Locking..." : "Lock now"}
+              </button>
+            </div>
+          </section>
+        ) : null}
+
+        {setupActionMessage ? <p className="success">{setupActionMessage}</p> : null}
+
+        {isReviewingSetup && !setupSubmitted ? (
+          <section className="rounded-lg border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)]">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p className="text-sm font-semibold text-[#0F172A]">Review setup before final submit</p>
+                <p className="mt-1 text-sm leading-6 text-[#4B635A]">
+                  Company profile is {companyComplete ? "complete" : "in progress"} and SMTP is{" "}
+                  {emailConfigured ? "configured" : "pending"}. Final submit will lock setup fields.
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <button className="ghost" type="button" onClick={() => setIsReviewingSetup(false)}>
+                  Keep editing
+                </button>
+                <button className="submit" type="button" onClick={handleSubmitSetup} disabled={isSubmittingSetup}>
+                  {isSubmittingSetup ? "Submitting..." : "Final submit & lock"}
+                </button>
+              </div>
+            </div>
+          </section>
+        ) : null}
 
         <section className="grid min-w-0 gap-5 xl:grid-cols-[220px_minmax(0,1fr)] min-[1536px]:grid-cols-[240px_minmax(0,1fr)_320px]">
           <aside className="order-1 min-w-0">
@@ -573,10 +755,11 @@ export default function SetupPage() {
               {companySuccess ? <p className="success">{companySuccess}</p> : null}
 
               <form className="form mt-0 gap-5" onSubmit={handleCompanySubmit}>
-                <FormGroup
-                  title="Branding"
-                  subtitle="This will be used across invoices, emails and client-facing experiences."
-                >
+                <fieldset className="grid min-w-0 gap-5 disabled:opacity-70" disabled={setupReadOnly}>
+                  <FormGroup
+                    title="Branding"
+                    subtitle="This will be used across invoices, emails and client-facing experiences."
+                  >
                   <div className="grid min-w-0 gap-5 min-[1700px]:grid-cols-[minmax(620px,1fr)_240px]">
                     <div className="grid min-w-0 gap-4 md:grid-cols-2">
                       <div className="field">
@@ -665,12 +848,12 @@ export default function SetupPage() {
                       />
                     </div>
                   </div>
-                </FormGroup>
+                  </FormGroup>
 
-                <FormGroup
-                  title="Business Details"
-                  subtitle="Legal and tax information for invoicing and compliance."
-                >
+                  <FormGroup
+                    title="Business Details"
+                    subtitle="Legal and tax information for invoicing and compliance."
+                  >
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="field">
                       <label htmlFor="gstin">GST Number</label>
@@ -723,11 +906,20 @@ export default function SetupPage() {
                       />
                     </div>
                   </div>
-                </FormGroup>
+                  </FormGroup>
+                </fieldset>
 
                 <div className="form-actions justify-end pt-1">
-                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingCompany}>
+                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingCompany || setupReadOnly}>
                     {isSavingCompany ? "Saving profile..." : "Save & Continue"}
+                  </button>
+                  <button
+                    className="ghost min-w-[190px]"
+                    type="button"
+                    onClick={setupSubmitted ? handleSubmitSetup : () => setIsReviewingSetup(true)}
+                    disabled={isSubmittingSetup || setupLocked}
+                  >
+                    {isSubmittingSetup ? "Submitting..." : setupSubmitted ? "Submit & Lock Again" : "Review & Submit"}
                   </button>
                 </div>
               </form>
@@ -747,10 +939,11 @@ export default function SetupPage() {
               {testEmailSuccess ? <p className="success">{testEmailSuccess}</p> : null}
 
               <form className="form mt-0 gap-5" onSubmit={handleEmailSubmit}>
-                <FormGroup
-                  title="Sender Identity"
-                  subtitle="Choose the visible sender addresses OMMS will use for workflow emails."
-                >
+                <fieldset className="grid min-w-0 gap-5 disabled:opacity-70" disabled={setupReadOnly}>
+                  <FormGroup
+                    title="Sender Identity"
+                    subtitle="Choose the visible sender addresses OMMS will use for workflow emails."
+                  >
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="field">
                       <label htmlFor="from_email">From Email</label>
@@ -775,12 +968,12 @@ export default function SetupPage() {
                       />
                     </div>
                   </div>
-                </FormGroup>
+                  </FormGroup>
 
-                <FormGroup
-                  title="SMTP Connection"
-                  subtitle="Store the server credentials securely so OMMS can deliver notifications later."
-                >
+                  <FormGroup
+                    title="SMTP Connection"
+                    subtitle="Store the server credentials securely so OMMS can deliver notifications later."
+                  >
                   <div className="grid gap-4 md:grid-cols-2">
                     <div className="field">
                       <label htmlFor="smtp_host">SMTP Host</label>
@@ -836,12 +1029,12 @@ export default function SetupPage() {
                       <span>Use SSL</span>
                     </label>
                   </div>
-                </FormGroup>
+                  </FormGroup>
 
-                <FormGroup
-                  title="Verification"
-                  subtitle="Send a test email to confirm the connection works before live notifications depend on it."
-                >
+                  <FormGroup
+                    title="Verification"
+                    subtitle="Send a test email to confirm the connection works before live notifications depend on it."
+                  >
                   <div className="flex flex-col gap-3 lg:flex-row">
                     <input
                       className="min-h-[48px] flex-1 rounded-md border border-[#DDE8E3] bg-white px-4 text-sm shadow-sm focus:border-[#064E3B] focus:outline-none focus:ring-4 focus:ring-[rgba(6,78,59,0.10)]"
@@ -854,15 +1047,16 @@ export default function SetupPage() {
                       className="ghost min-h-[54px] shrink-0 px-5"
                       type="button"
                       onClick={handleSendTestEmail}
-                      disabled={isSendingTest}
+                      disabled={isSendingTest || setupReadOnly}
                     >
                       {isSendingTest ? "Sending..." : "Send test email"}
                     </button>
                   </div>
-                </FormGroup>
+                  </FormGroup>
+                </fieldset>
 
                 <div className="form-actions justify-end pt-1">
-                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingEmail}>
+                  <button className="submit min-w-[190px]" type="submit" disabled={isSavingEmail || setupReadOnly}>
                     {isSavingEmail ? "Saving email settings..." : "Save email settings"}
                   </button>
                 </div>
