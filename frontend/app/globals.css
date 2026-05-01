@@ -264,6 +264,11 @@ textarea::placeholder {
   color: var(--danger);
 }
 
+.muted-text {
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .submit,
 .ghost {
   display: inline-flex;

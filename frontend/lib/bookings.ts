@@ -2,6 +2,7 @@ import { ApiError, apiFetch } from "@/lib/auth";
 import type { BookingSummary } from "@/lib/dashboard";
 import type { Campaign } from "@/lib/campaigns";
 import { fetchInventoryData, type InventorySite, type InventoryUnit } from "@/lib/inventory";
+import { fetchFieldStaff, type FieldStaffOption } from "@/lib/users";
 
 type Paginated<T> = {
   results: T[];
@@ -11,6 +12,10 @@ export type Booking = {
   id: number;
   campaign: number;
   media_unit: number;
+  assigned_user: FieldStaffOption & {
+    assignment_status?: string;
+    assigned_at?: string;
+  } | null;
   start_date: string;
   end_date: string;
   booked_rate: string;
@@ -28,6 +33,7 @@ export type BookingCreateInput = {
   booked_rate: string;
   status: string;
   remarks: string;
+  assigned_user_id?: number | null;
 };
 
 export type BookingPayload = {
@@ -35,6 +41,7 @@ export type BookingPayload = {
   campaigns: Campaign[];
   sites: InventorySite[];
   units: InventoryUnit[];
+  fieldStaff: FieldStaffOption[];
   summary: BookingSummary;
 };
 
@@ -54,13 +61,14 @@ export function getBookingCreateError(error: unknown) {
 }
 
 export async function fetchBookingsData(): Promise<BookingPayload> {
-  const [bookings, campaigns, inventory, summary] = await Promise.all([
+  const [bookings, campaigns, inventory, fieldStaff, summary] = await Promise.all([
     list<Booking>("bookings/"),
     list<Campaign>("campaigns/"),
     fetchInventoryData(),
+    fetchFieldStaff(),
     apiFetch<BookingSummary>("bookings/summary/"),
   ]);
-  return { bookings, campaigns, sites: inventory.sites, units: inventory.units, summary };
+  return { bookings, campaigns, sites: inventory.sites, units: inventory.units, fieldStaff, summary };
 }
 
 export async function createBooking(payload: BookingCreateInput) {

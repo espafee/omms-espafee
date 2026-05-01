@@ -15,7 +15,7 @@ def user_can_access_booking(user, booking: Booking) -> bool:
         return False
     if getattr(user, "is_superuser", False) or getattr(user, "role", None) == ADMIN:
         return True
-    return booking.media_unit.site.owner_id == user.id
+    return booking.assignments.filter(user=user).exists()
 
 
 class MobileWorkService:
@@ -28,12 +28,13 @@ class MobileWorkService:
                 "media_unit__site",
             )
             .prefetch_related("poe_records")
+            .prefetch_related("assignments")
             .exclude(status=Booking.Status.CANCELLED)
             .order_by("start_date", "id")
         )
         if getattr(user, "is_superuser", False) or getattr(user, "role", None) == ADMIN:
             return queryset
-        return queryset.filter(media_unit__site__owner=user)
+        return queryset.filter(assignments__user=user).distinct()
 
     @classmethod
     def get_assigned_work(cls, user):
@@ -63,7 +64,11 @@ class MobileWorkService:
     @staticmethod
     def get_booking_for_submit(user, booking_id: int) -> Booking:
         try:
-            booking = Booking.objects.select_related("campaign", "media_unit", "media_unit__site").get(pk=booking_id)
+            booking = (
+                Booking.objects.select_related("campaign", "media_unit", "media_unit__site")
+                .prefetch_related("assignments")
+                .get(pk=booking_id)
+            )
         except Booking.DoesNotExist as exc:
             raise ValidationError({"booking_id": ["Booking does not exist."]}) from exc
 

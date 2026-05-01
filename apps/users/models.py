@@ -9,6 +9,7 @@ class User(TimeStampedModel, AbstractUser):
         ADMIN = "admin", "Admin"
         SALES = "sales", "Sales"
         OPERATIONS = "operations", "Operations"
+        FIELD_STAFF = "field_staff", "Field Staff"
         FINANCE = "finance", "Finance"
         CLIENT = "client", "Client"
 

@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaUnit
@@ -32,3 +33,30 @@ class Booking(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.campaign.code} / {self.media_unit.unit_code}"
+
+
+class Assignment(TimeStampedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        COMPLETED = "completed", "Completed"
+
+    booking = models.ForeignKey(Booking, related_name="assignments", on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="booking_assignments", on_delete=models.CASCADE)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="assigned_bookings",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+
+    class Meta:
+        ordering = ["-assigned_at"]
+        constraints = [
+            models.UniqueConstraint(fields=["booking", "user"], name="unique_assignment_per_booking_user"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.booking_id} assigned to {self.user_id}"

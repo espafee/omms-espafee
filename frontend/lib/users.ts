@@ -24,6 +24,17 @@ export type UserOption = ClientOption & {
   is_active?: boolean;
 };
 
+export type FieldStaffOption = {
+  id: number;
+  email: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  phone_number?: string;
+  role: string;
+};
+
 async function list<T>(path: string) {
   const payload = await apiFetch<Paginated<T> | T[]>(path);
   return Array.isArray(payload) ? payload : payload.results;
@@ -42,4 +53,8 @@ export async function createClient(payload: ClientCreateInput) {
 
 export async function fetchUsers() {
   return list<UserOption>("users/");
+}
+
+export async function fetchFieldStaff() {
+  return list<FieldStaffOption>("users/field-staff/");
 }

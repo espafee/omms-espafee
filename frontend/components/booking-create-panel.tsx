@@ -7,6 +7,7 @@ import type { ApiFieldErrors } from "@/lib/auth";
 import type { BookingCreateInput } from "@/lib/bookings";
 import type { Campaign } from "@/lib/campaigns";
 import { formatMediaUnitSiteType, type InventorySite, type InventoryUnit } from "@/lib/inventory";
+import type { FieldStaffOption } from "@/lib/users";
 
 export type BookingFormState = BookingCreateInput & {
   site: number;
@@ -16,6 +17,7 @@ type BookingCreatePanelProps = {
   campaigns: Campaign[];
   sites: InventorySite[];
   units: InventoryUnit[];
+  fieldStaff: FieldStaffOption[];
   selectedSite: InventorySite | null;
   selectedUnit: InventoryUnit | null;
   form: BookingFormState;
@@ -41,6 +43,7 @@ export function BookingCreatePanel({
   campaigns,
   sites,
   units,
+  fieldStaff,
   selectedSite,
   selectedUnit,
   form,
@@ -152,6 +155,25 @@ export function BookingCreatePanel({
             <option value="cancelled">Cancelled</option>
           </select>
           {renderFieldError(fieldErrors, "status")}
+        </div>
+
+        <div className="field">
+          <label htmlFor="booking-assigned-user">Assign Field Staff</label>
+          <select
+            id="booking-assigned-user"
+            value={form.assigned_user_id || ""}
+            onChange={(event) => onChange("assigned_user_id", event.target.value ? Number(event.target.value) : null)}
+          >
+            <option value="">Unassigned</option>
+            {fieldStaff.map((staff) => (
+              <option key={staff.id} value={staff.id}>
+                {staff.full_name || staff.email} ({staff.role.replace("_", " ")})
+              </option>
+            ))}
+          </select>
+          <p className="field-help">Assigned bookings appear in the field staff mobile app.</p>
+          {renderFieldError(fieldErrors, "assigned_user_id")}
+          {renderFieldError(fieldErrors, "assigned_user")}
         </div>
 
         <div className="field field-full booking-preview-strip">

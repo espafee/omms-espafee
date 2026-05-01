@@ -1,6 +1,11 @@
 from rest_framework import serializers
+from django.contrib.auth import get_user_model
+
+from core.roles import FIELD_ASSIGNABLE_ROLES
 
 from .models import Booking
+
+User = get_user_model()
 
 
 class BookingSummarySerializer(serializers.Serializer):
@@ -16,7 +21,33 @@ class BookingSummarySerializer(serializers.Serializer):
 
 
 class BookingSerializer(serializers.ModelSerializer):
+    assigned_user = serializers.SerializerMethodField()
+    assigned_user_id = serializers.PrimaryKeyRelatedField(
+        source="assigned_user",
+        queryset=User.objects.filter(role__in=FIELD_ASSIGNABLE_ROLES, is_active=True),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+
     class Meta:
         model = Booking
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_assigned_user(self, obj):
+        assignment = next(iter(obj.assignments.all()), None)
+        if not assignment:
+            return None
+        user = assignment.user
+        return {
+            "id": user.id,
+            "email": user.email,
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "full_name": user.get_full_name() or user.email,
+            "role": user.role,
+            "assignment_status": assignment.status,
+            "assigned_at": assignment.assigned_at,
+        }

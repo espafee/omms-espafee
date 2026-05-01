@@ -7,6 +7,7 @@ from .views import (
     ClientDirectoryView,
     CurrentUserView,
     CustomTokenObtainPairView,
+    FieldStaffDirectoryView,
     RegisterView,
     UserViewSet,
 )
@@ -16,6 +17,7 @@ router.register("", UserViewSet, basename="users")
 
 urlpatterns = [
     path("clients/", ClientDirectoryView.as_view(), name="client-directory"),
+    path("field-staff/", FieldStaffDirectoryView.as_view(), name="field-staff-directory"),
     path("auth/register/", RegisterView.as_view(), name="users-register"),
     path("auth/login/", CustomTokenObtainPairView.as_view(), name="auth-login"),
     path("auth/token/", CustomTokenObtainPairView.as_view(), name="token-obtain-pair"),

@@ -50,6 +50,27 @@ class ClientOptionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class FieldStaffOptionSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "full_name",
+            "phone_number",
+            "role",
+        ]
+        read_only_fields = fields
+
+    def get_full_name(self, obj) -> str:
+        return obj.get_full_name() or obj.email
+
+
 class ClientCreateSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(
         validators=[UniqueValidator(queryset=User.objects.all(), message="A user with this email already exists.")]

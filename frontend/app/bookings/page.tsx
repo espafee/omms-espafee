@@ -28,6 +28,7 @@ const INITIAL_FORM: BookingFormState = {
   booked_rate: "",
   status: "pending",
   remarks: "",
+  assigned_user_id: null,
 };
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -179,6 +180,7 @@ export default function BookingsPage() {
         booked_rate: Number(form.booked_rate).toFixed(2),
         status: form.status,
         remarks: form.remarks,
+        assigned_user_id: form.assigned_user_id || null,
       });
 
       setFormSuccess("Booking created successfully.");
@@ -301,6 +303,7 @@ export default function BookingsPage() {
           campaigns={bookingData?.campaigns ?? []}
           sites={bookingData?.sites ?? []}
           units={bookingData?.units ?? []}
+          fieldStaff={bookingData?.fieldStaff ?? []}
           selectedSite={selectedSite}
           selectedUnit={selectedUnit}
           form={form}
@@ -399,6 +402,7 @@ export default function BookingsPage() {
                   <th>Timeline</th>
                   <th>Status</th>
                   <th>Booked rate</th>
+                  <th>Assigned to</th>
                   <th>Remarks</th>
                   <th>Field</th>
                 </tr>
@@ -432,6 +436,16 @@ export default function BookingsPage() {
                         <span className={`status-pill status-${booking.status}`}>{booking.status}</span>
                       </td>
                       <td>{formatCurrency(booking.booked_rate)}</td>
+                      <td>
+                        {booking.assigned_user ? (
+                          <div className="table-primary">
+                            <strong>{booking.assigned_user.full_name || booking.assigned_user.email}</strong>
+                            <span>{booking.assigned_user.role.replace("_", " ")}</span>
+                          </div>
+                        ) : (
+                          <span className="muted-text">Unassigned</span>
+                        )}
+                      </td>
                       <td className="table-wrap">{booking.remarks || "No remarks added yet."}</td>
                       <td>
                         <Link className="asset-link" href={`/poe/capture?booking=${booking.id}`}>

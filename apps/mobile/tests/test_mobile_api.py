@@ -8,7 +8,7 @@ from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
-from apps.bookings.models import Booking
+from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.poe.models import ProofOfExecution, ProofOfExecutionMedia
@@ -28,13 +28,13 @@ class MobileApiTests(TestCase):
             email="field@example.com",
             username="field",
             password="secret",
-            role=User.Role.OPERATIONS,
+            role=User.Role.FIELD_STAFF,
         )
         self.other_staff = User.objects.create_user(
             email="other@example.com",
             username="other",
             password="secret",
-            role=User.Role.OPERATIONS,
+            role=User.Role.FIELD_STAFF,
         )
         self.client_user = User.objects.create_user(
             email="client@example.com",
@@ -105,6 +105,7 @@ class MobileApiTests(TestCase):
             booked_rate="50000.00",
             status=Booking.Status.CONFIRMED,
         )
+        Assignment.objects.create(booking=self.booking, user=self.field_staff, assigned_by=self.admin)
 
     def _authenticate(self, user):
         self.client.force_authenticate(user=user)
@@ -115,7 +116,7 @@ class MobileApiTests(TestCase):
         image.save(buffer, format="JPEG")
         return SimpleUploadedFile("poe.jpg", buffer.getvalue(), content_type="image/jpeg")
 
-    def test_assigned_work_returns_only_owned_site_bookings_for_field_staff(self):
+    def test_assigned_work_returns_only_assigned_bookings_for_field_staff(self):
         self._authenticate(self.field_staff)
 
         response = self.client.get("/api/v1/mobile/assigned-work/")

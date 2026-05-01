@@ -12,6 +12,7 @@ class BookingRepository(BaseRepository):
         "media_unit",
         "media_unit__site",
     )
+    prefetch_related = ("assignments__user",)
 
     def scope_queryset(self, queryset, user=None):
         if user and getattr(user, "role", None) == CLIENT:

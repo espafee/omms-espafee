@@ -5,13 +5,14 @@ from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 
 from core.permissions import RoleBasedPermission
-from core.roles import ADMIN, SALES
+from core.roles import ADMIN, FIELD_ASSIGNABLE_ROLES, SALES
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
     ClientCreateSerializer,
     ClientOptionSerializer,
     CustomTokenObtainPairSerializer,
+    FieldStaffOptionSerializer,
     UserRegistrationSerializer,
     UserSerializer,
 )
@@ -43,6 +44,15 @@ class ClientDirectoryView(generics.ListCreateAPIView):
         if self.request.method == "POST":
             return ClientCreateSerializer
         return ClientOptionSerializer
+
+
+class FieldStaffDirectoryView(generics.ListAPIView):
+    serializer_class = FieldStaffOptionSerializer
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = (ADMIN, SALES)
+
+    def get_queryset(self):
+        return User.objects.filter(role__in=FIELD_ASSIGNABLE_ROLES, is_active=True).order_by("first_name", "email")
 
 
 class RegisterView(generics.CreateAPIView):
