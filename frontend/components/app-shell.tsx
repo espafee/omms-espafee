@@ -10,6 +10,7 @@ type AppShellProps = {
   title: string;
   eyebrow?: string;
   description: string;
+  hideWorkspaceHeader?: boolean;
   onLogout: () => void;
   children: ReactNode;
 };
@@ -21,11 +22,10 @@ export function AppShell({
   title,
   eyebrow = "Live summary",
   description,
+  hideWorkspaceHeader = false,
   onLogout,
   children,
 }: AppShellProps) {
-  const showSetupNav = roleLabel.trim().toLowerCase() === "admin";
-
   return (
     <main className="dashboard-shell">
       <aside className="sidebar">
@@ -56,11 +56,9 @@ export function AppShell({
           <Link className={`nav-item ${active === "billing" ? "nav-item-active" : ""}`} href="/billing">
             Billing
           </Link>
-          {showSetupNav ? (
-            <Link className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
-              Setup
-            </Link>
-          ) : null}
+          <Link className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
+            Setup
+          </Link>
         </nav>
 
         <div className="sidebar-foot">
@@ -73,17 +71,19 @@ export function AppShell({
       </aside>
 
       <section className="workspace">
-        <header className="workspace-topbar">
-          <div>
-            <span className="eyebrow dashboard-eyebrow">{eyebrow}</span>
-            <h1 className="workspace-title">{title}</h1>
-            <p className="workspace-copy">{description}</p>
-          </div>
-          <div className="topbar-chip">
-            <span className="topbar-chip-label">Role</span>
-            <strong>{roleLabel}</strong>
-          </div>
-        </header>
+        {hideWorkspaceHeader ? null : (
+          <header className="workspace-topbar">
+            <div>
+              <span className="eyebrow dashboard-eyebrow">{eyebrow}</span>
+              <h1 className="workspace-title">{title}</h1>
+              <p className="workspace-copy">{description}</p>
+            </div>
+            <div className="topbar-chip">
+              <span className="topbar-chip-label">Role</span>
+              <strong>{roleLabel}</strong>
+            </div>
+          </header>
+        )}
 
         {children}
       </section>
