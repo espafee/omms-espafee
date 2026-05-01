@@ -211,7 +211,8 @@ textarea::placeholder {
 .field select,
 .field textarea {
   width: 100%;
-  border-radius: 18px;
+  min-width: 0;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: white;
   color: #111827;
@@ -221,13 +222,13 @@ textarea::placeholder {
 
 .field input,
 .field select {
-  min-height: 54px;
-  padding: 0 16px;
+  min-height: 48px;
+  padding: 0 14px;
 }
 
 .field textarea {
-  min-height: 126px;
-  padding: 14px 16px;
+  min-height: 112px;
+  padding: 12px 14px;
   resize: vertical;
 }
 
@@ -268,9 +269,9 @@ textarea::placeholder {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 54px;
-  padding: 0 20px;
-  border-radius: 18px;
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 8px;
   font-size: 14px;
   font-weight: 700;
   transition: transform 120ms ease, opacity 120ms ease, box-shadow 120ms ease;
@@ -310,7 +311,7 @@ textarea::placeholder {
 .success {
   margin: 0;
   padding: 12px 14px;
-  border-radius: 18px;
+  border-radius: 8px;
   border: 1px solid;
   font-size: 14px;
   line-height: 1.6;
@@ -449,7 +450,7 @@ textarea::placeholder {
 
 .workspace {
   padding: 24px;
-  border-radius: 24px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--surface);
   box-shadow: var(--shadow-lg);
@@ -1108,9 +1109,9 @@ textarea::placeholder {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  min-height: 54px;
+  min-height: 46px;
   padding: 0 14px;
-  border-radius: 18px;
+  border-radius: 8px;
   border: 1px solid var(--line);
   background: white;
   font-size: 14px;
