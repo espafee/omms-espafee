@@ -45,6 +45,7 @@ LOCAL_APPS = [
     "apps.billing",
     "apps.notifications",
     "apps.setup",
+    "apps.mobile",
 ]
 
 MIDDLEWARE = [

@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/v1/poe/", include("apps.poe.urls")),
     path("api/v1/billing/", include("apps.billing.urls")),
     path("api/v1/setup/", include("apps.setup.urls")),
+    path("api/v1/mobile/", include("apps.mobile.urls")),
 ]
 
 if settings.DEBUG or is_local_media_storage_backend(settings.STORAGES["default"]["BACKEND"]):
