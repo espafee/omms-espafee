@@ -183,3 +183,64 @@ class MobileApiTests(TestCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(ProofOfExecution.objects.count(), 0)
+
+    def test_mobile_admin_overview_allows_admin_and_returns_expected_keys(self):
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/overview/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            set(response.data.keys()),
+            {
+                "active_campaigns",
+                "poe_pending",
+                "poe_completed_today",
+                "suspicious_poe",
+                "bookings_starting_today",
+                "bookings_ending_today",
+            },
+        )
+
+    def test_mobile_admin_overview_rejects_field_staff(self):
+        self._authenticate(self.field_staff)
+
+        response = self.client.get("/api/v1/mobile/admin/overview/")
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_mobile_admin_running_campaigns_returns_expected_shape(self):
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/running-campaigns/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(len(response.data), 1)
+        item = response.data[0]
+        self.assertIn("campaign_id", item)
+        self.assertIn("campaign_name", item)
+        self.assertIn("client_name", item)
+        self.assertIn("total_units", item)
+        self.assertIn("poe_progress_percent", item)
+
+    def test_mobile_admin_poe_tracker_status_filter(self):
+        suspicious_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.other_booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+        )
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/poe-tracker/?status=suspicious")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["poe_id"], suspicious_poe.id)
+        self.assertEqual(response.data[0]["status"], ProofOfExecution.VerificationStatus.SUSPICIOUS)

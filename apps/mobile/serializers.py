@@ -33,3 +33,64 @@ class MobilePoeSubmitResponseSerializer(serializers.Serializer):
     poe_id = serializers.IntegerField()
     status = serializers.CharField()
     distance_meters = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+
+
+class MobileAdminOverviewSerializer(serializers.Serializer):
+    active_campaigns = serializers.IntegerField()
+    poe_pending = serializers.IntegerField()
+    poe_completed_today = serializers.IntegerField()
+    suspicious_poe = serializers.IntegerField()
+    bookings_starting_today = serializers.IntegerField()
+    bookings_ending_today = serializers.IntegerField()
+
+
+class MobileAdminRunningCampaignSerializer(serializers.Serializer):
+    campaign_id = serializers.IntegerField()
+    campaign_name = serializers.CharField()
+    client_name = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    total_units = serializers.IntegerField()
+    poe_completed = serializers.IntegerField()
+    poe_pending = serializers.IntegerField()
+    poe_progress_percent = serializers.IntegerField()
+    status = serializers.CharField()
+
+
+class MobileAdminPoeTrackerSerializer(serializers.Serializer):
+    poe_id = serializers.IntegerField()
+    booking_id = serializers.IntegerField()
+    campaign_name = serializers.CharField()
+    site_name = serializers.CharField()
+    unit_name = serializers.CharField()
+    field_staff = serializers.CharField(allow_blank=True)
+    submitted_at = serializers.DateTimeField()
+    status = serializers.CharField()
+    distance_meters = serializers.DecimalField(max_digits=10, decimal_places=2, allow_null=True)
+    image_url = serializers.CharField(allow_null=True, allow_blank=True)
+
+
+class MobileAdminActivityItemSerializer(serializers.Serializer):
+    booking_id = serializers.IntegerField()
+    campaign_name = serializers.CharField()
+    site_name = serializers.CharField()
+    unit_name = serializers.CharField()
+    assigned_to = serializers.CharField(allow_blank=True)
+    due_date = serializers.DateField()
+    status = serializers.CharField()
+
+
+class MobileAdminDailyActivitySerializer(serializers.Serializer):
+    date = serializers.DateField()
+    installations_due_today = MobileAdminActivityItemSerializer(many=True)
+    poe_pending_today = MobileAdminActivityItemSerializer(many=True)
+    overdue_items = MobileAdminActivityItemSerializer(many=True)
+
+
+class MobileAdminAlertSerializer(serializers.Serializer):
+    type = serializers.CharField()
+    severity = serializers.CharField()
+    title = serializers.CharField()
+    message = serializers.CharField()
+    related_id = serializers.IntegerField()
+    created_at = serializers.DateTimeField()

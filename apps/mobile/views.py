@@ -6,7 +6,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .serializers import AssignedWorkSerializer, MobilePoeSubmitResponseSerializer, MobilePoeSubmitSerializer
+from .admin_services import MobileAdminOperationsService
+from .permissions import IsMobileAdmin
+from .serializers import (
+    AssignedWorkSerializer,
+    MobileAdminAlertSerializer,
+    MobileAdminDailyActivitySerializer,
+    MobileAdminOverviewSerializer,
+    MobileAdminPoeTrackerSerializer,
+    MobileAdminRunningCampaignSerializer,
+    MobilePoeSubmitResponseSerializer,
+    MobilePoeSubmitSerializer,
+)
 from .services import MobileWorkService
 
 
@@ -28,3 +39,49 @@ class MobilePoeSubmitView(APIView):
         result = MobileWorkService.submit_poe(user=request.user, **serializer.validated_data)
         response_serializer = MobilePoeSubmitResponseSerializer(result)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
+
+
+class MobileAdminOverviewView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminOverviewSerializer(MobileAdminOperationsService.get_overview())
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminRunningCampaignsView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminRunningCampaignSerializer(MobileAdminOperationsService.get_running_campaigns(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminPoeTrackerView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminPoeTrackerSerializer(
+            MobileAdminOperationsService.get_poe_tracker(
+                status_filter=request.query_params.get("status"),
+                request=request,
+            ),
+            many=True,
+        )
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminDailyActivityView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminDailyActivitySerializer(MobileAdminOperationsService.get_daily_activity())
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminAlertsView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminAlertSerializer(MobileAdminOperationsService.get_alerts(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
