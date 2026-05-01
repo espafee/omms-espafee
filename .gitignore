@@ -84,6 +84,14 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Local browser/debug artifacts
+frontend/chrome-*-profile*/
+frontend/edge-*-profile*/
+frontend/*debug*.png
+frontend/setup-*.png
+frontend/setup-*.html
+write-test.tmp
+
 # Editors and IDEs
 .idea/
 .vscode/

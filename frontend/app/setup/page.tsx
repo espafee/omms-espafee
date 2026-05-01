@@ -104,9 +104,9 @@ function SetupStatusBadge({
   children: ReactNode;
 }) {
   const tones = {
-    success: "border-emerald-200 bg-emerald-50 text-emerald-700",
-    pending: "border-amber-200 bg-amber-50 text-amber-700",
-    neutral: "border-stone-200 bg-white text-stone-600",
+    success: "border-[#DDE8E3] bg-white text-[#064E3B]",
+    pending: "border-[#DDE8E3] bg-white text-[#064E3B]",
+    neutral: "border-[#DDE8E3] bg-white text-[#4B635A]",
   } as const;
 
   return (
@@ -126,8 +126,8 @@ function SetupHeaderBadge({
   children: ReactNode;
 }) {
   const tones = {
-    neutral: "border-stone-200 bg-white text-stone-600",
-    pending: "border-amber-200 bg-amber-50 text-amber-700",
+    neutral: "border-[#DDE8E3] bg-white text-[#4B635A]",
+    pending: "border-[#DDE8E3] bg-white text-[#064E3B]",
   } as const;
 
   return (
@@ -151,11 +151,11 @@ function SetupCard({
   children: ReactNode;
 }) {
   return (
-    <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:p-7">
+    <article className="rounded-[22px] border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)] md:p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">{title}</h2>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">{subtitle}</p>
+          <h2 className="text-[24px] font-semibold tracking-[-0.03em] text-[#0F172A]">{title}</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[#4B635A]">{subtitle}</p>
         </div>
         {headerAction ? <div className="flex flex-wrap gap-2 sm:justify-end">{headerAction}</div> : null}
       </div>
@@ -174,10 +174,10 @@ function FormGroup({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-[20px] border border-stone-200 bg-stone-50/70 p-5">
+    <section className="rounded-[18px] border border-[#DDE8E3] bg-[#FAFCFB] p-5">
       <div className="mb-5">
-        <h3 className="text-xl font-semibold tracking-[-0.02em] text-slate-900">{title}</h3>
-        <p className="mt-2 text-sm leading-6 text-slate-500">{subtitle}</p>
+        <h3 className="text-lg font-semibold tracking-[-0.02em] text-[#0F172A]">{title}</h3>
+        <p className="mt-2 text-sm leading-6 text-[#4B635A]">{subtitle}</p>
       </div>
       {children}
     </section>
@@ -199,11 +199,11 @@ function SetupStep({
 }) {
   const circleClass =
     state === "active"
-      ? "border-teal-700 bg-teal-700 text-white"
+      ? "border-[#064E3B] bg-[#064E3B] text-white"
       : state === "complete"
-        ? "border-teal-200 bg-teal-50 text-teal-700"
-        : "border-stone-200 bg-white text-stone-500";
-  const lineClass = state === "complete" ? "bg-teal-200" : "bg-stone-200";
+        ? "border-[#DDE8E3] bg-white text-[#064E3B]"
+        : "border-[#DDE8E3] bg-white text-[#4B635A]";
+  const lineClass = state === "complete" ? "bg-[#DDE8E3]" : "bg-[#DDE8E3]";
 
   return (
     <div className="relative flex gap-4">
@@ -216,8 +216,8 @@ function SetupStep({
         {isLast ? null : <div className={`mt-2 h-full min-h-[44px] w-px ${lineClass}`} />}
       </div>
       <div className="pt-1">
-        <p className="text-base font-semibold text-slate-900">{title}</p>
-        <p className="mt-1 text-sm leading-6 text-slate-500">{description}</p>
+        <p className="text-sm font-semibold text-[#0F172A]">{title}</p>
+        <p className="mt-1 text-sm leading-6 text-[#4B635A]">{description}</p>
       </div>
     </div>
   );
@@ -237,13 +237,13 @@ function WorkspaceStatusRow({
   icon: string;
 }) {
   return (
-    <div className="flex items-center gap-3 rounded-[18px] border border-stone-200 bg-white px-4 py-3">
-      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-teal-50 text-sm font-semibold text-teal-700">
+    <div className="flex items-center gap-3 rounded-[18px] border border-[#DDE8E3] bg-white px-4 py-3">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-[#DDE8E3] bg-white text-sm font-semibold text-[#064E3B]">
         {icon}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-slate-900">{label}</p>
-        <p className="mt-1 text-sm text-slate-500">{value}</p>
+        <p className="text-sm font-semibold text-[#0F172A]">{label}</p>
+        <p className="mt-1 text-sm text-[#4B635A]">{value}</p>
       </div>
       <SetupStatusBadge tone={tone}>{status}</SetupStatusBadge>
     </div>
@@ -470,11 +470,11 @@ export default function SetupPage() {
     >
       {pageError ? <p className="error dashboard-error">{pageError}</p> : null}
       <section className="flex w-full max-w-none flex-col gap-6">
-        <header className="rounded-[22px] border border-stone-200 bg-white px-5 py-4 shadow-[0_8px_24px_rgba(15,23,42,0.05)] md:px-6">
+        <header className="rounded-[22px] border border-[#DDE8E3] bg-white px-5 py-4 shadow-[0_10px_26px_rgba(15,23,42,0.05)] md:px-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div className="flex items-start gap-4">
               <button
-                className="flex h-11 w-11 items-center justify-center rounded-full border border-stone-200 bg-stone-50 text-xl text-slate-700 transition hover:bg-white"
+                className="flex h-10 w-10 items-center justify-center rounded-full border border-[#DDE8E3] bg-white text-lg text-[#064E3B] transition hover:border-[#064E3B]"
                 type="button"
                 onClick={() => router.push("/dashboard")}
                 aria-label="Back to dashboard"
@@ -482,8 +482,8 @@ export default function SetupPage() {
                 ←
               </button>
               <div className="min-w-0">
-                <h1 className="text-[30px] font-semibold tracking-[-0.03em] text-slate-900">Organization setup</h1>
-                <p className="mt-1 text-sm leading-6 text-slate-500">
+                <h1 className="text-[28px] font-semibold tracking-[-0.03em] text-[#0F172A]">Organization setup</h1>
+                <p className="mt-1 text-sm leading-6 text-[#4B635A]">
                   Configure company profile and email settings for OMMS.
                 </p>
               </div>
@@ -495,9 +495,9 @@ export default function SetupPage() {
           </div>
         </header>
 
-        <section className="grid gap-6 xl:grid-cols-[190px_minmax(0,1fr)_280px] 2xl:grid-cols-[220px_minmax(0,1fr)_300px]">
+        <section className="grid gap-5 xl:grid-cols-[200px_minmax(0,1fr)_300px] 2xl:grid-cols-[220px_minmax(0,1fr)_320px]">
           <aside className="order-1 min-w-0">
-            <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
+            <article className="rounded-[22px] border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
               <div className="space-y-8">
                 <SetupStep
                   step={1}
@@ -517,24 +517,24 @@ export default function SetupPage() {
           </aside>
 
           <aside className="order-2 min-w-0 xl:order-3">
-            <article className="rounded-[24px] border border-stone-200 bg-white p-6 shadow-[0_8px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
-              <h2 className="text-[28px] font-semibold tracking-[-0.03em] text-slate-900">Workspace summary</h2>
+            <article className="rounded-[22px] border border-[#DDE8E3] bg-white p-5 shadow-[0_10px_26px_rgba(15,23,42,0.05)] xl:sticky xl:top-6">
+              <h2 className="text-[22px] font-semibold tracking-[-0.03em] text-[#0F172A]">Workspace summary</h2>
 
-              <div className="mt-6 flex flex-col items-center rounded-[22px] border border-stone-200 bg-stone-50/70 px-5 py-6 text-center">
-                <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-[24px] bg-teal-700 text-[30px] font-semibold text-white shadow-[0_10px_28px_rgba(15,118,110,0.18)]">
+              <div className="mt-5 flex flex-col items-center rounded-[20px] border border-[#DDE8E3] bg-[#FAFCFB] px-5 py-6 text-center">
+                <div className="flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-[22px] bg-[#064E3B] text-[28px] font-semibold text-white shadow-[0_10px_24px_rgba(6,78,59,0.16)]">
                   {companyProfile?.logo_url ? (
                     <img className="h-full w-full object-cover" src={companyProfile.logo_url} alt={`${brandingName} logo`} />
                   ) : (
                     <span>{brandingName.slice(0, 2).toUpperCase()}</span>
                   )}
                 </div>
-                <p className="mt-5 text-[30px] font-semibold tracking-[-0.03em] text-slate-900">{brandingName}</p>
-                <span className="mt-3 inline-flex min-h-9 items-center rounded-full bg-teal-50 px-4 text-sm font-semibold text-teal-700">
+                <p className="mt-4 text-[26px] font-semibold tracking-[-0.03em] text-[#0F172A]">{brandingName}</p>
+                <span className="mt-3 inline-flex min-h-8 items-center rounded-full border border-[#DDE8E3] bg-white px-4 text-xs font-semibold text-[#064E3B]">
                   Active workspace brand
                 </span>
               </div>
 
-              <div className="my-6 h-px bg-stone-200" />
+              <div className="my-5 h-px bg-[#DDE8E3]" />
 
               <div className="space-y-3">
                 <WorkspaceStatusRow
@@ -553,7 +553,7 @@ export default function SetupPage() {
                 />
               </div>
 
-              <p className="mt-6 text-center text-sm leading-6 text-slate-500">
+              <p className="mt-5 text-center text-sm leading-6 text-[#4B635A]">
                 Complete all steps to make OMMS your official brand.
               </p>
             </article>
@@ -636,13 +636,13 @@ export default function SetupPage() {
                       <label htmlFor="logo">Brand Logo</label>
                       <label
                         htmlFor="logo"
-                        className="flex min-h-[230px] cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed border-stone-300 bg-white px-6 py-8 text-center transition hover:border-teal-300 hover:bg-teal-50/40"
+                        className="flex min-h-[230px] cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed border-[#C8D8D0] bg-white px-6 py-8 text-center transition hover:border-[#064E3B] hover:bg-[#FAFCFB]"
                       >
-                        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-teal-50 text-2xl text-teal-700">
+                        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#DDE8E3] bg-white text-2xl text-[#064E3B]">
                           ⤴
                         </div>
                         {companyProfile?.logo_url ? (
-                          <div className="mb-4 overflow-hidden rounded-[18px] border border-stone-200 bg-stone-50">
+                          <div className="mb-4 overflow-hidden rounded-[18px] border border-[#DDE8E3] bg-[#FAFCFB]">
                             <img
                               className="h-24 w-24 object-cover"
                               src={companyProfile.logo_url}
@@ -650,10 +650,10 @@ export default function SetupPage() {
                             />
                           </div>
                         ) : null}
-                        <p className="text-base font-semibold text-slate-900">
+                        <p className="text-base font-semibold text-[#0F172A]">
                           {logoFile ? logoFile.name : "Upload logo"}
                         </p>
-                        <p className="mt-2 text-sm text-slate-500">PNG, JPG up to 2MB</p>
+                        <p className="mt-2 text-sm text-[#4B635A]">PNG, JPG up to 2MB</p>
                       </label>
                       <input
                         id="logo"
@@ -827,11 +827,11 @@ export default function SetupPage() {
                   </div>
 
                   <div className="mt-5 flex flex-wrap gap-3">
-                    <label className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[#DDE8E3] bg-white px-4 py-2 text-sm font-medium text-[#0F172A]">
                       <input type="checkbox" name="use_tls" checked={emailForm.use_tls} onChange={handleEmailChange} />
                       <span>Use TLS</span>
                     </label>
-                    <label className="inline-flex items-center gap-2 rounded-full border border-stone-200 bg-white px-4 py-2 text-sm font-medium text-stone-700">
+                    <label className="inline-flex items-center gap-2 rounded-full border border-[#DDE8E3] bg-white px-4 py-2 text-sm font-medium text-[#0F172A]">
                       <input type="checkbox" name="use_ssl" checked={emailForm.use_ssl} onChange={handleEmailChange} />
                       <span>Use SSL</span>
                     </label>
@@ -844,7 +844,7 @@ export default function SetupPage() {
                 >
                   <div className="flex flex-col gap-3 lg:flex-row">
                     <input
-                      className="min-h-[54px] flex-1 rounded-2xl border border-stone-200 bg-white px-4 text-sm shadow-sm"
+                      className="min-h-[48px] flex-1 rounded-2xl border border-[#DDE8E3] bg-white px-4 text-sm shadow-sm focus:border-[#064E3B] focus:outline-none focus:ring-4 focus:ring-[rgba(6,78,59,0.10)]"
                       type="email"
                       value={testRecipientEmail}
                       onChange={(event) => setTestRecipientEmail(event.target.value)}
