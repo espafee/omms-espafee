@@ -9,6 +9,8 @@ User = get_user_model()
 
 
 class UserSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
@@ -17,14 +19,20 @@ class UserSerializer(serializers.ModelSerializer):
             "username",
             "first_name",
             "last_name",
+            "full_name",
             "phone_number",
             "role",
             "organization_name",
             "is_active",
+            "is_staff",
+            "is_superuser",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "full_name", "is_staff", "is_superuser", "created_at", "updated_at"]
+
+    def get_full_name(self, obj) -> str:
+        return obj.get_full_name() or obj.email
 
 
 class ClientOptionSerializer(serializers.ModelSerializer):
@@ -97,9 +105,17 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
         token["email"] = user.email
         token["role"] = user.role
+        token["is_staff"] = user.is_staff
+        token["is_superuser"] = user.is_superuser
         return token
 
     def validate(self, attrs):
+        login_identifier = attrs.get(self.username_field, "")
+        if login_identifier and "@" not in login_identifier:
+            user = User.objects.filter(username__iexact=login_identifier).only("email").first()
+            if user:
+                attrs[self.username_field] = user.email
+
         data = super().validate(attrs)
         data["user"] = UserSerializer(self.user).data
         return data

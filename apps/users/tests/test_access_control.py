@@ -380,3 +380,41 @@ class AccessControlAPITests(APITestCase):
         self.assertIn("access", response.data)
         self.assertIn("refresh", response.data)
         self.assertEqual(response.data["user"]["id"], self.client_one.id)
+        self.assertIn("full_name", response.data["user"])
+        self.assertIn("is_staff", response.data["user"])
+        self.assertIn("is_superuser", response.data["user"])
+
+    def test_token_endpoint_authenticates_superuser_and_returns_admin_flags(self):
+        superuser = User.objects.create_superuser(
+            email="owner@example.com",
+            username="owner_user",
+            password=self.password,
+        )
+
+        response = self.client.post(
+            reverse("token-obtain-pair"),
+            {"email": superuser.email, "password": self.password},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["email"], superuser.email)
+        self.assertTrue(response.data["user"]["is_staff"])
+        self.assertTrue(response.data["user"]["is_superuser"])
+
+    def test_token_endpoint_accepts_username_for_superuser_login_identifier(self):
+        superuser = User.objects.create_superuser(
+            email="owner2@example.com",
+            username="owner_two",
+            password=self.password,
+        )
+
+        response = self.client.post(
+            reverse("token-obtain-pair"),
+            {"email": superuser.username, "password": self.password},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["email"], superuser.email)
+        self.assertTrue(response.data["user"]["is_superuser"])
