@@ -703,9 +703,13 @@ export default function SetupPage() {
               <h2 className="text-[22px] font-semibold tracking-[-0.03em] text-[#0F172A]">Workspace summary</h2>
 
               <div className="mt-5 flex flex-col items-center rounded-lg border border-[#DDE8E3] bg-[#FAFCFB] px-5 py-6 text-center">
-                <div className="flex h-[72px] w-[72px] items-center justify-center overflow-hidden rounded-lg bg-[#064E3B] text-[28px] font-semibold text-white shadow-[0_10px_24px_rgba(6,78,59,0.16)]">
+                <div className="flex min-h-[72px] w-full max-w-[220px] items-center justify-center rounded-lg border border-[#DDE8E3] bg-white px-4 py-3 text-[28px] font-semibold text-[#064E3B] shadow-[0_10px_24px_rgba(6,78,59,0.10)]">
                   {companyProfile?.logo_url ? (
-                    <img className="h-full w-full object-cover" src={companyProfile.logo_url} alt={`${brandingName} logo`} />
+                    <img
+                      className="max-h-16 w-auto max-w-full object-contain"
+                      src={companyProfile.logo_url}
+                      alt={`${brandingName} logo`}
+                    />
                   ) : (
                     <span>{brandingName.slice(0, 2).toUpperCase()}</span>
                   )}
@@ -825,9 +829,9 @@ export default function SetupPage() {
                           ⤴
                         </div>
                         {companyProfile?.logo_url ? (
-                          <div className="mb-3 overflow-hidden rounded-md border border-[#DDE8E3] bg-[#FAFCFB]">
+                          <div className="mb-3 flex min-h-[64px] w-full max-w-[180px] items-center justify-center rounded-md border border-[#DDE8E3] bg-white px-3 py-2">
                             <img
-                              className="h-16 w-16 object-cover"
+                              className="max-h-12 w-auto max-w-full object-contain"
                               src={companyProfile.logo_url}
                               alt={`${brandingName} logo preview`}
                             />
