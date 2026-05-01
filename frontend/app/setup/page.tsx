@@ -577,8 +577,8 @@ export default function SetupPage() {
                   title="Branding"
                   subtitle="This will be used across invoices, emails and client-facing experiences."
                 >
-                  <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px] 2xl:grid-cols-[minmax(0,1fr)_260px]">
-                    <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-5 min-[1500px]:grid-cols-[minmax(560px,1fr)_220px] min-[1700px]:grid-cols-[minmax(620px,1fr)_240px]">
+                    <div className="grid min-w-0 gap-4 md:grid-cols-2">
                       <div className="field">
                         <label htmlFor="company_name">Company Name</label>
                         <input
@@ -632,28 +632,28 @@ export default function SetupPage() {
                       </div>
                     </div>
 
-                    <div className="field">
+                    <div className="field w-full max-w-[260px] min-[1500px]:justify-self-end">
                       <label htmlFor="logo">Brand Logo</label>
                       <label
                         htmlFor="logo"
-                        className="flex min-h-[230px] cursor-pointer flex-col items-center justify-center rounded-[20px] border border-dashed border-[#C8D8D0] bg-white px-6 py-8 text-center transition hover:border-[#064E3B] hover:bg-[#FAFCFB]"
+                        className="flex min-h-[170px] cursor-pointer flex-col items-center justify-center rounded-[18px] border border-dashed border-[#C8D8D0] bg-white px-5 py-6 text-center transition hover:border-[#064E3B] hover:bg-[#FAFCFB]"
                       >
-                        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#DDE8E3] bg-white text-2xl text-[#064E3B]">
+                        <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full border border-[#DDE8E3] bg-white text-xl text-[#064E3B]">
                           ⤴
                         </div>
                         {companyProfile?.logo_url ? (
-                          <div className="mb-4 overflow-hidden rounded-[18px] border border-[#DDE8E3] bg-[#FAFCFB]">
+                          <div className="mb-3 overflow-hidden rounded-[16px] border border-[#DDE8E3] bg-[#FAFCFB]">
                             <img
-                              className="h-24 w-24 object-cover"
+                              className="h-16 w-16 object-cover"
                               src={companyProfile.logo_url}
                               alt={`${brandingName} logo preview`}
                             />
                           </div>
                         ) : null}
-                        <p className="text-base font-semibold text-[#0F172A]">
+                        <p className="max-w-full truncate text-sm font-semibold text-[#0F172A]">
                           {logoFile ? logoFile.name : "Upload logo"}
                         </p>
-                        <p className="mt-2 text-sm text-[#4B635A]">PNG, JPG up to 2MB</p>
+                        <p className="mt-1 text-xs text-[#4B635A]">PNG, JPG up to 2MB</p>
                       </label>
                       <input
                         id="logo"
