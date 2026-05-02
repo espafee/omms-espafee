@@ -6,6 +6,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.poe.exceptions import DuplicateProofOfExecutionError
+
 from .admin_services import MobileAdminOperationsService
 from .permissions import IsMobileAdmin
 from .serializers import (
@@ -36,7 +38,10 @@ class MobilePoeSubmitView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = MobilePoeSubmitSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        result = MobileWorkService.submit_poe(user=request.user, **serializer.validated_data)
+        try:
+            result = MobileWorkService.submit_poe(user=request.user, **serializer.validated_data)
+        except DuplicateProofOfExecutionError as exc:
+            return Response(exc.data, status=exc.status_code)
         response_serializer = MobilePoeSubmitResponseSerializer(result)
         return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 

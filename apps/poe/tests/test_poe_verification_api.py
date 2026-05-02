@@ -137,6 +137,28 @@ class PoeVerificationAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_poe_create_endpoint_rejects_duplicate_booking_submission(self):
+        existing_poe = self._create_poe("19.076500", "72.878000")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("poe-list"),
+            {
+                "booking": self.booking.id,
+                "executed_on": str(date.today()),
+                "captured_at": timezone.now().isoformat(),
+                "latitude": "19.076500",
+                "longitude": "72.878000",
+                "notes": "Duplicate attempt.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.data["detail"], "POE already submitted for this booking.")
+        self.assertEqual(response.data["poe_id"], existing_poe.id)
+        self.assertEqual(response.data["status"], ProofOfExecution.VerificationStatus.PENDING)
+
     def test_verify_response_exposes_future_ai_placeholder_structure(self):
         poe = self._create_poe("19.076500", "72.878000")
         self.client.force_authenticate(user=self.operations)

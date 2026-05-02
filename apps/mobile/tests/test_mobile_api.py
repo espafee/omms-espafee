@@ -184,6 +184,59 @@ class MobileApiTests(TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(ProofOfExecution.objects.count(), 0)
 
+    def test_mobile_poe_submit_rejects_duplicate_for_field_staff(self):
+        existing_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+        )
+        self._authenticate(self.field_staff)
+
+        response = self.client.post(
+            "/api/v1/mobile/poe/submit/",
+            {
+                "booking_id": self.booking.id,
+                "image": self._build_image(),
+                "latitude": "34.083710",
+                "longitude": "74.797310",
+                "captured_at": timezone.now().isoformat(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["detail"], "POE already submitted for this booking.")
+        self.assertEqual(response.data["poe_id"], existing_poe.id)
+        self.assertEqual(response.data["status"], ProofOfExecution.VerificationStatus.VERIFIED)
+        self.assertEqual(ProofOfExecution.objects.count(), 1)
+
+    def test_mobile_poe_submit_rejects_duplicate_for_admin(self):
+        existing_poe = ProofOfExecution.objects.create(
+            booking=self.other_booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+        self._authenticate(self.admin)
+
+        response = self.client.post(
+            "/api/v1/mobile/poe/submit/",
+            {
+                "booking_id": self.other_booking.id,
+                "image": self._build_image(),
+                "latitude": "34.090000",
+                "longitude": "74.800000",
+                "captured_at": timezone.now().isoformat(),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.data["poe_id"], existing_poe.id)
+        self.assertEqual(response.data["status"], ProofOfExecution.VerificationStatus.PENDING)
+        self.assertEqual(ProofOfExecution.objects.count(), 1)
+
     def test_mobile_admin_overview_allows_admin_and_returns_expected_keys(self):
         self._authenticate(self.admin)
 
@@ -244,3 +297,27 @@ class MobileApiTests(TestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data[0]["poe_id"], suspicious_poe.id)
         self.assertEqual(response.data[0]["status"], ProofOfExecution.VerificationStatus.SUSPICIOUS)
+
+    def test_mobile_admin_alerts_include_overdue_assignment(self):
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/alerts/")
+
+        self.assertEqual(response.status_code, 200)
+        overdue_alerts = [item for item in response.data if item["type"] == "overdue_assignment"]
+        self.assertEqual(len(overdue_alerts), 1)
+        self.assertEqual(overdue_alerts[0]["related_id"], self.booking.id)
+        self.assertEqual(overdue_alerts[0]["severity"], "warning")
+        self.assertIn("assigned to", overdue_alerts[0]["message"])
+
+    def test_mobile_admin_daily_activity_includes_overdue_assignment(self):
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/daily-activity/")
+
+        self.assertEqual(response.status_code, 200)
+        overdue_items = [item for item in response.data["overdue_items"] if item["booking_id"] == self.booking.id]
+        self.assertEqual(len(overdue_items), 1)
+        self.assertEqual(overdue_items[0]["status"], "overdue")
+        self.assertEqual(overdue_items[0]["assigned_to"], self.field_staff.email)
+        self.assertEqual(overdue_items[0]["due_date"], self.booking.start_date)

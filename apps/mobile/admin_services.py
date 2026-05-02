@@ -50,6 +50,25 @@ def _is_poe_pending(booking) -> bool:
     return latest is None or latest.verification_status == ProofOfExecution.VerificationStatus.PENDING
 
 
+def _has_any_poe(booking) -> bool:
+    return booking.poe_records.exists()
+
+
+def _active_assignment(booking):
+    return booking.assignments.select_related("user").filter(status=Assignment.Status.PENDING).first()
+
+
+def _overdue_assignment_bookings(today):
+    return [
+        booking
+        for booking in _base_booking_queryset().filter(
+            assignments__status=Assignment.Status.PENDING,
+            start_date__lte=today,
+        ).distinct()
+        if not _has_any_poe(booking)
+    ]
+
+
 def _assignee_label(booking) -> str:
     assignment = booking.assignments.select_related("user").exclude(status=Assignment.Status.CANCELLED).first()
     if not assignment:
@@ -171,6 +190,7 @@ class MobileAdminOperationsService:
     def get_daily_activity():
         today = timezone.localdate()
         active_bookings = _base_booking_queryset().filter(start_date__lte=today, end_date__gte=today)
+        overdue_assignment_ids = {booking.id for booking in _overdue_assignment_bookings(today)}
         return {
             "date": today,
             "installations_due_today": [
@@ -185,7 +205,11 @@ class MobileAdminOperationsService:
             "overdue_items": [
                 _activity_item(booking, due_date=booking.end_date, status="overdue")
                 for booking in _base_booking_queryset().filter(end_date__lt=today)
-                if not _has_verified_poe(booking)
+                if not _has_verified_poe(booking) and booking.id not in overdue_assignment_ids
+            ]
+            + [
+                _activity_item(booking, due_date=booking.start_date, status="overdue")
+                for booking in _overdue_assignment_bookings(today)
             ],
         }
 
@@ -207,6 +231,20 @@ class MobileAdminOperationsService:
                         "created_at": now,
                     }
                 )
+
+        for booking in _overdue_assignment_bookings(today):
+            assignment = _active_assignment(booking)
+            assigned_to = assignment.user.get_full_name() or assignment.user.email if assignment else "field staff"
+            alerts.append(
+                {
+                    "type": "overdue_assignment",
+                    "severity": "warning",
+                    "title": "Assignment overdue",
+                    "message": f"POE pending for {booking.campaign.name} at {booking.media_unit.site.name} assigned to {assigned_to}.",
+                    "related_id": booking.id,
+                    "created_at": now,
+                }
+            )
 
         for poe_record in ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site").filter(
             verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS

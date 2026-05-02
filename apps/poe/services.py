@@ -5,6 +5,7 @@ from django.utils import timezone
 from apps.notifications.services import trigger_poe_uploaded_notification
 from core.services import BaseService
 
+from .exceptions import DuplicateProofOfExecutionError
 from .models import ProofOfExecution
 from .repositories import (
     ProofOfExecutionMediaRepository,
@@ -18,6 +19,12 @@ class ProofOfExecutionService(BaseService):
     repository_class = ProofOfExecutionRepository
 
     def create(self, actor=None, **validated_data):
+        booking = validated_data.get("booking")
+        if booking:
+            existing_poe = ProofOfExecution.objects.filter(booking=booking).order_by("-created_at", "-id").first()
+            if existing_poe:
+                raise DuplicateProofOfExecutionError(existing_poe)
+
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
         return super().create(actor=actor, **validated_data)

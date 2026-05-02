@@ -7,6 +7,7 @@ from core.permissions import RoleBasedPermission
 from core.roles import ALL_ROLES, ADMIN, OPERATIONS
 from core.viewsets import ServiceModelViewSet
 
+from .exceptions import DuplicateProofOfExecutionError
 from .serializers import (
     ProofOfExecutionMediaSerializer,
     ProofOfExecutionSerializer,
@@ -24,6 +25,12 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
     write_roles = (ADMIN, OPERATIONS)
     filterset_fields = ["booking", "verification_status", "checked_by"]
     ordering_fields = ["executed_on", "captured_at", "created_at"]
+
+    def create(self, request, *args, **kwargs):
+        try:
+            return super().create(request, *args, **kwargs)
+        except DuplicateProofOfExecutionError as exc:
+            return Response(exc.data, status=exc.status_code)
 
 
 class ProofOfExecutionMediaViewSet(ServiceModelViewSet):
