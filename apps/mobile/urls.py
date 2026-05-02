@@ -4,6 +4,7 @@ from .views import (
     AssignedWorkView,
     MobileAdminAlertsView,
     MobileAdminDailyActivityView,
+    MobileAdminIssuesView,
     MobileAdminOverviewView,
     MobileAdminPoeTrackerView,
     MobileAdminRunningCampaignsView,
@@ -18,4 +19,5 @@ urlpatterns = [
     path("admin/poe-tracker/", MobileAdminPoeTrackerView.as_view(), name="mobile-admin-poe-tracker"),
     path("admin/daily-activity/", MobileAdminDailyActivityView.as_view(), name="mobile-admin-daily-activity"),
     path("admin/alerts/", MobileAdminAlertsView.as_view(), name="mobile-admin-alerts"),
+    path("admin/issues/", MobileAdminIssuesView.as_view(), name="mobile-admin-issues"),
 ]

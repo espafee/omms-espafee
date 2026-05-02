@@ -94,3 +94,18 @@ class MobileAdminAlertSerializer(serializers.Serializer):
     message = serializers.CharField()
     related_id = serializers.IntegerField()
     created_at = serializers.DateTimeField()
+
+
+class MobileAdminIssueSerializer(serializers.Serializer):
+    issue_id = serializers.IntegerField()
+    booking_id = serializers.IntegerField()
+    campaign_name = serializers.CharField()
+    site_name = serializers.CharField()
+    unit_name = serializers.CharField()
+    reported_by = serializers.CharField(allow_blank=True)
+    issue_type = serializers.CharField()
+    description = serializers.CharField()
+    status = serializers.CharField()
+    priority = serializers.CharField()
+    image_url = serializers.CharField(allow_null=True, allow_blank=True)
+    created_at = serializers.DateTimeField()

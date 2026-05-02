@@ -42,6 +42,7 @@ LOCAL_APPS = [
     "apps.bookings",
     "apps.campaigns",
     "apps.poe",
+    "apps.issues",
     "apps.billing",
     "apps.notifications",
     "apps.setup",

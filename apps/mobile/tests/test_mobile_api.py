@@ -11,6 +11,7 @@ from rest_framework.test import APIClient
 from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
+from apps.issues.models import Issue
 from apps.poe.models import ProofOfExecution, ProofOfExecutionMedia
 from apps.users.models import User
 
@@ -321,3 +322,43 @@ class MobileApiTests(TestCase):
         self.assertEqual(overdue_items[0]["status"], "overdue")
         self.assertEqual(overdue_items[0]["assigned_to"], self.field_staff.email)
         self.assertEqual(overdue_items[0]["due_date"], self.booking.start_date)
+
+    def test_mobile_admin_alerts_include_reported_issue(self):
+        issue = Issue.objects.create(
+            booking=self.booking,
+            assignment=self.booking.assignments.first(),
+            reported_by=self.field_staff,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.DAMAGE,
+            description="Display frame is damaged.",
+            priority=Issue.Priority.CRITICAL,
+        )
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/alerts/")
+
+        self.assertEqual(response.status_code, 200)
+        issue_alerts = [item for item in response.data if item["type"] == "reported_issue"]
+        self.assertEqual(len(issue_alerts), 1)
+        self.assertEqual(issue_alerts[0]["related_id"], issue.id)
+        self.assertEqual(issue_alerts[0]["severity"], "danger")
+
+    def test_mobile_admin_issues_returns_issue_list(self):
+        issue = Issue.objects.create(
+            booking=self.booking,
+            assignment=self.booking.assignments.first(),
+            reported_by=self.field_staff,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.WRONG,
+            description="Wrong flex installed.",
+            priority=Issue.Priority.HIGH,
+        )
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/issues/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.data), 1)
+        self.assertEqual(response.data[0]["issue_id"], issue.id)
+        self.assertEqual(response.data[0]["booking_id"], self.booking.id)
+        self.assertEqual(response.data[0]["issue_type"], Issue.IssueType.WRONG)

@@ -7,6 +7,7 @@ from django.utils import timezone
 
 from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
+from apps.issues.models import Issue
 from apps.poe.models import ProofOfExecution
 from core.images import build_public_media_url
 
@@ -289,4 +290,51 @@ class MobileAdminOperationsService:
                 }
             )
 
+        for issue in Issue.objects.select_related(
+            "booking__campaign",
+            "booking__media_unit__site",
+            "reported_by",
+        ).exclude(status=Issue.Status.RESOLVED):
+            severity = "danger" if issue.priority in [Issue.Priority.HIGH, Issue.Priority.CRITICAL] else "warning"
+            alerts.append(
+                {
+                    "type": "reported_issue",
+                    "severity": severity,
+                    "title": "Issue reported",
+                    "message": f"{issue.get_issue_type_display()} issue for {issue.booking.campaign.name} at {issue.booking.media_unit.site.name}.",
+                    "related_id": issue.id,
+                    "created_at": issue.created_at,
+                }
+            )
+
         return sorted(alerts, key=lambda item: item["created_at"], reverse=True)
+
+    @staticmethod
+    def get_issues(request=None):
+        items = []
+        queryset = Issue.objects.select_related(
+            "booking__campaign",
+            "booking__media_unit__site",
+            "reported_by",
+        ).order_by("-created_at")
+        for issue in queryset:
+            booking = issue.booking
+            site = booking.media_unit.site
+            reporter = issue.reported_by.get_full_name() or issue.reported_by.email if issue.reported_by else ""
+            items.append(
+                {
+                    "issue_id": issue.id,
+                    "booking_id": booking.id,
+                    "campaign_name": booking.campaign.name,
+                    "site_name": site.name,
+                    "unit_name": booking.media_unit.unit_code,
+                    "reported_by": reporter,
+                    "issue_type": issue.issue_type,
+                    "description": issue.description,
+                    "status": issue.status,
+                    "priority": issue.priority,
+                    "image_url": build_public_media_url(issue.image, request=request),
+                    "created_at": issue.created_at,
+                }
+            )
+        return items

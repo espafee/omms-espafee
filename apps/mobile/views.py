@@ -14,6 +14,7 @@ from .serializers import (
     AssignedWorkSerializer,
     MobileAdminAlertSerializer,
     MobileAdminDailyActivitySerializer,
+    MobileAdminIssueSerializer,
     MobileAdminOverviewSerializer,
     MobileAdminPoeTrackerSerializer,
     MobileAdminRunningCampaignSerializer,
@@ -89,4 +90,15 @@ class MobileAdminAlertsView(APIView):
 
     def get(self, request, *args, **kwargs):
         serializer = MobileAdminAlertSerializer(MobileAdminOperationsService.get_alerts(), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminIssuesView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileAdminIssueSerializer(
+            MobileAdminOperationsService.get_issues(request=request),
+            many=True,
+        )
         return Response(serializer.data, status=status.HTTP_200_OK)
