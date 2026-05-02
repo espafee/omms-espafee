@@ -1,6 +1,8 @@
 from rest_framework import serializers
 
-from .models import Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from apps.campaigns.models import Campaign
+
+from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 
 
 class InvoiceSummarySerializer(serializers.Serializer):
@@ -42,6 +44,57 @@ class PaymentSerializer(serializers.ModelSerializer):
         model = Payment
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class CampaignEstimateLineSerializer(serializers.ModelSerializer):
+    media_unit_label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CampaignEstimateLine
+        fields = "__all__"
+        read_only_fields = ["id", "taxable_amount", "tax_amount", "total_amount", "created_at", "updated_at"]
+
+    def get_media_unit_label(self, obj):
+        if not obj.media_unit:
+            return ""
+        return f"{obj.media_unit.unit_code} - {obj.media_unit.site.name}"
+
+
+class CampaignEstimateSerializer(serializers.ModelSerializer):
+    lines = CampaignEstimateLineSerializer(many=True, read_only=True)
+    client_name = serializers.SerializerMethodField()
+    campaign_name = serializers.CharField(source="campaign.name", read_only=True)
+
+    class Meta:
+        model = CampaignEstimate
+        fields = "__all__"
+        read_only_fields = [
+            "id",
+            "estimate_number",
+            "status",
+            "subtotal",
+            "tax_amount",
+            "total_amount",
+            "shared_at",
+            "approved_at",
+            "finalized_at",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_client_name(self, obj):
+        return obj.client.organization_name or obj.client.get_full_name() or obj.client.email
+
+
+class GenerateInvoiceFromBookingsSerializer(serializers.Serializer):
+    campaign = serializers.PrimaryKeyRelatedField(queryset=Campaign.objects.all())
+    supplier_profile = serializers.PrimaryKeyRelatedField(queryset=SupplierProfile.objects.filter(is_active=True), required=False, allow_null=True)
+    invoice_date = serializers.DateField(required=False)
+    due_date = serializers.DateField()
+    payment_terms = serializers.CharField(required=False, allow_blank=True)
+    gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, default="18.00")
+    sac_code = serializers.CharField(required=False, allow_blank=True, default="998361")
 
 
 class InvoiceSerializer(serializers.ModelSerializer):

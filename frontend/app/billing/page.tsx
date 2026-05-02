@@ -83,10 +83,10 @@ export default function BillingPage() {
     }
 
     return [
-      { label: "Total invoices", value: String(billingData.summary.total_invoices) },
+      { label: "Campaign estimates", value: String(billingData.estimates.length) },
+      { label: "Finalized estimates", value: String(billingData.estimates.filter((estimate) => estimate.status === "finalized").length) },
+      { label: "Generated invoices", value: String(billingData.summary.total_invoices) },
       { label: "Outstanding", value: formatCurrency(billingData.summary.outstanding_amount) },
-      { label: "Collected", value: formatCurrency(billingData.summary.total_paid) },
-      { label: "Payments", value: String(billingData.summary.payment_count) },
     ];
   }, [billingData]);
 
@@ -107,12 +107,32 @@ export default function BillingPage() {
       active="billing"
       roleLabel={user?.role ?? "Authenticated"}
       userEmail={user?.email ?? "Loading user..."}
-      title="Billing desk"
+      title="Estimate and invoice desk"
       eyebrow="Billing"
-      description="Track invoices, payment collection, overdue exposure, and billing status across your campaign portfolio from one live finance screen."
+      description="Campaign Estimate is shared before booking. Invoice is generated after campaign starts."
       onLogout={handleLogout}
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}
+
+      <section className="module-card creation-panel">
+        <div className="module-head">
+          <div>
+            <h2>Campaign Estimate → Client Approval → Booking → Invoice</h2>
+            <p className="section-copy">
+              Create a Campaign Estimate before booking inventory, share it for approval, finalize it, then create confirmed bookings. Invoices are generated from confirmed bookings only once the campaign start date is today or in the past.
+            </p>
+          </div>
+          <span>Lifecycle</span>
+        </div>
+        <div className="campaign-share-actions">
+          <button className="submit" type="button" onClick={() => router.push("/campaigns")}>
+            Create Campaign Estimate
+          </button>
+          <button className="ghost" type="button" onClick={() => router.push("/bookings")}>
+            Generate Invoice
+          </button>
+        </div>
+      </section>
 
       <section className="summary-row" aria-label="Billing stats">
         {quickStats.map((item) => (
@@ -126,23 +146,25 @@ export default function BillingPage() {
       <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
-            <h2>Invoice status</h2>
-            <span>Ledger</span>
+            <h2>Campaign Estimate status</h2>
+            <span>Pre-booking</span>
           </div>
           <div className="module-stats">
             <div className="module-stat">
-              <p className="stat-label">Issued</p>
-              <p className="stat-value">{isLoading ? "..." : billingData?.summary.issued_invoices ?? 0}</p>
-            </div>
-            <div className="module-stat">
-              <p className="stat-label">Paid</p>
-              <p className="stat-value">{isLoading ? "..." : billingData?.summary.paid_invoices ?? 0}</p>
-            </div>
-            <div className="module-stat">
-              <p className="stat-label">Partially paid</p>
+              <p className="stat-label">Draft/shared</p>
               <p className="stat-value">
-                {isLoading ? "..." : billingData?.summary.partially_paid_invoices ?? 0}
+                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => ["draft", "shared"].includes(estimate.status)).length}
               </p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Approved</p>
+              <p className="stat-value">
+                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "approved").length}
+              </p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Finalized</p>
+              <p className="stat-value">{isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "finalized").length}</p>
             </div>
           </div>
         </article>
@@ -174,28 +196,71 @@ export default function BillingPage() {
 
         <article className="module-card module-card-highlight">
           <div className="module-head">
-            <h2>Payment pulse</h2>
-            <span>Collection</span>
+            <h2>Invoice status</h2>
+            <span>Post-start</span>
           </div>
           <div className="module-stats">
             <div className="module-stat">
-              <p className="stat-label">Total paid</p>
+              <p className="stat-label">Issued</p>
+              <p className="stat-value">{isLoading ? "..." : billingData?.summary.issued_invoices ?? 0}</p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Paid</p>
+              <p className="stat-value">
+                {isLoading ? "..." : billingData?.summary.paid_invoices ?? 0}
+              </p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Collected</p>
               <p className="stat-value">
                 {isLoading ? "..." : formatCurrency(billingData?.summary.total_paid ?? "0.00")}
               </p>
             </div>
-            <div className="module-stat">
-              <p className="stat-label">Payment entries</p>
-              <p className="stat-value">{isLoading ? "..." : billingData?.summary.payment_count ?? 0}</p>
-            </div>
-            <div className="module-stat">
-              <p className="stat-label">Outstanding amount</p>
-              <p className="stat-value">
-                {isLoading ? "..." : formatCurrency(billingData?.summary.outstanding_amount ?? "0.00")}
-              </p>
-            </div>
           </div>
         </article>
+      </section>
+
+      <section className="module-card module-card-wide inventory-section">
+        <div className="module-head">
+          <h2>Campaign Estimate roster</h2>
+          <span>{billingData?.estimates.length ?? 0} items</span>
+        </div>
+        <div className="inventory-table-wrap">
+          <table className="inventory-table">
+            <thead>
+              <tr>
+                <th>Campaign Estimate</th>
+                <th>Client</th>
+                <th>Proposed dates</th>
+                <th>Status</th>
+                <th>Total</th>
+                <th>Lines</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(billingData?.estimates ?? []).map((estimate) => (
+                <tr key={estimate.id}>
+                  <td>
+                    <div className="table-primary">
+                      <strong>{estimate.estimate_number ?? "Draft estimate"}</strong>
+                      <span>{estimate.title}</span>
+                    </div>
+                  </td>
+                  <td>{estimate.client_name}</td>
+                  <td>{formatDate(estimate.start_date)} - {formatDate(estimate.end_date)}</td>
+                  <td>
+                    <span className={`status-pill status-${estimate.status}`}>{estimate.status}</span>
+                  </td>
+                  <td>{formatCurrency(estimate.total_amount)}</td>
+                  <td>{estimate.lines.length} proposed item(s)</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!isLoading && (billingData?.estimates.length ?? 0) === 0 ? (
+          <p className="empty-state">No Campaign Estimates yet. Start with “Create Campaign Estimate” before booking inventory.</p>
+        ) : null}
       </section>
 
       <section className="billing-layout">
@@ -229,7 +294,7 @@ export default function BillingPage() {
                     <tr key={invoice.id}>
                       <td>
                         <div className="table-primary">
-                          <strong>{invoice.invoice_number}</strong>
+                          <strong>{invoice.invoice_number ?? "Draft invoice"}</strong>
                           <span>{invoice.lines.length} line item(s)</span>
                         </div>
                       </td>
@@ -239,8 +304,8 @@ export default function BillingPage() {
                           <span>{campaign?.code ?? "Unknown code"}</span>
                         </div>
                       </td>
-                      <td>{formatDate(invoice.issue_date)}</td>
-                      <td>{formatDate(invoice.due_date)}</td>
+                      <td>{invoice.issue_date ? formatDate(invoice.issue_date) : "Draft"}</td>
+                      <td>{invoice.due_date ? formatDate(invoice.due_date) : "Not set"}</td>
                       <td>
                         <span className={`status-pill status-${invoice.status}`}>{invoice.status.replaceAll("_", " ")}</span>
                       </td>
@@ -253,7 +318,7 @@ export default function BillingPage() {
             </table>
           </div>
           {!isLoading && (billingData?.invoices.length ?? 0) === 0 ? (
-            <p className="empty-state">No invoices are visible for the current account.</p>
+            <p className="empty-state">No invoices yet. Generate Invoice after the campaign starts and bookings are confirmed.</p>
           ) : null}
         </article>
 

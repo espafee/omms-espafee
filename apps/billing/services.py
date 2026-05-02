@@ -11,9 +11,18 @@ from rest_framework.exceptions import ValidationError
 from core.services import BaseService
 from core.storage_backends import PrivateDocumentStorage, build_private_document_signed_url
 
-from .models import Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from apps.bookings.models import Booking
+
+from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import build_invoice_pdf_storage_name, render_invoice_pdf
-from .repositories import InvoiceLineRepository, InvoiceRepository, PaymentRepository, SupplierProfileRepository
+from .repositories import (
+    CampaignEstimateLineRepository,
+    CampaignEstimateRepository,
+    InvoiceLineRepository,
+    InvoiceRepository,
+    PaymentRepository,
+    SupplierProfileRepository,
+)
 
 SUMMARY_DECIMAL_FIELD = DecimalField(max_digits=14, decimal_places=2)
 MONEY = Decimal("0.01")
@@ -185,6 +194,17 @@ def validate_invoice_for_issue(invoice: Invoice) -> None:
         raise ValidationError({field: ["This field is required before issuing the invoice."] for field in missing})
     if not invoice.lines.exists():
         raise ValidationError({"lines": ["Add at least one invoice line before issuing the invoice."]})
+    validate_invoice_campaign_ready(invoice)
+
+
+def validate_invoice_campaign_ready(invoice: Invoice) -> None:
+    today = timezone.localdate()
+    if invoice.campaign.start_date > today:
+        raise ValidationError(
+            {"campaign": ["Invoice can be generated only from the campaign start date onward."]}
+        )
+    if not invoice.campaign.bookings.filter(status=Booking.Status.CONFIRMED).exists():
+        raise ValidationError({"campaign": ["Invoice requires at least one confirmed booking."]})
 
 
 @transaction.atomic
@@ -280,6 +300,79 @@ class SupplierProfileService(BaseService):
     repository_class = SupplierProfileRepository
 
 
+def calculate_estimate_totals(estimate: CampaignEstimate) -> CampaignEstimate:
+    subtotal = ZERO
+    tax_amount = ZERO
+    for line in estimate.lines.all():
+        taxable = quantize_money((line.quantity or ZERO) * (line.unit_rate or ZERO))
+        tax = quantize_money((taxable * (line.tax_rate or ZERO)) / Decimal("100"))
+        total = quantize_money(taxable + tax)
+        line.taxable_amount = taxable
+        line.tax_amount = tax
+        line.total_amount = total
+        line.save(update_fields=["taxable_amount", "tax_amount", "total_amount", "updated_at"])
+        subtotal += taxable
+        tax_amount += tax
+    estimate.subtotal = quantize_money(subtotal)
+    estimate.tax_amount = quantize_money(tax_amount)
+    estimate.total_amount = quantize_money(subtotal + tax_amount)
+    estimate.save(update_fields=["subtotal", "tax_amount", "total_amount", "updated_at"])
+    return estimate
+
+
+class CampaignEstimateService(BaseService):
+    repository_class = CampaignEstimateRepository
+
+    def create(self, actor=None, **validated_data):
+        estimate = super().create(actor=actor, created_by=actor, **validated_data)
+        estimate.estimate_number = f"EST/{estimate.created_at:%Y-%y}/{estimate.id:04d}"
+        estimate.save(update_fields=["estimate_number", "updated_at"])
+        return estimate
+
+    def share(self, instance, actor=None):
+        if instance.status not in {CampaignEstimate.Status.DRAFT, CampaignEstimate.Status.SHARED}:
+            raise ValidationError({"status": ["Only draft estimates can be shared."]})
+        instance.status = CampaignEstimate.Status.SHARED
+        instance.shared_at = instance.shared_at or timezone.now()
+        instance.save(update_fields=["status", "shared_at", "updated_at"])
+        return instance
+
+    def approve(self, instance, actor=None):
+        if instance.status not in {CampaignEstimate.Status.SHARED, CampaignEstimate.Status.APPROVED}:
+            raise ValidationError({"status": ["Only shared estimates can be approved."]})
+        instance.status = CampaignEstimate.Status.APPROVED
+        instance.approved_at = instance.approved_at or timezone.now()
+        instance.save(update_fields=["status", "approved_at", "updated_at"])
+        return instance
+
+    def finalize(self, instance, actor=None):
+        if instance.status != CampaignEstimate.Status.APPROVED:
+            raise ValidationError({"status": ["Only approved estimates can be finalized."]})
+        instance.status = CampaignEstimate.Status.FINALIZED
+        instance.finalized_at = timezone.now()
+        instance.save(update_fields=["status", "finalized_at", "updated_at"])
+        return instance
+
+
+class CampaignEstimateLineService(BaseService):
+    repository_class = CampaignEstimateLineRepository
+
+    def create(self, actor=None, **validated_data):
+        line = super().create(actor=actor, **validated_data)
+        calculate_estimate_totals(line.estimate)
+        return line
+
+    def update(self, instance, actor=None, **validated_data):
+        line = super().update(instance, actor=actor, **validated_data)
+        calculate_estimate_totals(line.estimate)
+        return line
+
+    def delete(self, instance, actor=None):
+        estimate = instance.estimate
+        super().delete(instance, actor=actor)
+        calculate_estimate_totals(estimate)
+
+
 class InvoiceService(BaseService):
     repository_class = InvoiceRepository
 
@@ -324,6 +417,8 @@ class InvoiceService(BaseService):
             validated_data["invoice_date"] = validated_data["issue_date"]
         if not validated_data.get("issue_date") and validated_data.get("invoice_date"):
             validated_data["issue_date"] = validated_data["invoice_date"]
+        invoice = Invoice(**validated_data)
+        validate_invoice_campaign_ready(invoice)
         return super().create(actor=actor, **validated_data)
 
     @transaction.atomic
@@ -346,6 +441,42 @@ class InvoiceService(BaseService):
 
     def get_pdf_link(self, instance, *, expiry_seconds: int | None = None):
         return get_invoice_pdf_link(instance, expiry_seconds=expiry_seconds)
+
+    @transaction.atomic
+    def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=Decimal("18.00"), sac_code="998361"):
+        invoice_date = invoice_date or timezone.localdate()
+        invoice = Invoice(
+            campaign=campaign,
+            supplier_profile=supplier_profile,
+            invoice_date=invoice_date,
+            issue_date=invoice_date,
+            due_date=due_date,
+            payment_terms=payment_terms,
+            client_legal_name=campaign.client.organization_name or campaign.client.get_full_name() or campaign.client.email,
+        )
+        validate_invoice_campaign_ready(invoice)
+        invoice.save()
+
+        confirmed_bookings = campaign.bookings.select_related("media_unit", "media_unit__site").filter(
+            status=Booking.Status.CONFIRMED
+        )
+        for index, booking in enumerate(confirmed_bookings, start=1):
+            site = booking.media_unit.site
+            InvoiceLine.objects.create(
+                invoice=invoice,
+                booking=booking,
+                line_number=index,
+                item_description=f"Outdoor media display - {site.name} / {booking.media_unit.unit_code}",
+                description=f"Outdoor media display - {site.name} / {booking.media_unit.unit_code}",
+                sac_code=sac_code,
+                quantity=Decimal("1.00"),
+                unit_of_measure="booking",
+                unit_price=booking.booked_rate,
+                gst_rate=gst_rate,
+            )
+        calculate_invoice_totals(invoice)
+        invoice.save()
+        return invoice
 
 
 class InvoiceLineService(BaseService):

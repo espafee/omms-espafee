@@ -8,6 +8,9 @@ from core.roles import ALL_ROLES, ADMIN, FINANCE
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
+    CampaignEstimateLineSerializer,
+    CampaignEstimateSerializer,
+    GenerateInvoiceFromBookingsSerializer,
     InvoiceLineSerializer,
     InvoiceSerializer,
     InvoiceSequenceSerializer,
@@ -15,7 +18,14 @@ from .serializers import (
     PaymentSerializer,
     SupplierProfileSerializer,
 )
-from .services import InvoiceLineService, InvoiceService, PaymentService, SupplierProfileService
+from .services import (
+    CampaignEstimateLineService,
+    CampaignEstimateService,
+    InvoiceLineService,
+    InvoiceService,
+    PaymentService,
+    SupplierProfileService,
+)
 
 
 class SupplierProfileViewSet(ServiceModelViewSet):
@@ -29,13 +39,57 @@ class SupplierProfileViewSet(ServiceModelViewSet):
     ordering_fields = ["legal_name", "created_at"]
 
 
+class CampaignEstimateViewSet(ServiceModelViewSet):
+    serializer_class = CampaignEstimateSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = CampaignEstimateService
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN, FINANCE)
+    write_roles_by_action = {"share": (ADMIN, FINANCE), "approve": (ADMIN, FINANCE), "finalize": (ADMIN, FINANCE)}
+    filterset_fields = ["client", "campaign", "status"]
+    search_fields = ["estimate_number", "title", "client__email", "client__organization_name", "campaign__name"]
+    ordering_fields = ["start_date", "end_date", "total_amount", "created_at"]
+
+    @extend_schema(request=None, responses=CampaignEstimateSerializer)
+    @action(detail=True, methods=["post"], url_path="share")
+    def share(self, request, pk=None):
+        estimate = self.get_object()
+        updated = self.get_service().share(estimate, actor=request.user)
+        return Response(self.get_serializer(updated).data)
+
+    @extend_schema(request=None, responses=CampaignEstimateSerializer)
+    @action(detail=True, methods=["post"], url_path="approve")
+    def approve(self, request, pk=None):
+        estimate = self.get_object()
+        updated = self.get_service().approve(estimate, actor=request.user)
+        return Response(self.get_serializer(updated).data)
+
+    @extend_schema(request=None, responses=CampaignEstimateSerializer)
+    @action(detail=True, methods=["post"], url_path="finalize")
+    def finalize(self, request, pk=None):
+        estimate = self.get_object()
+        updated = self.get_service().finalize(estimate, actor=request.user)
+        return Response(self.get_serializer(updated).data)
+
+
+class CampaignEstimateLineViewSet(ServiceModelViewSet):
+    serializer_class = CampaignEstimateLineSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = CampaignEstimateLineService
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN, FINANCE)
+    filterset_fields = ["estimate", "media_unit"]
+    search_fields = ["description", "estimate__estimate_number", "media_unit__unit_code"]
+    ordering_fields = ["start_date", "end_date", "total_amount", "created_at"]
+
+
 class InvoiceViewSet(ServiceModelViewSet):
     serializer_class = InvoiceSerializer
     permission_classes = [RoleBasedPermission]
     service_class = InvoiceService
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, FINANCE)
-    write_roles_by_action = {"issue": (ADMIN, FINANCE), "generate_pdf": (ADMIN, FINANCE)}
+    write_roles_by_action = {"issue": (ADMIN, FINANCE), "generate_pdf": (ADMIN, FINANCE), "generate_from_bookings": (ADMIN, FINANCE)}
     filterset_fields = ["campaign", "status", "issue_date", "invoice_date", "due_date", "financial_year"]
     search_fields = ["invoice_number", "campaign__name", "campaign__code", "client_legal_name", "supplier_legal_name"]
     ordering_fields = ["issue_date", "invoice_date", "due_date", "total_amount", "grand_total", "created_at"]
@@ -45,6 +99,14 @@ class InvoiceViewSet(ServiceModelViewSet):
     def summary(self, request):
         summary = self.get_service().get_summary(user=request.user)
         return Response(InvoiceSummarySerializer(instance=summary).data)
+
+    @extend_schema(request=GenerateInvoiceFromBookingsSerializer, responses=InvoiceSerializer)
+    @action(detail=False, methods=["post"], url_path="generate-from-bookings")
+    def generate_from_bookings(self, request):
+        serializer = GenerateInvoiceFromBookingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invoice = self.get_service().generate_from_bookings(actor=request.user, **serializer.validated_data)
+        return Response(self.get_serializer(instance=invoice).data)
 
     @extend_schema(request=None, responses=InvoiceSerializer)
     @action(detail=True, methods=["post"], url_path="issue")

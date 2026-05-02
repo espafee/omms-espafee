@@ -3,6 +3,7 @@ from django.db import models
 
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
+from apps.inventory.models import MediaUnit
 from core.models import TimeStampedModel
 
 
@@ -140,6 +141,79 @@ class Invoice(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.invoice_number or f"Draft invoice #{self.pk}"
+
+
+class CampaignEstimate(TimeStampedModel):
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SHARED = "shared", "Shared"
+        APPROVED = "approved", "Approved"
+        FINALIZED = "finalized", "Finalized"
+        CANCELLED = "cancelled", "Cancelled"
+
+    client = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="campaign_estimates",
+        on_delete=models.CASCADE,
+    )
+    campaign = models.ForeignKey(
+        Campaign,
+        related_name="estimates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    estimate_number = models.CharField(max_length=50, unique=True, null=True, blank=True)
+    title = models.CharField(max_length=255)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.DRAFT)
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    notes = models.TextField(blank=True)
+    shared_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    finalized_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_campaign_estimates",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return self.estimate_number or self.title
+
+
+class CampaignEstimateLine(TimeStampedModel):
+    estimate = models.ForeignKey(CampaignEstimate, related_name="lines", on_delete=models.CASCADE)
+    media_unit = models.ForeignKey(
+        MediaUnit,
+        related_name="estimate_lines",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    description = models.CharField(max_length=255)
+    start_date = models.DateField()
+    end_date = models.DateField()
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1)
+    unit_rate = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0)
+    taxable_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    tax_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return self.description
 
 
 class InvoiceLine(TimeStampedModel):
