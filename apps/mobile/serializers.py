@@ -107,5 +107,8 @@ class MobileAdminIssueSerializer(serializers.Serializer):
     description = serializers.CharField()
     status = serializers.CharField()
     priority = serializers.CharField()
+    sla_status = serializers.CharField()
+    first_response_due_at = serializers.DateTimeField(allow_null=True)
+    resolution_due_at = serializers.DateTimeField(allow_null=True)
     image_url = serializers.CharField(allow_null=True, allow_blank=True)
     created_at = serializers.DateTimeField()

@@ -5,6 +5,7 @@ from core.images import build_public_media_url
 from core.roles import FIELD_STAFF
 
 from .models import Issue
+from .services import sync_issue_sla_status
 
 
 def is_admin_like_user(user) -> bool:
@@ -43,8 +44,14 @@ class IssueSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "captured_at",
+            "contact",
             "status",
             "priority",
+            "priority_reason",
+            "first_response_due_at",
+            "resolution_due_at",
+            "acknowledged_at",
+            "sla_status",
             "created_at",
             "updated_at",
             "resolved_at",
@@ -55,6 +62,11 @@ class IssueSerializer(serializers.ModelSerializer):
             "reported_by",
             "reported_by_email",
             "image_url",
+            "priority_reason",
+            "first_response_due_at",
+            "resolution_due_at",
+            "acknowledged_at",
+            "sla_status",
             "created_at",
             "updated_at",
             "resolved_at",
@@ -62,6 +74,10 @@ class IssueSerializer(serializers.ModelSerializer):
 
     def get_image_url(self, obj):
         return build_public_media_url(obj.image, request=self.context.get("request"))
+
+    def to_representation(self, instance):
+        sync_issue_sla_status(instance)
+        return super().to_representation(instance)
 
     def get_booking_display(self, obj):
         site = obj.booking.media_unit.site
@@ -86,8 +102,23 @@ class IssueSerializer(serializers.ModelSerializer):
     def validate_reporter_type(self, reporter_type):
         request = self.context.get("request")
         user = request.user if request else None
+        if self.context.get("public_report"):
+            if reporter_type != Issue.ReporterType.CLIENT:
+                raise serializers.ValidationError("Public issue reports must use client reporter type.")
+            return reporter_type
         if getattr(user, "role", None) == FIELD_STAFF and reporter_type != Issue.ReporterType.FIELD_STAFF:
             raise serializers.ValidationError("Field staff must report as field_staff.")
         if reporter_type == Issue.ReporterType.CLIENT:
             raise serializers.ValidationError("Client issue reporting is not enabled yet.")
         return reporter_type
+
+
+class PublicIssueReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Issue
+        fields = ["issue_type", "description", "image", "contact"]
+
+    def validate_description(self, value):
+        if len(value.strip()) < 8:
+            raise serializers.ValidationError("Please describe the issue in at least 8 characters.")
+        return value.strip()

@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
 from apps.issues.models import Issue
+from apps.issues.services import sync_issue_sla_status
 from apps.poe.models import ProofOfExecution
 from core.images import build_public_media_url
 
@@ -295,12 +296,24 @@ class MobileAdminOperationsService:
             "booking__media_unit__site",
             "reported_by",
         ).exclude(status=Issue.Status.RESOLVED):
-            severity = "danger" if issue.priority in [Issue.Priority.HIGH, Issue.Priority.CRITICAL] else "warning"
+            sync_issue_sla_status(issue)
+            if issue.sla_status == Issue.SlaStatus.BREACHED:
+                alert_type = "issue_sla_breached"
+                severity = "danger"
+                title = "Issue SLA breached"
+            elif issue.sla_status == Issue.SlaStatus.AT_RISK:
+                alert_type = "issue_sla_at_risk"
+                severity = "warning"
+                title = "Issue SLA at risk"
+            else:
+                alert_type = "reported_issue"
+                severity = "danger" if issue.priority in [Issue.Priority.HIGH, Issue.Priority.CRITICAL] else "warning"
+                title = "Issue reported"
             alerts.append(
                 {
-                    "type": "reported_issue",
+                    "type": alert_type,
                     "severity": severity,
-                    "title": "Issue reported",
+                    "title": title,
                     "message": f"{issue.get_issue_type_display()} issue for {issue.booking.campaign.name} at {issue.booking.media_unit.site.name}.",
                     "related_id": issue.id,
                     "created_at": issue.created_at,
@@ -318,6 +331,7 @@ class MobileAdminOperationsService:
             "reported_by",
         ).order_by("-created_at")
         for issue in queryset:
+            sync_issue_sla_status(issue)
             booking = issue.booking
             site = booking.media_unit.site
             reporter = issue.reported_by.get_full_name() or issue.reported_by.email if issue.reported_by else ""
@@ -333,6 +347,9 @@ class MobileAdminOperationsService:
                     "description": issue.description,
                     "status": issue.status,
                     "priority": issue.priority,
+                    "sla_status": issue.sla_status,
+                    "first_response_due_at": issue.first_response_due_at,
+                    "resolution_due_at": issue.resolution_due_at,
                     "image_url": build_public_media_url(issue.image, request=request),
                     "created_at": issue.created_at,
                 }

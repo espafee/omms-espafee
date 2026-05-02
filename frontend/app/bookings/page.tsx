@@ -10,6 +10,7 @@ import { BookingCreatePanel, type BookingFormState } from "@/components/booking-
 import { createBooking, fetchBookingsData, getBookingCreateError, updateBooking, type BookingPayload } from "@/lib/bookings";
 import { formatCurrency } from "@/lib/dashboard";
 import { formatMediaUnitSiteType, type InventoryUnit } from "@/lib/inventory";
+import { createIssueReportToken } from "@/lib/issues";
 
 type StoredUser = {
   id?: number;
@@ -53,8 +54,11 @@ export default function BookingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [updatingAssignmentId, setUpdatingAssignmentId] = useState<number | null>(null);
+  const [copyingIssueLinkId, setCopyingIssueLinkId] = useState<number | null>(null);
+  const [issueLinkMessage, setIssueLinkMessage] = useState("");
 
   const canManageBookings = WRITE_ROLES.has(user?.role ?? "");
+  const canCreateIssueReportLinks = user?.role === "admin";
 
   function getUnitById(unitId: number): InventoryUnit | undefined {
     return bookingData?.units.find((unit) => unit.id === unitId);
@@ -221,6 +225,26 @@ export default function BookingsPage() {
       setFieldErrors(normalized.fieldErrors);
     } finally {
       setUpdatingAssignmentId(null);
+    }
+  }
+
+  async function handleCopyIssueReportLink(bookingId: number) {
+    if (copyingIssueLinkId) {
+      return;
+    }
+
+    setIssueLinkMessage("");
+    setCopyingIssueLinkId(bookingId);
+
+    try {
+      const response = await createIssueReportToken(bookingId);
+      await navigator.clipboard.writeText(response.public_url);
+      setIssueLinkMessage("Issue report link copied. Share it only with the relevant client/contact.");
+    } catch (copyError) {
+      const message = copyError instanceof Error ? copyError.message : "Unable to create issue report link.";
+      setIssueLinkMessage(message);
+    } finally {
+      setCopyingIssueLinkId(null);
     }
   }
 
@@ -416,6 +440,7 @@ export default function BookingsPage() {
             <h2>Booking roster</h2>
             <span>{bookingData?.bookings.length ?? 0} items</span>
           </div>
+          {issueLinkMessage ? <p className={issueLinkMessage.includes("copied") ? "success" : "error"}>{issueLinkMessage}</p> : null}
           <div className="inventory-table-wrap">
             <table className="inventory-table">
               <thead>
@@ -460,7 +485,7 @@ export default function BookingsPage() {
                       </td>
                       <td>{formatCurrency(booking.booked_rate)}</td>
                       <td>
-                        {canManageBookings ? (
+                        {canCreateIssueReportLinks ? (
                           <select
                             className="table-select"
                             value={booking.assigned_user?.id ?? ""}
@@ -494,6 +519,16 @@ export default function BookingsPage() {
                         <Link className="asset-link" href={`/poe/capture?booking=${booking.id}`}>
                           Capture proof
                         </Link>
+                        {canManageBookings ? (
+                          <button
+                            className="asset-link inline-link-button"
+                            type="button"
+                            disabled={copyingIssueLinkId === booking.id}
+                            onClick={() => void handleCopyIssueReportLink(booking.id)}
+                          >
+                            {copyingIssueLinkId === booking.id ? "Creating link..." : "Copy report link"}
+                          </button>
+                        ) : null}
                       </td>
                     </tr>
                   );

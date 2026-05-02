@@ -1,12 +1,17 @@
+from django.shortcuts import get_object_or_404
+from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import BasePermission
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from apps.bookings.models import Assignment
 from core.roles import FIELD_STAFF
 
-from .models import Issue
-from .serializers import IssueSerializer, is_admin_like_user
+from .models import Issue, IssueReportToken
+from .serializers import IssueSerializer, PublicIssueReportSerializer, is_admin_like_user
 
 
 class IssuePermission(BasePermission):
@@ -70,4 +75,68 @@ class IssueViewSet(ModelViewSet):
         serializer.save(
             reported_by=self.request.user,
             assignment=assignment,
+        )
+
+
+class PublicIssueReportView(APIView):
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+
+    def _get_token(self, token):
+        token_record = get_object_or_404(
+            IssueReportToken.objects.select_related(
+                "booking",
+                "booking__campaign",
+                "booking__media_unit",
+                "booking__media_unit__site",
+            ),
+            token=token,
+        )
+        if not token_record.is_valid():
+            return token_record, Response(
+                {"detail": "This issue reporting link has expired."},
+                status=status.HTTP_410_GONE,
+            )
+        return token_record, None
+
+    def get(self, request, token, *args, **kwargs):
+        token_record, error_response = self._get_token(token)
+        if error_response:
+            return error_response
+        booking = token_record.booking
+        site = booking.media_unit.site
+        return Response(
+            {
+                "campaign_name": booking.campaign.name,
+                "site_name": site.name,
+                "unit_name": booking.media_unit.unit_code,
+                "location": ", ".join(part for part in [site.city, site.state] if part),
+                "booking_start": booking.start_date,
+                "booking_end": booking.end_date,
+                "expires_at": token_record.expires_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request, token, *args, **kwargs):
+        token_record, error_response = self._get_token(token)
+        if error_response:
+            return error_response
+        serializer = PublicIssueReportSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        booking = token_record.booking
+        assignment = booking.assignments.exclude(status=Assignment.Status.CANCELLED).order_by("-assigned_at").first()
+        issue = serializer.save(
+            booking=booking,
+            assignment=assignment,
+            reporter_type=Issue.ReporterType.CLIENT,
+        )
+        return Response(
+            {
+                "detail": "Issue reported successfully.",
+                "issue_id": issue.id,
+                "priority": issue.priority,
+                "sla_status": issue.sla_status,
+            },
+            status=status.HTTP_201_CREATED,
         )
