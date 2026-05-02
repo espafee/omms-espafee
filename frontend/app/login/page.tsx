@@ -12,6 +12,13 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  function getLoginErrorMessage(errorValue: unknown) {
+    if (errorValue instanceof Error) {
+      console.error("Login failed:", errorValue.message);
+    }
+    return "Invalid email or password. Please try again.";
+  }
+
   useEffect(() => {
     if (getAccessToken()) {
       router.replace("/dashboard");
@@ -28,7 +35,7 @@ export default function LoginPage() {
       storeAuthSession(payload);
       router.push("/dashboard");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Unable to sign you in.");
+      setError(getLoginErrorMessage(submitError));
     } finally {
       setIsSubmitting(false);
     }
@@ -46,7 +53,7 @@ export default function LoginPage() {
           </p>
           <ul className="feature-list">
             <li>Centralized campaign and booking visibility</li>
-            <li>JWT-secured access for role-based teams</li>
+            <li>Secure access for role-based teams</li>
             <li>Clean handoff from sales to operations and finance</li>
           </ul>
         </div>
@@ -91,12 +98,6 @@ export default function LoginPage() {
             <button className="submit" type="submit" disabled={isSubmitting}>
               {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
-
-            <p className="helper">
-              The login request is sent to the backend JWT endpoint at <strong>/auth/login/</strong>. The
-              access token is saved in <strong>localStorage</strong>, then you are redirected to the
-              dashboard.
-            </p>
           </form>
         </div>
       </section>

@@ -19,7 +19,7 @@ export type AuthSessionPayload = {
 };
 
 const API_ROOT = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
-const USER_API_ROOT = process.env.NEXT_PUBLIC_API_BASE_URL ?? `${API_ROOT}/users`;
+const RAW_USER_API_ROOT = process.env.NEXT_PUBLIC_USERS_API_ROOT ?? process.env.NEXT_PUBLIC_API_BASE_URL ?? API_ROOT;
 const LOGIN_PATH = process.env.NEXT_PUBLIC_AUTH_LOGIN_PATH ?? "/auth/login/";
 
 const ACCESS_TOKEN_KEY = "omms_access_token";
@@ -46,6 +46,11 @@ export class ApiError extends Error {
 
 function normalizeUrl(root: string, path: string) {
   return `${root.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+}
+
+function normalizeUsersApiRoot(root: string) {
+  const normalizedRoot = root.replace(/\/$/, "");
+  return normalizedRoot.endsWith("/users") ? normalizedRoot : normalizeUrl(normalizedRoot, "users");
 }
 
 function normalizeFieldErrors(payload: unknown): ApiFieldErrors {
@@ -272,12 +277,12 @@ export async function apiUpload<T>(
 }
 
 export async function loginWithEmailPassword(email: string, password: string): Promise<AuthSessionPayload> {
-  const response = await fetch(normalizeUrl(USER_API_ROOT, LOGIN_PATH), {
+  const response = await fetch(normalizeUrl(normalizeUsersApiRoot(RAW_USER_API_ROOT), LOGIN_PATH), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email: email.trim(), password }),
   });
 
   if (!response.ok) {
