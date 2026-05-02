@@ -39,6 +39,7 @@ class Assignment(TimeStampedModel):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
 
     booking = models.ForeignKey(Booking, related_name="assignments", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="booking_assignments", on_delete=models.CASCADE)

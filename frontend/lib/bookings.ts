@@ -33,7 +33,7 @@ export type BookingCreateInput = {
   booked_rate: string;
   status: string;
   remarks: string;
-  assigned_user_id?: number | null;
+  field_staff_user_id?: number | null;
 };
 
 export type BookingPayload = {
@@ -74,6 +74,13 @@ export async function fetchBookingsData(): Promise<BookingPayload> {
 export async function createBooking(payload: BookingCreateInput) {
   return apiFetch<Booking>("bookings/", {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateBooking(id: number, payload: Partial<BookingCreateInput>) {
+  return apiFetch<Booking>(`bookings/${id}/`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }

@@ -5,7 +5,7 @@ from datetime import timedelta
 from django.db.models import Q
 from django.utils import timezone
 
-from apps.bookings.models import Booking
+from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
 from apps.poe.models import ProofOfExecution
 from core.images import build_public_media_url
@@ -51,7 +51,7 @@ def _is_poe_pending(booking) -> bool:
 
 
 def _assignee_label(booking) -> str:
-    assignment = booking.assignments.select_related("user").first()
+    assignment = booking.assignments.select_related("user").exclude(status=Assignment.Status.CANCELLED).first()
     if not assignment:
         return ""
     return assignment.user.get_full_name() or assignment.user.email

@@ -27,6 +27,7 @@ export type UserOption = ClientOption & {
 export type FieldStaffOption = {
   id: number;
   email: string;
+  name?: string;
   username: string;
   first_name: string;
   last_name: string;

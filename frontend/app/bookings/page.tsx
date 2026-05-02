@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import { BookingCreatePanel, type BookingFormState } from "@/components/booking-create-panel";
-import { createBooking, fetchBookingsData, getBookingCreateError, type BookingPayload } from "@/lib/bookings";
+import { createBooking, fetchBookingsData, getBookingCreateError, updateBooking, type BookingPayload } from "@/lib/bookings";
 import { formatCurrency } from "@/lib/dashboard";
 import { formatMediaUnitSiteType, type InventoryUnit } from "@/lib/inventory";
 
@@ -28,7 +28,7 @@ const INITIAL_FORM: BookingFormState = {
   booked_rate: "",
   status: "pending",
   remarks: "",
-  assigned_user_id: null,
+  field_staff_user_id: null,
 };
 
 function formatDateRange(startDate: string, endDate: string) {
@@ -52,6 +52,7 @@ export default function BookingsPage() {
   const [form, setForm] = useState<BookingFormState>(INITIAL_FORM);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [updatingAssignmentId, setUpdatingAssignmentId] = useState<number | null>(null);
 
   const canManageBookings = WRITE_ROLES.has(user?.role ?? "");
 
@@ -180,7 +181,7 @@ export default function BookingsPage() {
         booked_rate: Number(form.booked_rate).toFixed(2),
         status: form.status,
         remarks: form.remarks,
-        assigned_user_id: form.assigned_user_id || null,
+        field_staff_user_id: form.field_staff_user_id || null,
       });
 
       setFormSuccess("Booking created successfully.");
@@ -198,6 +199,28 @@ export default function BookingsPage() {
       setFieldErrors(normalized.fieldErrors);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleAssignmentChange(bookingId: number, fieldStaffUserId: number | null) {
+    if (updatingAssignmentId) {
+      return;
+    }
+
+    setFormError("");
+    setFormSuccess("");
+    setUpdatingAssignmentId(bookingId);
+
+    try {
+      await updateBooking(bookingId, { field_staff_user_id: fieldStaffUserId });
+      setFormSuccess(fieldStaffUserId ? "Booking assignment updated." : "Booking marked as unassigned.");
+      await loadBookings(user);
+    } catch (assignmentError) {
+      const normalized = getBookingCreateError(assignmentError);
+      setFormError(normalized.message);
+      setFieldErrors(normalized.fieldErrors);
+    } finally {
+      setUpdatingAssignmentId(null);
     }
   }
 
@@ -437,7 +460,27 @@ export default function BookingsPage() {
                       </td>
                       <td>{formatCurrency(booking.booked_rate)}</td>
                       <td>
-                        {booking.assigned_user ? (
+                        {canManageBookings ? (
+                          <select
+                            className="table-select"
+                            value={booking.assigned_user?.id ?? ""}
+                            disabled={updatingAssignmentId === booking.id}
+                            aria-label={`Assign field staff for booking ${booking.id}`}
+                            onChange={(event) =>
+                              void handleAssignmentChange(
+                                booking.id,
+                                event.target.value ? Number(event.target.value) : null,
+                              )
+                            }
+                          >
+                            <option value="">Unassigned</option>
+                            {(bookingData?.fieldStaff ?? []).map((staff) => (
+                              <option key={staff.id} value={staff.id}>
+                                {staff.name || staff.full_name || staff.email}
+                              </option>
+                            ))}
+                          </select>
+                        ) : booking.assigned_user ? (
                           <div className="table-primary">
                             <strong>{booking.assigned_user.full_name || booking.assigned_user.email}</strong>
                             <span>{booking.assigned_user.role.replace("_", " ")}</span>

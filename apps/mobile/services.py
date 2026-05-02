@@ -5,17 +5,36 @@ from django.utils import timezone
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from apps.bookings.models import Booking
+from apps.bookings.models import Assignment
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import ProofOfExecutionMediaService, ProofOfExecutionService
 from core.roles import ADMIN
 
 
+ADMIN_MOBILE_ROLES = {ADMIN, "super_admin", "owner"}
+
+
+def is_admin_like_user(user) -> bool:
+    return bool(
+        user
+        and user.is_authenticated
+        and (
+            getattr(user, "is_staff", False)
+            or getattr(user, "is_superuser", False)
+            or getattr(user, "role", None) in ADMIN_MOBILE_ROLES
+        )
+    )
+
+
 def user_can_access_booking(user, booking: Booking) -> bool:
     if not user or not user.is_authenticated:
         return False
-    if getattr(user, "is_superuser", False) or getattr(user, "role", None) == ADMIN:
+    if is_admin_like_user(user):
         return True
-    return booking.assignments.filter(user=user).exists()
+    return booking.assignments.filter(
+        user=user,
+        status__in=[Assignment.Status.PENDING, Assignment.Status.COMPLETED],
+    ).exists()
 
 
 class MobileWorkService:
@@ -32,9 +51,12 @@ class MobileWorkService:
             .exclude(status=Booking.Status.CANCELLED)
             .order_by("start_date", "id")
         )
-        if getattr(user, "is_superuser", False) or getattr(user, "role", None) == ADMIN:
+        if is_admin_like_user(user):
             return queryset
-        return queryset.filter(assignments__user=user).distinct()
+        return queryset.filter(
+            assignments__user=user,
+            assignments__status__in=[Assignment.Status.PENDING, Assignment.Status.COMPLETED],
+        ).distinct()
 
     @classmethod
     def get_assigned_work(cls, user):

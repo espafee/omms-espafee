@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 
 from core.roles import FIELD_ASSIGNABLE_ROLES
 
-from .models import Booking
+from .models import Assignment, Booking
 
 User = get_user_model()
 
@@ -29,6 +29,13 @@ class BookingSerializer(serializers.ModelSerializer):
         allow_null=True,
         write_only=True,
     )
+    field_staff_user_id = serializers.PrimaryKeyRelatedField(
+        source="assigned_user",
+        queryset=User.objects.filter(role__in=FIELD_ASSIGNABLE_ROLES, is_active=True),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
 
     class Meta:
         model = Booking
@@ -36,7 +43,10 @@ class BookingSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
     def get_assigned_user(self, obj):
-        assignment = next(iter(obj.assignments.all()), None)
+        assignment = next(
+            (assignment for assignment in obj.assignments.all() if assignment.status != Assignment.Status.CANCELLED),
+            None,
+        )
         if not assignment:
             return None
         user = assignment.user

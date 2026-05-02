@@ -64,11 +64,13 @@ class BookingService(BaseService):
         return booking
 
     def _set_assignment(self, booking, assigned_user, actor=None):
-        # Keep one current assignee for now while the model supports future multi-assignment.
-        booking.assignments.exclude(user=assigned_user).delete()
         if assigned_user is None:
-            booking.assignments.all().delete()
+            booking.assignments.exclude(status=Assignment.Status.CANCELLED).update(status=Assignment.Status.CANCELLED)
             return
+        # Keep one current assignee for now while preserving cancelled assignment history.
+        booking.assignments.exclude(user=assigned_user).exclude(status=Assignment.Status.CANCELLED).update(
+            status=Assignment.Status.CANCELLED
+        )
         Assignment.objects.update_or_create(
             booking=booking,
             user=assigned_user,

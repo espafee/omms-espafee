@@ -161,19 +161,20 @@ export function BookingCreatePanel({
           <label htmlFor="booking-assigned-user">Assign Field Staff</label>
           <select
             id="booking-assigned-user"
-            value={form.assigned_user_id || ""}
-            onChange={(event) => onChange("assigned_user_id", event.target.value ? Number(event.target.value) : null)}
+            value={form.field_staff_user_id || ""}
+            onChange={(event) => onChange("field_staff_user_id", event.target.value ? Number(event.target.value) : null)}
           >
             <option value="">Unassigned</option>
             {fieldStaff.map((staff) => (
               <option key={staff.id} value={staff.id}>
-                {staff.full_name || staff.email} ({staff.role.replace("_", " ")})
+                {staff.name || staff.full_name || staff.email} ({staff.role.replace("_", " ")})
               </option>
             ))}
           </select>
           <p className="field-help">Assigned bookings appear in the field staff mobile app.</p>
-          {renderFieldError(fieldErrors, "assigned_user_id")}
+          {renderFieldError(fieldErrors, "field_staff_user_id")}
           {renderFieldError(fieldErrors, "assigned_user")}
+          {renderFieldError(fieldErrors, "assigned_user_id")}
         </div>
 
         <div className="field field-full booking-preview-strip">

@@ -51,6 +51,7 @@ class ClientOptionSerializer(serializers.ModelSerializer):
 
 
 class FieldStaffOptionSerializer(serializers.ModelSerializer):
+    name = serializers.SerializerMethodField()
     full_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -58,6 +59,7 @@ class FieldStaffOptionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "email",
+            "name",
             "username",
             "first_name",
             "last_name",
@@ -68,6 +70,9 @@ class FieldStaffOptionSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_full_name(self, obj) -> str:
+        return obj.get_full_name() or obj.email
+
+    def get_name(self, obj) -> str:
         return obj.get_full_name() or obj.email
 
 
