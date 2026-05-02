@@ -99,3 +99,15 @@ def sync_issue_sla_status(issue):
 def build_public_issue_report_url(token: str) -> str:
     base_url = settings.FRONTEND_PUBLIC_BASE_URL.rstrip("/")
     return f"{base_url}/report-issue/{token}"
+
+
+def resolve_open_issues_after_poe(booking, poe_created_at=None):
+    from .models import Issue
+
+    poe_created_at = poe_created_at or timezone.now()
+    queryset = Issue.objects.filter(booking=booking).exclude(status=Issue.Status.RESOLVED)
+    for issue in queryset:
+        if issue.created_at and poe_created_at <= issue.created_at:
+            continue
+        issue.status = Issue.Status.RESOLVED
+        issue.save(update_fields=["status", "resolved_at", "sla_status", "updated_at"])

@@ -123,3 +123,53 @@ class IssueReportToken(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"Issue report token for booking {self.booking_id}"
+
+
+class IssueTask(TimeStampedModel):
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        IN_PROGRESS = "in_progress", "In Progress"
+        COMPLETED = "completed", "Completed"
+
+    issue = models.ForeignKey(Issue, related_name="tasks", on_delete=models.CASCADE)
+    assigned_to = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issue_tasks",
+        on_delete=models.CASCADE,
+    )
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="assigned_issue_tasks",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    assigned_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    due_at = models.DateTimeField()
+    completed_at = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True)
+
+    class Meta:
+        ordering = ["-assigned_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["issue"],
+                condition=models.Q(status__in=["pending", "in_progress"]),
+                name="unique_active_task_per_issue",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["assigned_to", "status", "due_at"]),
+            models.Index(fields=["issue", "status"]),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.status == self.Status.COMPLETED and not self.completed_at:
+            self.completed_at = timezone.now()
+        if self.status != self.Status.COMPLETED:
+            self.completed_at = None
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"Issue task {self.pk or 'new'} for issue {self.issue_id}"

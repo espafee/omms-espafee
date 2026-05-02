@@ -1,11 +1,14 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.bookings.models import Assignment, Booking
 from core.images import build_public_media_url
 from core.roles import FIELD_STAFF
 
-from .models import Issue
+from .models import Issue, IssueTask
 from .services import sync_issue_sla_status
+
+User = get_user_model()
 
 
 def is_admin_like_user(user) -> bool:
@@ -122,3 +125,73 @@ class PublicIssueReportSerializer(serializers.ModelSerializer):
         if len(value.strip()) < 8:
             raise serializers.ValidationError("Please describe the issue in at least 8 characters.")
         return value.strip()
+
+
+class IssueTaskSerializer(serializers.ModelSerializer):
+    assigned_to_email = serializers.EmailField(source="assigned_to.email", read_only=True)
+    assigned_to_name = serializers.SerializerMethodField()
+    assigned_by_email = serializers.EmailField(source="assigned_by.email", read_only=True)
+    issue_display = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IssueTask
+        fields = [
+            "id",
+            "issue",
+            "issue_display",
+            "assigned_to",
+            "assigned_to_email",
+            "assigned_to_name",
+            "assigned_by",
+            "assigned_by_email",
+            "assigned_at",
+            "status",
+            "due_at",
+            "completed_at",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "issue",
+            "issue_display",
+            "assigned_to",
+            "assigned_to_email",
+            "assigned_to_name",
+            "assigned_by",
+            "assigned_by_email",
+            "assigned_at",
+            "due_at",
+            "completed_at",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
+
+    def get_assigned_to_name(self, obj):
+        return obj.assigned_to.get_full_name() or obj.assigned_to.email
+
+    def get_issue_display(self, obj):
+        site = obj.issue.booking.media_unit.site
+        return {
+            "issue_type": obj.issue.issue_type,
+            "issue_status": obj.issue.status,
+            "priority": obj.issue.priority,
+            "campaign_name": obj.issue.booking.campaign.name,
+            "site_name": site.name,
+            "unit_name": obj.issue.booking.media_unit.unit_code,
+        }
+
+    def validate_status(self, value):
+        if value not in {IssueTask.Status.IN_PROGRESS, IssueTask.Status.COMPLETED}:
+            raise serializers.ValidationError("Task status can only move to in_progress or completed.")
+        return value
+
+
+class IssueTaskAssignSerializer(serializers.Serializer):
+    assigned_to = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=FIELD_STAFF, is_active=True)
+    )
+    due_at = serializers.DateTimeField()
+    notes = serializers.CharField(required=False, allow_blank=True)

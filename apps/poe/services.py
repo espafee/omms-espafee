@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.utils import timezone
 
 from apps.notifications.services import trigger_poe_uploaded_notification
+from apps.issues.services import resolve_open_issues_after_poe
 from core.services import BaseService
 
 from .exceptions import DuplicateProofOfExecutionError
@@ -27,7 +28,10 @@ class ProofOfExecutionService(BaseService):
 
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
-        return super().create(actor=actor, **validated_data)
+        poe_record = super().create(actor=actor, **validated_data)
+        if booking:
+            resolve_open_issues_after_poe(booking, poe_created_at=poe_record.created_at)
+        return poe_record
 
     def mark_verified(self, instance):
         return self.update(

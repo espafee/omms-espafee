@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/v1/campaigns/", include("apps.campaigns.urls")),
     path("api/v1/poe/", include("apps.poe.urls")),
     path("api/v1/issues/", include("apps.issues.urls")),
+    path("api/v1/tasks/", include("apps.issues.task_urls")),
     path("api/v1/public/issue-report/<str:token>/", PublicIssueReportView.as_view(), name="public-issue-report"),
     path("public/issue-report/<str:token>/", PublicIssueReportView.as_view(), name="public-issue-report-legacy"),
     path("api/v1/billing/", include("apps.billing.urls")),
