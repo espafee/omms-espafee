@@ -1,3 +1,4 @@
+from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
@@ -6,6 +7,7 @@ from .views import (
     InvoiceLineViewSet,
     InvoiceViewSet,
     PaymentViewSet,
+    PublicEstimateApprovalView,
     SupplierProfileViewSet,
 )
 
@@ -17,4 +19,7 @@ router.register("invoices", InvoiceViewSet, basename="billing-invoices")
 router.register("invoice-lines", InvoiceLineViewSet, basename="billing-invoice-lines")
 router.register("payments", PaymentViewSet, basename="billing-payments")
 
-urlpatterns = router.urls
+urlpatterns = [
+    path("public/estimate/<str:token>/", PublicEstimateApprovalView.as_view(), name="billing-public-estimate-detail"),
+]
+urlpatterns += router.urls

@@ -1,7 +1,9 @@
 from django.conf import settings
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from core.permissions import RoleBasedPermission
 from core.roles import ALL_ROLES, ADMIN, FINANCE
@@ -16,6 +18,8 @@ from .serializers import (
     InvoiceSequenceSerializer,
     InvoiceSummarySerializer,
     PaymentSerializer,
+    PublicCampaignEstimateSerializer,
+    PublicEstimateDecisionSerializer,
     SupplierProfileSerializer,
 )
 from .services import (
@@ -24,6 +28,7 @@ from .services import (
     InvoiceLineService,
     InvoiceService,
     PaymentService,
+    PublicEstimateAccessError,
     SupplierProfileService,
 )
 
@@ -45,7 +50,7 @@ class CampaignEstimateViewSet(ServiceModelViewSet):
     service_class = CampaignEstimateService
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, FINANCE)
-    write_roles_by_action = {"share": (ADMIN, FINANCE), "approve": (ADMIN, FINANCE), "finalize": (ADMIN, FINANCE)}
+    write_roles_by_action = {"share": (ADMIN, FINANCE), "approve": (ADMIN, FINANCE), "reject": (ADMIN, FINANCE), "finalize": (ADMIN, FINANCE)}
     filterset_fields = ["client", "campaign", "status"]
     search_fields = ["estimate_number", "title", "client__email", "client__organization_name", "campaign__name"]
     ordering_fields = ["start_date", "end_date", "total_amount", "created_at"]
@@ -65,10 +70,17 @@ class CampaignEstimateViewSet(ServiceModelViewSet):
         return Response(self.get_serializer(updated).data)
 
     @extend_schema(request=None, responses=CampaignEstimateSerializer)
+    @action(detail=True, methods=["post"], url_path="reject")
+    def reject(self, request, pk=None):
+        estimate = self.get_object()
+        updated = self.get_service().reject(estimate, actor=request.user)
+        return Response(self.get_serializer(updated).data)
+
+    @extend_schema(request=None, responses=CampaignEstimateSerializer)
     @action(detail=True, methods=["post"], url_path="finalize")
     def finalize(self, request, pk=None):
         estimate = self.get_object()
-        updated = self.get_service().finalize(estimate, actor=request.user)
+        updated = self.get_service().approve(estimate, actor=request.user)
         return Response(self.get_serializer(updated).data)
 
 
@@ -157,3 +169,27 @@ class PaymentViewSet(ServiceModelViewSet):
     filterset_fields = ["invoice", "method", "payment_date"]
     search_fields = ["invoice__invoice_number", "reference_number"]
     ordering_fields = ["payment_date", "amount", "created_at"]
+
+
+class PublicEstimateApprovalView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(responses=PublicCampaignEstimateSerializer)
+    def get(self, request, token, *args, **kwargs):
+        service = CampaignEstimateService()
+        try:
+            estimate = service.resolve_public(token)
+        except PublicEstimateAccessError as exc:
+            return Response({"detail": exc.message, "code": exc.code}, status=exc.status_code)
+        return Response(PublicCampaignEstimateSerializer(instance=estimate).data)
+
+    @extend_schema(request=PublicEstimateDecisionSerializer, responses=PublicCampaignEstimateSerializer)
+    def post(self, request, token, *args, **kwargs):
+        serializer = PublicEstimateDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = CampaignEstimateService()
+        try:
+            estimate = service.respond_public(token, decision=serializer.validated_data["decision"])
+        except PublicEstimateAccessError as exc:
+            return Response({"detail": exc.message, "code": exc.code}, status=exc.status_code)
+        return Response(PublicCampaignEstimateSerializer(instance=estimate).data)

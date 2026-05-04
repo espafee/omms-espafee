@@ -6,6 +6,7 @@ from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine
 
 
 class InvoiceSummarySerializer(serializers.Serializer):
+    total_estimated = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_invoices = serializers.IntegerField()
     issued_invoices = serializers.IntegerField()
     overdue_invoices = serializers.IntegerField()
@@ -97,6 +98,7 @@ class CampaignEstimateSerializer(serializers.ModelSerializer):
     lines = CampaignEstimateLineSerializer(many=True, read_only=True)
     client_name = serializers.SerializerMethodField()
     campaign_name = serializers.CharField(source="campaign.name", read_only=True)
+    public_path = serializers.SerializerMethodField()
 
     class Meta:
         model = CampaignEstimate
@@ -110,7 +112,11 @@ class CampaignEstimateSerializer(serializers.ModelSerializer):
             "total_amount",
             "shared_at",
             "approved_at",
-            "finalized_at",
+            "rejected_at",
+            "approval_token_value",
+            "approval_token_hash",
+            "approval_token_prefix",
+            "approval_token_created_at",
             "created_by",
             "created_at",
             "updated_at",
@@ -118,6 +124,75 @@ class CampaignEstimateSerializer(serializers.ModelSerializer):
 
     def get_client_name(self, obj):
         return obj.client.organization_name or obj.client.get_full_name() or obj.client.email
+
+    def get_public_path(self, obj):
+        return obj.public_path
+
+
+class PublicCampaignEstimateLineSerializer(serializers.ModelSerializer):
+    media_unit_label = serializers.SerializerMethodField()
+    site_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CampaignEstimateLine
+        fields = [
+            "id",
+            "description",
+            "start_date",
+            "end_date",
+            "quantity",
+            "unit_rate",
+            "tax_rate",
+            "taxable_amount",
+            "tax_amount",
+            "total_amount",
+            "media_unit_label",
+            "site_name",
+        ]
+
+    def get_media_unit_label(self, obj):
+        if not obj.media_unit:
+            return ""
+        return obj.media_unit.unit_code
+
+    def get_site_name(self, obj):
+        if not obj.media_unit:
+            return ""
+        return obj.media_unit.site.name
+
+
+class PublicCampaignEstimateSerializer(serializers.ModelSerializer):
+    client_name = serializers.SerializerMethodField()
+    campaign_name = serializers.CharField(source="campaign.name", read_only=True)
+    lines = PublicCampaignEstimateLineSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = CampaignEstimate
+        fields = [
+            "id",
+            "estimate_number",
+            "title",
+            "status",
+            "start_date",
+            "end_date",
+            "subtotal",
+            "tax_amount",
+            "total_amount",
+            "notes",
+            "client_name",
+            "campaign_name",
+            "shared_at",
+            "approved_at",
+            "rejected_at",
+            "lines",
+        ]
+
+    def get_client_name(self, obj):
+        return obj.client.organization_name or obj.client.get_full_name() or obj.client.email
+
+
+class PublicEstimateDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(choices=[("approve", "Approve"), ("reject", "Reject")])
 
 
 class GenerateInvoiceFromBookingsSerializer(serializers.Serializer):

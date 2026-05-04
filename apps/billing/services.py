@@ -113,6 +113,14 @@ def get_indian_financial_year(invoice_date: date) -> str:
     return f"{start_year}-{end_year:02d}"
 
 
+class PublicEstimateAccessError(Exception):
+    def __init__(self, code, message, status_code):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
+
+
 @transaction.atomic
 def allocate_invoice_number(document_type: str, financial_year: str) -> str:
     sequence, _ = InvoiceSequence.objects.select_for_update().get_or_create(
@@ -396,6 +404,48 @@ def calculate_estimate_totals(estimate: CampaignEstimate) -> CampaignEstimate:
     return estimate
 
 
+def resolve_public_estimate(raw_token: str) -> CampaignEstimate:
+    if not raw_token:
+        raise PublicEstimateAccessError("invalid_token", "Estimate approval link is invalid.", 404)
+
+    estimate = CampaignEstimate.objects.select_related("client", "campaign").prefetch_related("lines__media_unit__site").filter(
+        approval_token_hash=CampaignEstimate.build_token_hash(raw_token)
+    ).first()
+    if not estimate:
+        raise PublicEstimateAccessError("invalid_token", "Estimate approval link is invalid.", 404)
+
+    if estimate.status == CampaignEstimate.Status.DRAFT:
+        raise PublicEstimateAccessError("inactive_estimate", "This estimate has not been sent for approval yet.", 410)
+
+    return estimate
+
+
+def refresh_invoice_payment_status(invoice: Invoice) -> Invoice:
+    if invoice.status == Invoice.Status.CANCELLED:
+        return invoice
+    if invoice.status == Invoice.Status.DRAFT:
+        return invoice
+
+    total_paid = invoice.payments.aggregate(total=models.Sum("amount")).get("total") or Decimal("0.00")
+    payable_total = invoice.grand_total or invoice.total_amount
+    next_status = invoice.status
+    today = timezone.localdate()
+
+    if payable_total > 0 and total_paid >= payable_total:
+        next_status = Invoice.Status.PAID
+    elif invoice.due_date and invoice.due_date < today:
+        next_status = Invoice.Status.OVERDUE
+    elif total_paid > 0:
+        next_status = Invoice.Status.PARTIALLY_PAID
+    else:
+        next_status = Invoice.Status.ISSUED
+
+    if next_status != invoice.status:
+        invoice.status = next_status
+        invoice.save(update_fields=["status", "updated_at"])
+    return invoice
+
+
 class CampaignEstimateService(BaseService):
     repository_class = CampaignEstimateRepository
 
@@ -406,28 +456,50 @@ class CampaignEstimateService(BaseService):
         return estimate
 
     def share(self, instance, actor=None):
-        if instance.status not in {CampaignEstimate.Status.DRAFT, CampaignEstimate.Status.SHARED}:
-            raise ValidationError({"status": ["Only draft estimates can be shared."]})
-        instance.status = CampaignEstimate.Status.SHARED
+        if instance.status not in {CampaignEstimate.Status.DRAFT, CampaignEstimate.Status.REJECTED, CampaignEstimate.Status.SENT}:
+            raise ValidationError({"status": ["Only draft or rejected estimates can be sent for approval."]})
+        instance.issue_public_token(force_new=instance.status == CampaignEstimate.Status.REJECTED)
+        instance.status = CampaignEstimate.Status.SENT
         instance.shared_at = instance.shared_at or timezone.now()
-        instance.save(update_fields=["status", "shared_at", "updated_at"])
+        instance.save(
+            update_fields=[
+                "status",
+                "shared_at",
+                "approval_token_value",
+                "approval_token_hash",
+                "approval_token_prefix",
+                "approval_token_created_at",
+                "updated_at",
+            ]
+        )
         return instance
 
     def approve(self, instance, actor=None):
-        if instance.status not in {CampaignEstimate.Status.SHARED, CampaignEstimate.Status.APPROVED}:
-            raise ValidationError({"status": ["Only shared estimates can be approved."]})
+        if instance.status not in {CampaignEstimate.Status.SENT, CampaignEstimate.Status.APPROVED}:
+            raise ValidationError({"status": ["Only sent estimates can be approved."]})
         instance.status = CampaignEstimate.Status.APPROVED
         instance.approved_at = instance.approved_at or timezone.now()
         instance.save(update_fields=["status", "approved_at", "updated_at"])
         return instance
 
-    def finalize(self, instance, actor=None):
-        if instance.status != CampaignEstimate.Status.APPROVED:
-            raise ValidationError({"status": ["Only approved estimates can be finalized."]})
-        instance.status = CampaignEstimate.Status.FINALIZED
-        instance.finalized_at = timezone.now()
-        instance.save(update_fields=["status", "finalized_at", "updated_at"])
+    def reject(self, instance, actor=None):
+        if instance.status not in {CampaignEstimate.Status.SENT, CampaignEstimate.Status.REJECTED}:
+            raise ValidationError({"status": ["Only sent estimates can be rejected."]})
+        instance.status = CampaignEstimate.Status.REJECTED
+        instance.rejected_at = timezone.now()
+        instance.save(update_fields=["status", "rejected_at", "updated_at"])
         return instance
+
+    def resolve_public(self, raw_token: str) -> CampaignEstimate:
+        return resolve_public_estimate(raw_token)
+
+    def respond_public(self, raw_token: str, *, decision: str) -> CampaignEstimate:
+        estimate = self.resolve_public(raw_token)
+        if decision == "approve":
+            return self.approve(estimate)
+        if decision == "reject":
+            return self.reject(estimate)
+        raise ValidationError({"decision": ["Unsupported estimate decision."]})
 
 
 class CampaignEstimateLineService(BaseService):
@@ -463,6 +535,9 @@ class InvoiceService(BaseService):
     def get_summary(self, user=None):
         invoice_queryset = self.get_queryset(user=user)
         payment_queryset = Payment.objects.filter(invoice__in=invoice_queryset)
+        estimate_queryset = CampaignEstimate.objects.all()
+        if user and getattr(user, "role", None) == "client":
+            estimate_queryset = estimate_queryset.filter(client=user)
 
         summary = invoice_queryset.aggregate(
             total_invoices=Count("id"),
@@ -477,6 +552,9 @@ class InvoiceService(BaseService):
                 output_field=SUMMARY_DECIMAL_FIELD,
             ),
         )
+        summary["total_estimated"] = estimate_queryset.aggregate(
+            total_estimated=Coalesce(Sum("total_amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD)
+        )["total_estimated"]
         payment_summary = payment_queryset.aggregate(
             payment_count=Count("id"),
             total_paid=Coalesce(Sum("amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD),
@@ -484,6 +562,12 @@ class InvoiceService(BaseService):
         summary.update(payment_summary)
         summary["outstanding_amount"] = max(summary["total_invoiced"] - summary["total_paid"], Decimal("0.00"))
         return summary
+
+    def get_queryset(self, user=None):
+        queryset = super().get_queryset(user=user)
+        for invoice in queryset.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]):
+            refresh_invoice_payment_status(invoice)
+        return queryset
 
     @transaction.atomic
     def create(self, actor=None, **validated_data):
@@ -634,14 +718,4 @@ class PaymentService(BaseService):
         return payment
 
     def _update_invoice_status(self, invoice):
-        total_paid = invoice.payments.aggregate(total=models.Sum("amount")).get("total") or Decimal("0")
-        payable_total = invoice.grand_total or invoice.total_amount
-        if invoice.status == Invoice.Status.CANCELLED:
-            return
-        if total_paid <= 0:
-            return
-        if total_paid >= payable_total:
-            invoice.status = Invoice.Status.PAID
-        else:
-            invoice.status = Invoice.Status.PARTIALLY_PAID
-        invoice.save(update_fields=["status", "updated_at"])
+        refresh_invoice_payment_status(invoice)

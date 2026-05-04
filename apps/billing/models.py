@@ -1,5 +1,9 @@
+import hashlib
+import secrets
+
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
@@ -146,10 +150,9 @@ class Invoice(TimeStampedModel):
 class CampaignEstimate(TimeStampedModel):
     class Status(models.TextChoices):
         DRAFT = "draft", "Draft"
-        SHARED = "shared", "Shared"
+        SENT = "sent", "Sent"
         APPROVED = "approved", "Approved"
-        FINALIZED = "finalized", "Finalized"
-        CANCELLED = "cancelled", "Cancelled"
+        REJECTED = "rejected", "Rejected"
 
     client = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -174,7 +177,11 @@ class CampaignEstimate(TimeStampedModel):
     notes = models.TextField(blank=True)
     shared_at = models.DateTimeField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
-    finalized_at = models.DateTimeField(null=True, blank=True)
+    rejected_at = models.DateTimeField(null=True, blank=True)
+    approval_token_value = models.CharField(max_length=255, unique=True, editable=False, null=True, blank=True)
+    approval_token_hash = models.CharField(max_length=64, unique=True, db_index=True, editable=False, null=True, blank=True)
+    approval_token_prefix = models.CharField(max_length=16, editable=False, blank=True)
+    approval_token_created_at = models.DateTimeField(null=True, blank=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="created_campaign_estimates",
@@ -185,6 +192,34 @@ class CampaignEstimate(TimeStampedModel):
 
     class Meta:
         ordering = ["-created_at"]
+
+    @staticmethod
+    def build_token_hash(raw_token: str) -> str:
+        return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def issue_token(cls) -> str:
+        return f"estimate_{secrets.token_urlsafe(24)}"
+
+    @property
+    def public_path(self) -> str | None:
+        if not self.approval_token_value:
+            return None
+        return f"/estimate/{self.approval_token_value}"
+
+    def has_public_token(self) -> bool:
+        return bool(self.approval_token_value and self.approval_token_hash)
+
+    def issue_public_token(self, *, force_new: bool = False) -> str:
+        if self.has_public_token() and not force_new:
+            return self.approval_token_value or ""
+
+        raw_token = self.issue_token()
+        self.approval_token_value = raw_token
+        self.approval_token_hash = self.build_token_hash(raw_token)
+        self.approval_token_prefix = raw_token[:12]
+        self.approval_token_created_at = timezone.now()
+        return raw_token
 
     def __str__(self) -> str:
         return self.estimate_number or self.title

@@ -6,12 +6,10 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
-  approveCampaignEstimate,
   createCampaignEstimate,
   createCampaignEstimateLine,
   fetchBillingData,
   fetchCampaignInvoicePreview,
-  finalizeCampaignEstimate,
   generateCampaignInvoice,
   getInvoiceActionError,
   shareCampaignEstimate,
@@ -158,10 +156,10 @@ export default function BillingPage() {
     return map;
   }, [billingData]);
 
-  const finalizedCampaigns = useMemo(() => {
+  const approvedCampaigns = useMemo(() => {
     const ids = new Set(
       (billingData?.estimates ?? [])
-        .filter((estimate) => estimate.status === "finalized" && estimate.campaign)
+        .filter((estimate) => estimate.status === "approved" && estimate.campaign)
         .map((estimate) => estimate.campaign as number),
     );
     return (billingData?.campaigns ?? []).filter((campaign) => ids.has(campaign.id));
@@ -218,11 +216,11 @@ export default function BillingPage() {
   }, [billingData, campaignMap, canManageBilling, clients]);
 
   useEffect(() => {
-    if (selectedCampaignId && finalizedCampaigns.some((campaign) => campaign.id === selectedCampaignId)) {
+    if (selectedCampaignId && approvedCampaigns.some((campaign) => campaign.id === selectedCampaignId)) {
       return;
     }
-    setSelectedCampaignId(finalizedCampaigns[0]?.id || 0);
-  }, [finalizedCampaigns, selectedCampaignId]);
+    setSelectedCampaignId(approvedCampaigns[0]?.id || 0);
+  }, [approvedCampaigns, selectedCampaignId]);
 
   function handleLogout() {
     clearAuthSession();
@@ -419,7 +417,7 @@ export default function BillingPage() {
     }
   }
 
-  async function handleEstimateLifecycleAction(estimate: CampaignEstimate, action: "share" | "approve" | "finalize") {
+  async function handleEstimateLifecycleAction(estimate: CampaignEstimate) {
     if (estimateActionId) {
       return;
     }
@@ -429,19 +427,32 @@ export default function BillingPage() {
     setEstimateActionId(estimate.id);
 
     try {
-      if (action === "share") {
-        await shareCampaignEstimate(estimate.id);
-      } else if (action === "approve") {
-        await approveCampaignEstimate(estimate.id);
-      } else {
-        await finalizeCampaignEstimate(estimate.id);
-      }
-      setEstimateMessage(`Campaign Estimate ${action}d successfully.`);
+      await shareCampaignEstimate(estimate.id);
+      setEstimateMessage(
+        estimate.public_path
+          ? "Campaign Estimate link refreshed and sent for client approval."
+          : "Campaign Estimate sent for client approval.",
+      );
       await loadBilling();
     } catch (actionError) {
       setEstimateError(getInvoiceActionError(actionError));
     } finally {
       setEstimateActionId(null);
+    }
+  }
+
+  async function handleCopyEstimateLink(publicPath: string | null | undefined) {
+    if (!publicPath) {
+      setEstimateError("No public approval link is available for this estimate yet.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}${publicPath}`);
+      setEstimateError("");
+      setEstimateMessage("Estimate approval link copied.");
+    } catch {
+      setEstimateError("Unable to copy the estimate approval link automatically.");
     }
   }
 
@@ -494,10 +505,10 @@ export default function BillingPage() {
     }
 
     return [
-      { label: "Campaign estimates", value: String(billingData.estimates.length) },
-      { label: "Finalized estimates", value: String(billingData.estimates.filter((estimate) => estimate.status === "finalized").length) },
-      { label: "Generated invoices", value: String(billingData.summary.total_invoices) },
+      { label: "Total estimated", value: formatCurrency(billingData.summary.total_estimated) },
+      { label: "Total invoiced", value: formatCurrency(billingData.summary.total_invoiced) },
       { label: "Outstanding", value: formatCurrency(billingData.summary.outstanding_amount) },
+      { label: "Collected", value: formatCurrency(billingData.summary.total_paid) },
     ];
   }, [billingData]);
 
@@ -536,7 +547,7 @@ export default function BillingPage() {
           <span>Lifecycle</span>
         </div>
         <p className="section-copy">
-          Create a Campaign Estimate before booking inventory, move it through client approval and finalization, then generate Invoice from confirmed bookings only when the campaign start date is today or in the past.
+          Create a Campaign Estimate before booking inventory, send it for client approval, then generate Invoice from confirmed bookings only when the campaign start date is today or in the past.
         </p>
       </section>
 
@@ -740,7 +751,7 @@ export default function BillingPage() {
           <div className="module-head">
             <div>
               <h2>Invoice</h2>
-              <p className="section-copy">Select a finalized campaign with confirmed bookings. Invoice is available from the campaign start date onward.</p>
+              <p className="section-copy">Select an approved campaign with confirmed bookings. Invoice is available from the campaign start date onward.</p>
             </div>
             <span>Post-start</span>
           </div>
@@ -756,12 +767,12 @@ export default function BillingPage() {
                 setInvoiceError("");
                 setInvoiceMessage("");
               }}
-              aria-label="Select finalized campaign for invoice generation"
+              aria-label="Select approved campaign for invoice generation"
             >
               <option value="" disabled>
-                Select finalized campaign
+                Select approved campaign
               </option>
-              {finalizedCampaigns.map((campaign) => (
+              {approvedCampaigns.map((campaign) => (
                 <option key={campaign.id} value={campaign.id}>
                   {campaign.name} ({campaign.code})
                 </option>
@@ -779,8 +790,8 @@ export default function BillingPage() {
               {isGeneratingInvoice ? "Generating invoice..." : "Generate Invoice"}
             </button>
           </div>
-          {finalizedCampaigns.length === 0 ? (
-            <p className="empty-state">Finalize a Campaign Estimate first, then confirm bookings before generating Invoice.</p>
+          {approvedCampaigns.length === 0 ? (
+            <p className="empty-state">Get a Campaign Estimate approved first, then confirm bookings before generating Invoice.</p>
           ) : null}
           {invoicePreview ? (
             <div className="campaign-detail-panel">
@@ -855,20 +866,24 @@ export default function BillingPage() {
           </div>
           <div className="module-stats">
             <div className="module-stat">
-              <p className="stat-label">Draft / shared</p>
+              <p className="stat-label">Draft</p>
               <p className="stat-value">
-                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => ["draft", "shared"].includes(estimate.status)).length}
+                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "draft").length}
+              </p>
+            </div>
+            <div className="module-stat">
+              <p className="stat-label">Sent</p>
+              <p className="stat-value">
+                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "sent").length}
               </p>
             </div>
             <div className="module-stat">
               <p className="stat-label">Approved</p>
-              <p className="stat-value">
-                {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "approved").length}
-              </p>
+              <p className="stat-value">{isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "approved").length}</p>
             </div>
             <div className="module-stat">
-              <p className="stat-label">Finalized</p>
-              <p className="stat-value">{isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "finalized").length}</p>
+              <p className="stat-label">Rejected</p>
+              <p className="stat-value">{isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => estimate.status === "rejected").length}</p>
             </div>
           </div>
         </article>
@@ -909,14 +924,16 @@ export default function BillingPage() {
               <p className="stat-value">{isLoading ? "..." : billingData?.summary.issued_invoices ?? 0}</p>
             </div>
             <div className="module-stat">
+              <p className="stat-label">Partial</p>
+              <p className="stat-value">{isLoading ? "..." : billingData?.summary.partially_paid_invoices ?? 0}</p>
+            </div>
+            <div className="module-stat">
               <p className="stat-label">Paid</p>
               <p className="stat-value">{isLoading ? "..." : billingData?.summary.paid_invoices ?? 0}</p>
             </div>
             <div className="module-stat">
-              <p className="stat-label">Collected</p>
-              <p className="stat-value">
-                {isLoading ? "..." : formatCurrency(billingData?.summary.total_paid ?? "0.00")}
-              </p>
+              <p className="stat-label">Overdue</p>
+              <p className="stat-value">{isLoading ? "..." : billingData?.summary.overdue_invoices ?? 0}</p>
             </div>
           </div>
         </article>
@@ -958,35 +975,29 @@ export default function BillingPage() {
                   <td>{estimate.lines.length} proposed item(s)</td>
                   <td>
                     <div className="campaign-share-actions">
-                      {estimate.status === "draft" ? (
+                      {estimate.status === "draft" || estimate.status === "rejected" ? (
                         <button
                           className="ghost table-action"
                           type="button"
                           disabled={estimateActionId === estimate.id}
-                          onClick={() => void handleEstimateLifecycleAction(estimate, "share")}
+                          onClick={() => void handleEstimateLifecycleAction(estimate)}
                         >
-                          Share
+                          {estimate.status === "rejected" ? "Resend" : "Send"}
                         </button>
                       ) : null}
-                      {estimate.status === "shared" ? (
+                      {estimate.public_path ? (
                         <button
                           className="ghost table-action"
                           type="button"
-                          disabled={estimateActionId === estimate.id}
-                          onClick={() => void handleEstimateLifecycleAction(estimate, "approve")}
+                          onClick={() => void handleCopyEstimateLink(estimate.public_path)}
                         >
-                          Approve
+                          Copy link
                         </button>
                       ) : null}
-                      {estimate.status === "approved" ? (
-                        <button
-                          className="ghost table-action"
-                          type="button"
-                          disabled={estimateActionId === estimate.id}
-                          onClick={() => void handleEstimateLifecycleAction(estimate, "finalize")}
-                        >
-                          Finalize
-                        </button>
+                      {estimate.public_path ? (
+                        <a className="asset-link" href={estimate.public_path} target="_blank" rel="noreferrer">
+                          Open link
+                        </a>
                       ) : null}
                     </div>
                   </td>

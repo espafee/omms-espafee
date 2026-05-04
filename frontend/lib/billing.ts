@@ -81,7 +81,8 @@ export type CampaignEstimate = {
   notes: string;
   shared_at: string | null;
   approved_at: string | null;
-  finalized_at: string | null;
+  rejected_at: string | null;
+  public_path?: string | null;
   lines: CampaignEstimateLine[];
 };
 
@@ -196,8 +197,8 @@ export async function approveCampaignEstimate(estimateId: number) {
   });
 }
 
-export async function finalizeCampaignEstimate(estimateId: number) {
-  return apiFetch<CampaignEstimate>(`billing/campaign-estimates/${estimateId}/finalize/`, {
+export async function rejectCampaignEstimate(estimateId: number) {
+  return apiFetch<CampaignEstimate>(`billing/campaign-estimates/${estimateId}/reject/`, {
     method: "POST",
   });
 }
