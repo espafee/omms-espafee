@@ -275,3 +275,169 @@ If splitting commits, stage dashboard cleanup separately from invoice work.
 - Browser URL never becomes `/bookings` from Generate Invoice.
 - Invoice roster updates.
 
+## LATEST SYSTEM STATE (UPDATED)
+
+This section supersedes parts of the earlier handoff where the platform was described more narrowly.
+
+### System Evolution
+- OMMS is no longer just an inventory or campaign system.
+- OMMS now functions as an:
+  - `Outdoor Media Operations & Execution Management System`
+- Current core lifecycle:
+  - `Campaign Estimate -> Client Approval -> Booking -> Assignment -> POE -> Issue -> Task -> Resolution -> Invoice -> Payment`
+
+### Mobile Apps
+- Two mobile roles are implemented:
+  - Field Staff
+    - Assigned Work
+    - POE Upload
+    - Issue Reporting
+  - Super Admin / Owner
+    - Operations Dashboard
+    - Running Campaigns
+    - POE Tracker
+    - Daily Activity
+    - Alerts
+- Role-based routing is now:
+  - backend-driven
+  - secure
+  - field staff cannot access admin dashboard
+
+### POE System
+- Implemented:
+  - single-step POE submission API
+  - GPS + timestamp capture
+  - distance-based validation
+  - duplicate POE protection with `409` response
+- POE verification statuses:
+  - `verified`
+  - `suspicious`
+  - `failed`
+
+### Issue Reporting System
+- Issue system is implemented and linked to booking execution.
+- Each `Issue`:
+  - is linked to a booking
+  - can be reported by field staff or client
+  - supports image upload
+  - uses lifecycle:
+    - `reported -> acknowledged -> in_progress -> resolved`
+- SLA tracking exists for:
+  - first response timeline
+  - resolution timeline
+- `sla_status` values:
+  - `on_track`
+  - `at_risk`
+  - `breached`
+- Auto-priority exists based on:
+  - issue type
+  - keywords
+  - reporter
+  - campaign status
+- Client issue reporting is:
+  - token-based
+  - public
+  - no-login
+  - limited-data exposure
+
+### Issue -> Task Workflow
+- Execution workflow now includes `IssueTask`.
+- Each `IssueTask`:
+  - is assigned to field staff
+  - has due date tracking
+  - uses status lifecycle:
+    - `pending -> in_progress -> completed`
+- Workflow shape:
+  - `Issue -> Task -> Assignment -> Execution -> POE -> Auto-resolve`
+- Auto-resolution behavior:
+  - a new qualifying POE can resolve a related issue automatically
+- Overdue handling:
+  - tasks past `due_at` are flagged
+  - overdue tasks are surfaced in admin alerts
+
+### Booking Assignment System
+- `Assignment` is now a core execution concept.
+- Meaning:
+  - a booking is assigned to field staff
+  - this replaces prior reliance on `MediaSite.owner` for field execution ownership
+- Impact:
+  - mobile assigned work is now accurate
+  - POE permissions are tied to assignment
+
+### Billing System Restructure
+- Correct business flow is now implemented:
+  - `Campaign Estimate -> Client Approval -> Booking -> Invoice -> Payment`
+- `Campaign Estimate` is now pre-booking and client-facing.
+- Estimate statuses:
+  - `draft`
+  - `sent`
+  - `approved`
+  - `rejected`
+- Secure public estimate approval flow exists.
+- Invoice rules:
+  - invoice generation starts only after campaign start date
+  - invoice generation is based on confirmed bookings
+  - estimate and invoice flows are separated
+- Payment tracking now supports:
+  - `paid`
+  - `partially_paid`
+  - `overdue`
+- Billing financial dashboard now surfaces:
+  - total estimated
+  - total approved estimates
+  - total invoiced
+  - total collected
+  - outstanding balance
+  - overdue amount
+
+### Admin Mobile APIs
+- Admin mobile backend endpoints now include:
+  - `/api/v1/mobile/admin/overview/`
+  - `/api/v1/mobile/admin/running-campaigns/`
+  - `/api/v1/mobile/admin/poe-tracker/`
+  - `/api/v1/mobile/admin/daily-activity/`
+  - `/api/v1/mobile/admin/alerts/`
+- Permissions:
+  - admin-only access is enforced at backend
+
+### Branding
+- `VistaAi` has been introduced as the parent brand.
+- Mobile app branding now reflects:
+  - VistaAi parent branding
+  - OMMS Mobile product identity
+  - role-neutral login screen
+
+### Current Status
+- System is now functional across:
+  - Web admin
+  - Mobile field workflows
+  - Mobile admin workflows
+  - Backend APIs
+- Covered system areas now include:
+  - inventory
+  - campaigns
+  - bookings
+  - assignment
+  - execution tracking
+  - issue detection
+  - task workflow
+  - billing
+  - mobile operations
+
+### Old vs New Context
+- Older context in this document is still useful for:
+  - repo paths
+  - storage architecture
+  - GST invoice foundation
+  - setup/SMTP/branding foundations
+  - earlier invoice-generation decisions
+- Newer sections above should be treated as the authoritative description of present system scope and workflow.
+
+## NEXT SYSTEM ENHANCEMENTS
+
+- SLA breach escalation
+- task auto-reassignment
+- POE image verification improvements
+- client estimate approval refinement via public link flows
+- payment collection workflows
+- analytics dashboard
