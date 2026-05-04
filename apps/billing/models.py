@@ -178,6 +178,7 @@ class CampaignEstimate(TimeStampedModel):
     shared_at = models.DateTimeField(null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     rejected_at = models.DateTimeField(null=True, blank=True)
+    client_response_comment = models.TextField(blank=True)
     approval_token_value = models.CharField(max_length=255, unique=True, editable=False, null=True, blank=True)
     approval_token_hash = models.CharField(max_length=64, unique=True, db_index=True, editable=False, null=True, blank=True)
     approval_token_prefix = models.CharField(max_length=16, editable=False, blank=True)
@@ -317,6 +318,7 @@ class Payment(TimeStampedModel):
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     method = models.CharField(max_length=30, choices=Method.choices)
     reference_number = models.CharField(max_length=100, blank=True)
+    notes = models.TextField(blank=True)
 
     def __str__(self) -> str:
         invoice_label = self.invoice.invoice_number or f"Draft #{self.invoice_id}"

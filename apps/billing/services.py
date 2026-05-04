@@ -449,11 +449,19 @@ def refresh_invoice_payment_status(invoice: Invoice) -> Invoice:
 class CampaignEstimateService(BaseService):
     repository_class = CampaignEstimateRepository
 
+    def _assert_editable(self, instance: CampaignEstimate):
+        if instance.status == CampaignEstimate.Status.APPROVED:
+            raise ValidationError({"status": ["Approved estimates are locked and cannot be edited."]})
+
     def create(self, actor=None, **validated_data):
         estimate = super().create(actor=actor, created_by=actor, **validated_data)
         estimate.estimate_number = f"EST/{estimate.created_at:%Y-%y}/{estimate.id:04d}"
         estimate.save(update_fields=["estimate_number", "updated_at"])
         return estimate
+
+    def update(self, instance, actor=None, **validated_data):
+        self._assert_editable(instance)
+        return super().update(instance, actor=actor, **validated_data)
 
     def share(self, instance, actor=None):
         if instance.status not in {CampaignEstimate.Status.DRAFT, CampaignEstimate.Status.REJECTED, CampaignEstimate.Status.SENT}:
@@ -474,49 +482,58 @@ class CampaignEstimateService(BaseService):
         )
         return instance
 
-    def approve(self, instance, actor=None):
-        if instance.status not in {CampaignEstimate.Status.SENT, CampaignEstimate.Status.APPROVED}:
+    def approve(self, instance, actor=None, comment=""):
+        if instance.status != CampaignEstimate.Status.SENT:
             raise ValidationError({"status": ["Only sent estimates can be approved."]})
         instance.status = CampaignEstimate.Status.APPROVED
         instance.approved_at = instance.approved_at or timezone.now()
-        instance.save(update_fields=["status", "approved_at", "updated_at"])
+        instance.client_response_comment = comment or instance.client_response_comment
+        instance.save(update_fields=["status", "approved_at", "client_response_comment", "updated_at"])
         return instance
 
-    def reject(self, instance, actor=None):
-        if instance.status not in {CampaignEstimate.Status.SENT, CampaignEstimate.Status.REJECTED}:
+    def reject(self, instance, actor=None, comment=""):
+        if instance.status != CampaignEstimate.Status.SENT:
             raise ValidationError({"status": ["Only sent estimates can be rejected."]})
         instance.status = CampaignEstimate.Status.REJECTED
         instance.rejected_at = timezone.now()
-        instance.save(update_fields=["status", "rejected_at", "updated_at"])
+        instance.client_response_comment = comment or instance.client_response_comment
+        instance.save(update_fields=["status", "rejected_at", "client_response_comment", "updated_at"])
         return instance
 
     def resolve_public(self, raw_token: str) -> CampaignEstimate:
         return resolve_public_estimate(raw_token)
 
-    def respond_public(self, raw_token: str, *, decision: str) -> CampaignEstimate:
+    def respond_public(self, raw_token: str, *, decision: str, comment: str = "") -> CampaignEstimate:
         estimate = self.resolve_public(raw_token)
         if decision == "approve":
-            return self.approve(estimate)
+            return self.approve(estimate, comment=comment)
         if decision == "reject":
-            return self.reject(estimate)
+            return self.reject(estimate, comment=comment)
         raise ValidationError({"decision": ["Unsupported estimate decision."]})
 
 
 class CampaignEstimateLineService(BaseService):
     repository_class = CampaignEstimateLineRepository
 
+    def _assert_estimate_editable(self, estimate: CampaignEstimate):
+        if estimate.status == CampaignEstimate.Status.APPROVED:
+            raise ValidationError({"estimate": ["Approved estimates are locked and cannot be edited."]})
+
     def create(self, actor=None, **validated_data):
+        self._assert_estimate_editable(validated_data["estimate"])
         line = super().create(actor=actor, **validated_data)
         calculate_estimate_totals(line.estimate)
         return line
 
     def update(self, instance, actor=None, **validated_data):
+        self._assert_estimate_editable(instance.estimate)
         line = super().update(instance, actor=actor, **validated_data)
         calculate_estimate_totals(line.estimate)
         return line
 
     def delete(self, instance, actor=None):
         estimate = instance.estimate
+        self._assert_estimate_editable(estimate)
         super().delete(instance, actor=actor)
         calculate_estimate_totals(estimate)
 
@@ -555,12 +572,21 @@ class InvoiceService(BaseService):
         summary["total_estimated"] = estimate_queryset.aggregate(
             total_estimated=Coalesce(Sum("total_amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD)
         )["total_estimated"]
+        summary["total_approved_estimates"] = estimate_queryset.aggregate(
+            total_approved_estimates=Coalesce(
+                Sum("total_amount", filter=Q(status=CampaignEstimate.Status.APPROVED)),
+                Decimal("0.00"),
+                output_field=SUMMARY_DECIMAL_FIELD,
+            )
+        )["total_approved_estimates"]
         payment_summary = payment_queryset.aggregate(
             payment_count=Count("id"),
             total_paid=Coalesce(Sum("amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD),
         )
         summary.update(payment_summary)
         summary["outstanding_amount"] = max(summary["total_invoiced"] - summary["total_paid"], Decimal("0.00"))
+        summary["total_collected"] = summary["total_paid"]
+        summary["outstanding_balance"] = summary["outstanding_amount"]
         return summary
 
     def get_queryset(self, user=None):

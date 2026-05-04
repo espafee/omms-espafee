@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
+  createInvoicePayment,
   createCampaignEstimate,
   createCampaignEstimateLine,
   fetchBillingData,
@@ -16,6 +17,7 @@ import {
   type BillingPayload,
   type CampaignEstimate,
   type CampaignInvoicePreview,
+  type InvoicePaymentCreateInput,
 } from "@/lib/billing";
 import { type Campaign } from "@/lib/campaigns";
 import { formatCurrency } from "@/lib/dashboard";
@@ -49,6 +51,12 @@ type EstimateFormState = {
 };
 
 const WRITE_ROLES = new Set(["admin", "finance"]);
+const PAYMENT_MODE_OPTIONS = [
+  { value: "bank_transfer", label: "Bank transfer" },
+  { value: "cash", label: "Cash" },
+  { value: "card", label: "Card" },
+  { value: "cheque", label: "Cheque" },
+];
 
 function formatDate(dateValue: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -82,9 +90,12 @@ export default function BillingPage() {
   const [invoiceError, setInvoiceError] = useState("");
   const [estimateMessage, setEstimateMessage] = useState("");
   const [estimateError, setEstimateError] = useState("");
+  const [paymentMessage, setPaymentMessage] = useState("");
+  const [paymentError, setPaymentError] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<number>(0);
   const [invoicePreview, setInvoicePreview] = useState<CampaignInvoicePreview | null>(null);
   const [estimateActionId, setEstimateActionId] = useState<number | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number>(0);
   const [estimateForm, setEstimateForm] = useState<EstimateFormState>({
     client: 0,
     campaign: null,
@@ -94,11 +105,19 @@ export default function BillingPage() {
     notes: "",
     lines: [createEmptyLine(1)],
   });
+  const [paymentForm, setPaymentForm] = useState<InvoicePaymentCreateInput>({
+    amount: "",
+    payment_date: "",
+    payment_mode: "bank_transfer",
+    reference_number: "",
+    notes: "",
+  });
   const [nextEstimateLineId, setNextEstimateLineId] = useState(2);
   const [isLoading, setIsLoading] = useState(true);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [isSavingEstimate, setIsSavingEstimate] = useState(false);
+  const [isSavingPayment, setIsSavingPayment] = useState(false);
 
   const canManageBilling = WRITE_ROLES.has(user?.role ?? "");
 
@@ -122,6 +141,7 @@ export default function BillingPage() {
       setClients(clientDirectory);
       setInventoryUnits(inventoryPayload.units);
       setSelectedCampaignId((current) => current || payload.campaigns[0]?.id || 0);
+      setSelectedInvoiceId((current) => current || payload.invoices[0]?.id || 0);
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load billing data.";
       setError(message);
@@ -506,9 +526,11 @@ export default function BillingPage() {
 
     return [
       { label: "Total estimated", value: formatCurrency(billingData.summary.total_estimated) },
+      { label: "Total approved estimates", value: formatCurrency(billingData.summary.total_approved_estimates) },
       { label: "Total invoiced", value: formatCurrency(billingData.summary.total_invoiced) },
-      { label: "Outstanding", value: formatCurrency(billingData.summary.outstanding_amount) },
-      { label: "Collected", value: formatCurrency(billingData.summary.total_paid) },
+      { label: "Total collected", value: formatCurrency(billingData.summary.total_collected) },
+      { label: "Outstanding balance", value: formatCurrency(billingData.summary.outstanding_balance) },
+      { label: "Overdue amount", value: formatCurrency(billingData.summary.overdue_amount) },
     ];
   }, [billingData]);
 
@@ -523,6 +545,54 @@ export default function BillingPage() {
       .sort((left, right) => right.payment_date.localeCompare(left.payment_date))
       .slice(0, 6);
   }, [billingData]);
+
+  const selectedInvoice = useMemo(() => {
+    return (billingData?.invoices ?? []).find((invoice) => invoice.id === selectedInvoiceId) ?? null;
+  }, [billingData, selectedInvoiceId]);
+
+  function updatePaymentForm<K extends keyof InvoicePaymentCreateInput>(field: K, value: InvoicePaymentCreateInput[K]) {
+    setPaymentError("");
+    setPaymentMessage("");
+    setPaymentForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  async function handleRecordPayment() {
+    if (!selectedInvoiceId || isSavingPayment) {
+      return;
+    }
+
+    if (!paymentForm.amount || !paymentForm.payment_date) {
+      setPaymentError("Enter the payment amount and payment date before recording payment.");
+      return;
+    }
+
+    setPaymentError("");
+    setPaymentMessage("");
+    setIsSavingPayment(true);
+
+    try {
+      await createInvoicePayment(selectedInvoiceId, {
+        ...paymentForm,
+        amount: Number(paymentForm.amount).toFixed(2),
+      });
+      setPaymentMessage("Payment recorded successfully.");
+      setPaymentForm({
+        amount: "",
+        payment_date: "",
+        payment_mode: "bank_transfer",
+        reference_number: "",
+        notes: "",
+      });
+      await loadBilling();
+    } catch (saveError) {
+      setPaymentError(getInvoiceActionError(saveError));
+    } finally {
+      setIsSavingPayment(false);
+    }
+  }
 
   return (
     <AppShell
@@ -1025,15 +1095,16 @@ export default function BillingPage() {
                   <th>Campaign</th>
                   <th>Issue date</th>
                   <th>Due date</th>
-                  <th>Status</th>
-                  <th>Total</th>
-                  <th>Paid</th>
+                  <th>Payment status</th>
+                  <th>Invoice total</th>
+                  <th>Amount paid</th>
+                  <th>Balance due</th>
+                  <th>Action</th>
                 </tr>
               </thead>
               <tbody>
                 {(billingData?.invoices ?? []).map((invoice) => {
                   const campaign = campaignMap.get(invoice.campaign);
-                  const totalPaid = invoice.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
 
                   return (
                     <tr key={invoice.id}>
@@ -1052,10 +1123,16 @@ export default function BillingPage() {
                       <td>{invoice.issue_date ? formatDate(invoice.issue_date) : "Draft"}</td>
                       <td>{invoice.due_date ? formatDate(invoice.due_date) : "Not set"}</td>
                       <td>
-                        <span className={`status-pill status-${invoice.status}`}>{invoice.status.replaceAll("_", " ")}</span>
+                        <span className={`status-pill status-${invoice.payment_status}`}>{invoice.payment_status.replaceAll("_", " ")}</span>
                       </td>
-                      <td>{formatCurrency(invoice.total_amount)}</td>
-                      <td>{formatCurrency(String(totalPaid))}</td>
+                      <td>{formatCurrency(invoice.invoice_total)}</td>
+                      <td>{formatCurrency(invoice.amount_paid)}</td>
+                      <td>{formatCurrency(invoice.balance_due)}</td>
+                      <td>
+                        <button className="ghost table-action" type="button" onClick={() => setSelectedInvoiceId(invoice.id)}>
+                          Record Payment
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -1068,6 +1145,96 @@ export default function BillingPage() {
         </article>
 
         <article className="module-card">
+          <div className="module-head">
+            <h2>Record payment</h2>
+            <span>Collections</span>
+          </div>
+          {paymentError ? <p className="error">{paymentError}</p> : null}
+          {paymentMessage ? <p className="success">{paymentMessage}</p> : null}
+          {selectedInvoice ? (
+            <>
+              <div className="module-stats">
+                <div className="module-stat">
+                  <p className="stat-label">Selected invoice</p>
+                  <p className="field-summary-value">{selectedInvoice.invoice_number ?? `Draft #${selectedInvoice.id}`}</p>
+                </div>
+                <div className="module-stat">
+                  <p className="stat-label">Invoice total</p>
+                  <p className="field-summary-value">{formatCurrency(selectedInvoice.invoice_total)}</p>
+                </div>
+                <div className="module-stat">
+                  <p className="stat-label">Amount paid</p>
+                  <p className="field-summary-value">{formatCurrency(selectedInvoice.amount_paid)}</p>
+                </div>
+                <div className="module-stat">
+                  <p className="stat-label">Balance due</p>
+                  <p className="field-summary-value">{formatCurrency(selectedInvoice.balance_due)}</p>
+                </div>
+              </div>
+              <div className="campaign-form-grid">
+                <div className="field">
+                  <label htmlFor="payment-amount">Amount</label>
+                  <input
+                    id="payment-amount"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={paymentForm.amount}
+                    onChange={(event) => updatePaymentForm("amount", event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="payment-date">Payment date</label>
+                  <input
+                    id="payment-date"
+                    type="date"
+                    value={paymentForm.payment_date}
+                    onChange={(event) => updatePaymentForm("payment_date", event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="payment-mode">Payment mode</label>
+                  <select
+                    id="payment-mode"
+                    value={paymentForm.payment_mode}
+                    onChange={(event) => updatePaymentForm("payment_mode", event.target.value)}
+                  >
+                    {PAYMENT_MODE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="payment-reference">Reference number</label>
+                  <input
+                    id="payment-reference"
+                    value={paymentForm.reference_number}
+                    onChange={(event) => updatePaymentForm("reference_number", event.target.value)}
+                  />
+                </div>
+                <div className="field field-full">
+                  <label htmlFor="payment-notes">Notes</label>
+                  <textarea
+                    id="payment-notes"
+                    rows={3}
+                    value={paymentForm.notes}
+                    onChange={(event) => updatePaymentForm("notes", event.target.value)}
+                    placeholder="Add bank details, cheque remarks, or receipt notes."
+                  />
+                </div>
+                <div className="form-actions field-full">
+                  <button className="submit" type="button" disabled={isSavingPayment} onClick={() => void handleRecordPayment()}>
+                    {isSavingPayment ? "Saving..." : "Record Payment"}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <p className="empty-state">Select an invoice from the roster to record a payment.</p>
+          )}
+
           <div className="module-head">
             <h2>Recent payments</h2>
             <span>Receipts</span>

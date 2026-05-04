@@ -31,7 +31,9 @@ export type Payment = {
   payment_date: string;
   amount: string;
   method: string;
+  payment_mode: string;
   reference_number: string;
+  notes: string;
 };
 
 export type Invoice = {
@@ -44,6 +46,10 @@ export type Invoice = {
   tax_amount: string;
   total_amount: string;
   status: string;
+  invoice_total: string;
+  amount_paid: string;
+  balance_due: string;
+  payment_status: string;
   lines: InvoiceLine[];
   payments: Payment[];
 };
@@ -82,6 +88,7 @@ export type CampaignEstimate = {
   shared_at: string | null;
   approved_at: string | null;
   rejected_at: string | null;
+  client_response_comment?: string;
   public_path?: string | null;
   lines: CampaignEstimateLine[];
 };
@@ -91,6 +98,14 @@ export type BillingPayload = {
   invoices: Invoice[];
   campaigns: Campaign[];
   summary: BillingSummary;
+};
+
+export type InvoicePaymentCreateInput = {
+  amount: string;
+  payment_date: string;
+  payment_mode: string;
+  reference_number: string;
+  notes: string;
 };
 
 export type CampaignEstimateCreateInput = {
@@ -156,7 +171,7 @@ export async function fetchBillingData(): Promise<BillingPayload> {
     list<CampaignEstimate>("billing/campaign-estimates/"),
     list<Invoice>("billing/invoices/"),
     list<Campaign>("campaigns/"),
-    apiFetch<BillingSummary>("billing/invoices/summary/"),
+    apiFetch<BillingSummary>("billing/summary/"),
   ]);
   return { estimates, invoices, campaigns, summary };
 }
@@ -200,6 +215,13 @@ export async function approveCampaignEstimate(estimateId: number) {
 export async function rejectCampaignEstimate(estimateId: number) {
   return apiFetch<CampaignEstimate>(`billing/campaign-estimates/${estimateId}/reject/`, {
     method: "POST",
+  });
+}
+
+export async function createInvoicePayment(invoiceId: number, payload: InvoicePaymentCreateInput) {
+  return apiFetch<Payment>(`billing/invoices/${invoiceId}/payments/`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

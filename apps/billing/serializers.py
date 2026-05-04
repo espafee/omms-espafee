@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 
 from apps.campaigns.models import Campaign
@@ -7,6 +9,7 @@ from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine
 
 class InvoiceSummarySerializer(serializers.Serializer):
     total_estimated = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_approved_estimates = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_invoices = serializers.IntegerField()
     issued_invoices = serializers.IntegerField()
     overdue_invoices = serializers.IntegerField()
@@ -16,7 +19,9 @@ class InvoiceSummarySerializer(serializers.Serializer):
     total_invoiced = serializers.DecimalField(max_digits=14, decimal_places=2)
     overdue_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_paid = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_collected = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
+    outstanding_balance = serializers.DecimalField(max_digits=14, decimal_places=2)
 
 
 class SupplierProfileSerializer(serializers.ModelSerializer):
@@ -41,10 +46,31 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    payment_mode = serializers.CharField(source="method")
+
     class Meta:
         model = Payment
-        fields = "__all__"
+        fields = [
+            "id",
+            "invoice",
+            "payment_date",
+            "amount",
+            "method",
+            "payment_mode",
+            "reference_number",
+            "notes",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
+    payment_mode = serializers.CharField(source="method")
+
+    class Meta:
+        model = Payment
+        fields = ["amount", "payment_date", "payment_mode", "reference_number", "notes"]
 
 
 class CampaignInvoicePreviewLineSerializer(serializers.Serializer):
@@ -184,6 +210,7 @@ class PublicCampaignEstimateSerializer(serializers.ModelSerializer):
             "shared_at",
             "approved_at",
             "rejected_at",
+            "client_response_comment",
             "lines",
         ]
 
@@ -192,7 +219,7 @@ class PublicCampaignEstimateSerializer(serializers.ModelSerializer):
 
 
 class PublicEstimateDecisionSerializer(serializers.Serializer):
-    decision = serializers.ChoiceField(choices=[("approve", "Approve"), ("reject", "Reject")])
+    comment = serializers.CharField(required=False, allow_blank=True)
 
 
 class GenerateInvoiceFromBookingsSerializer(serializers.Serializer):
@@ -209,9 +236,27 @@ class InvoiceSerializer(serializers.ModelSerializer):
     pdf_file = serializers.SerializerMethodField()
     lines = InvoiceLineSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
+    invoice_total = serializers.SerializerMethodField()
+    amount_paid = serializers.SerializerMethodField()
+    balance_due = serializers.SerializerMethodField()
+    payment_status = serializers.SerializerMethodField()
 
     def get_pdf_file(self, obj):
         return obj.pdf_file.name if obj.pdf_file else None
+
+    def get_invoice_total(self, obj):
+        return obj.grand_total or obj.total_amount
+
+    def get_amount_paid(self, obj):
+        return sum((payment.amount for payment in obj.payments.all()), Decimal("0.00"))
+
+    def get_balance_due(self, obj):
+        invoice_total = self.get_invoice_total(obj) or Decimal("0.00")
+        amount_paid = self.get_amount_paid(obj)
+        return max(invoice_total - amount_paid, Decimal("0.00"))
+
+    def get_payment_status(self, obj):
+        return obj.status
 
     class Meta:
         model = Invoice

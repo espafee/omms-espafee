@@ -424,7 +424,7 @@ class BillingApiTests(APITestCase):
         estimate = self._create_estimate()
         sent_estimate = CampaignEstimateService().share(estimate, actor=self.finance)
 
-        response = self.client.get(f"/api/v1/billing/public/estimate/{sent_estimate.approval_token_value}/")
+        response = self.client.get(f"/api/v1/public/estimates/{sent_estimate.approval_token_value}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["id"], sent_estimate.id)
@@ -436,8 +436,8 @@ class BillingApiTests(APITestCase):
         sent_estimate = CampaignEstimateService().share(estimate, actor=self.finance)
 
         response = self.client.post(
-            f"/api/v1/billing/public/estimate/{sent_estimate.approval_token_value}/",
-            {"decision": "approve"},
+            f"/api/v1/public/estimates/{sent_estimate.approval_token_value}/approve/",
+            {"comment": "Approved by client."},
             format="json",
         )
 
@@ -445,14 +445,15 @@ class BillingApiTests(APITestCase):
         sent_estimate.refresh_from_db()
         self.assertEqual(sent_estimate.status, CampaignEstimate.Status.APPROVED)
         self.assertIsNotNone(sent_estimate.approved_at)
+        self.assertEqual(sent_estimate.client_response_comment, "Approved by client.")
 
     def test_public_estimate_endpoint_allows_client_rejection(self):
         estimate = self._create_estimate()
         sent_estimate = CampaignEstimateService().share(estimate, actor=self.finance)
 
         response = self.client.post(
-            f"/api/v1/billing/public/estimate/{sent_estimate.approval_token_value}/",
-            {"decision": "reject"},
+            f"/api/v1/public/estimates/{sent_estimate.approval_token_value}/reject/",
+            {"comment": "Please revise placement mix."},
             format="json",
         )
 
@@ -460,6 +461,71 @@ class BillingApiTests(APITestCase):
         sent_estimate.refresh_from_db()
         self.assertEqual(sent_estimate.status, CampaignEstimate.Status.REJECTED)
         self.assertIsNotNone(sent_estimate.rejected_at)
+        self.assertEqual(sent_estimate.client_response_comment, "Please revise placement mix.")
+
+    def test_approved_estimate_line_is_locked_from_internal_edit(self):
+        estimate = self._create_estimate(status=CampaignEstimate.Status.APPROVED)
+        line = estimate.lines.get()
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.patch(
+            reverse("billing-campaign-estimate-lines-detail", args=[line.id]),
+            {"description": "Updated after approval"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("estimate", response.data)
+
+    def test_invoice_payment_endpoint_records_payment_and_updates_status(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        invoice.due_date = date.today() + timedelta(days=10)
+        invoice.save(update_fields=["due_date", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "40.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+                "reference_number": "PMT-1001",
+                "notes": "First installment",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.PARTIALLY_PAID)
+        self.assertEqual(invoice.payments.count(), 1)
+        payment = invoice.payments.get()
+        self.assertEqual(payment.notes, "First installment")
+
+    def test_billing_summary_endpoint_returns_financial_dashboard_payload(self):
+        self._create_estimate(status=CampaignEstimate.Status.APPROVED)
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        invoice.due_date = date.today() + timedelta(days=10)
+        invoice.save(update_fields=["due_date", "updated_at"])
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("59.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            reference_number="SUMMARY-001",
+            notes="Summary payment",
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(reverse("billing-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("total_estimated", response.data)
+        self.assertIn("total_approved_estimates", response.data)
+        self.assertIn("total_invoiced", response.data)
+        self.assertIn("total_collected", response.data)
+        self.assertIn("outstanding_balance", response.data)
+        self.assertIn("overdue_amount", response.data)
 
     def test_campaign_invoice_preview_uses_confirmed_booking_costs(self):
         self.booking.agreed_media_cost = Decimal("50000.00")

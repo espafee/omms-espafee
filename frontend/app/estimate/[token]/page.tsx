@@ -34,6 +34,7 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
   const [success, setSuccess] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [comment, setComment] = useState("");
 
   useEffect(() => {
     async function loadEstimate() {
@@ -61,8 +62,9 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
     setIsSubmitting(true);
 
     try {
-      const updated = await submitPublicEstimateDecision(params.token, decision);
+      const updated = await submitPublicEstimateDecision(params.token, decision, comment.trim());
       setEstimate(updated);
+      setComment("");
       setSuccess(
         decision === "approve"
           ? "Estimate approved successfully."
@@ -134,6 +136,16 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
                   </div>
                 </div>
                 <p className="section-copy">{estimate.notes || "No additional estimate notes were included."}</p>
+                <div className="field field-full">
+                  <label htmlFor="estimate-comment">Comment (optional)</label>
+                  <textarea
+                    id="estimate-comment"
+                    rows={3}
+                    value={comment}
+                    onChange={(event) => setComment(event.target.value)}
+                    placeholder="Add an approval note or explain why this estimate is being rejected."
+                  />
+                </div>
                 <div className="form-actions">
                   <button
                     className="submit"

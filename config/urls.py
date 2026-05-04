@@ -4,6 +4,7 @@ from django.contrib import admin
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+from apps.billing.views import PublicEstimateApproveView, PublicEstimateDetailView, PublicEstimateRejectView
 from apps.issues.views import PublicIssueReportView
 from core.images import is_local_media_storage_backend
 
@@ -20,6 +21,9 @@ urlpatterns = [
     path("api/v1/issues/", include("apps.issues.urls")),
     path("api/v1/tasks/", include("apps.issues.task_urls")),
     path("api/v1/public/issue-report/<str:token>/", PublicIssueReportView.as_view(), name="public-issue-report"),
+    path("api/v1/public/estimates/<str:token>/", PublicEstimateDetailView.as_view(), name="public-estimate-detail"),
+    path("api/v1/public/estimates/<str:token>/approve/", PublicEstimateApproveView.as_view(), name="public-estimate-approve"),
+    path("api/v1/public/estimates/<str:token>/reject/", PublicEstimateRejectView.as_view(), name="public-estimate-reject"),
     path("public/issue-report/<str:token>/", PublicIssueReportView.as_view(), name="public-issue-report-legacy"),
     path("api/v1/billing/", include("apps.billing.urls")),
     path("api/v1/setup/", include("apps.setup.urls")),

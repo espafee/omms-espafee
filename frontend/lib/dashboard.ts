@@ -26,6 +26,7 @@ export type BookingSummary = {
 
 export type BillingSummary = {
   total_estimated: string;
+  total_approved_estimates: string;
   total_invoices: number;
   issued_invoices: number;
   overdue_invoices: number;
@@ -35,7 +36,9 @@ export type BillingSummary = {
   total_invoiced: string;
   overdue_amount: string;
   total_paid: string;
+  total_collected: string;
   outstanding_amount: string;
+  outstanding_balance: string;
 };
 
 export type DashboardPayload = {

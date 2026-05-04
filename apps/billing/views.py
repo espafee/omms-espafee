@@ -15,6 +15,7 @@ from .serializers import (
     GenerateInvoiceFromBookingsSerializer,
     InvoiceLineSerializer,
     InvoiceSerializer,
+    InvoicePaymentCreateSerializer,
     InvoiceSequenceSerializer,
     InvoiceSummarySerializer,
     PaymentSerializer,
@@ -148,6 +149,15 @@ class InvoiceViewSet(ServiceModelViewSet):
             }
         )
 
+    @extend_schema(request=InvoicePaymentCreateSerializer, responses=PaymentSerializer)
+    @action(detail=True, methods=["post"], url_path="payments")
+    def payments(self, request, pk=None):
+        invoice = self.get_object()
+        serializer = InvoicePaymentCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payment = PaymentService().create(actor=request.user, invoice=invoice, **serializer.validated_data)
+        return Response(PaymentSerializer(instance=payment).data, status=201)
+
 
 class InvoiceLineViewSet(ServiceModelViewSet):
     serializer_class = InvoiceLineSerializer
@@ -171,7 +181,26 @@ class PaymentViewSet(ServiceModelViewSet):
     ordering_fields = ["payment_date", "amount", "created_at"]
 
 
-class PublicEstimateApprovalView(APIView):
+class BillingSummaryView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN, FINANCE)
+
+    def get(self, request, *args, **kwargs):
+        summary = InvoiceService().get_summary(user=request.user)
+        return Response(
+            {
+                "total_estimated": summary["total_estimated"],
+                "total_approved_estimates": summary["total_approved_estimates"],
+                "total_invoiced": summary["total_invoiced"],
+                "total_collected": summary["total_collected"],
+                "outstanding_balance": summary["outstanding_balance"],
+                "overdue_amount": summary["overdue_amount"],
+            }
+        )
+
+
+class PublicEstimateDetailView(APIView):
     permission_classes = [AllowAny]
 
     @extend_schema(responses=PublicCampaignEstimateSerializer)
@@ -183,13 +212,31 @@ class PublicEstimateApprovalView(APIView):
             return Response({"detail": exc.message, "code": exc.code}, status=exc.status_code)
         return Response(PublicCampaignEstimateSerializer(instance=estimate).data)
 
+class PublicEstimateApproveView(APIView):
+    permission_classes = [AllowAny]
+
     @extend_schema(request=PublicEstimateDecisionSerializer, responses=PublicCampaignEstimateSerializer)
     def post(self, request, token, *args, **kwargs):
         serializer = PublicEstimateDecisionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         service = CampaignEstimateService()
         try:
-            estimate = service.respond_public(token, decision=serializer.validated_data["decision"])
+            estimate = service.respond_public(token, decision="approve", comment=serializer.validated_data.get("comment", ""))
+        except PublicEstimateAccessError as exc:
+            return Response({"detail": exc.message, "code": exc.code}, status=exc.status_code)
+        return Response(PublicCampaignEstimateSerializer(instance=estimate).data)
+
+
+class PublicEstimateRejectView(APIView):
+    permission_classes = [AllowAny]
+
+    @extend_schema(request=PublicEstimateDecisionSerializer, responses=PublicCampaignEstimateSerializer)
+    def post(self, request, token, *args, **kwargs):
+        serializer = PublicEstimateDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        service = CampaignEstimateService()
+        try:
+            estimate = service.respond_public(token, decision="reject", comment=serializer.validated_data.get("comment", ""))
         except PublicEstimateAccessError as exc:
             return Response({"detail": exc.message, "code": exc.code}, status=exc.status_code)
         return Response(PublicCampaignEstimateSerializer(instance=estimate).data)

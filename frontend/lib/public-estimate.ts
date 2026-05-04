@@ -37,6 +37,7 @@ export type PublicEstimatePayload = {
   shared_at: string | null;
   approved_at: string | null;
   rejected_at: string | null;
+  client_response_comment: string;
   lines: PublicEstimateLine[];
 };
 
@@ -74,17 +75,17 @@ async function parsePublicResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchPublicEstimate(token: string) {
-  const response = await fetch(normalizeUrl(API_ROOT, `billing/public/estimate/${token}/`));
+  const response = await fetch(normalizeUrl(API_ROOT, `public/estimates/${token}/`));
   return parsePublicResponse<PublicEstimatePayload>(response);
 }
 
-export async function submitPublicEstimateDecision(token: string, decision: "approve" | "reject") {
-  const response = await fetch(normalizeUrl(API_ROOT, `billing/public/estimate/${token}/`), {
+export async function submitPublicEstimateDecision(token: string, decision: "approve" | "reject", comment = "") {
+  const response = await fetch(normalizeUrl(API_ROOT, `public/estimates/${token}/${decision}/`), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ decision }),
+    body: JSON.stringify({ comment }),
   });
   return parsePublicResponse<PublicEstimatePayload>(response);
 }
