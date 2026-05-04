@@ -365,11 +365,11 @@ export default function CampaignsPage() {
   return (
     <AppShell
       active="campaigns"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Campaign control"
       eyebrow="Campaigns"
-      description="Track campaign timelines, budgets, assets, and booking readiness from one live workspace connected to the backend API."
+      description="Track campaign timelines, budgets, assets, and booking readiness from one shared operations workspace."
       onLogout={handleLogout}
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}
@@ -383,7 +383,7 @@ export default function CampaignsPage() {
               <span>Write access</span>
             </div>
             <p className="section-copy creation-copy">
-              Launch a new campaign directly from the browser. The record is saved to the backend and then refreshed into this roster.
+              Launch a new campaign, assign ownership, and keep booking readiness visible for the operations team.
             </p>
             {formError ? <p className="error">{formError}</p> : null}
             {formSuccess ? <p className="success">{formSuccess}</p> : null}

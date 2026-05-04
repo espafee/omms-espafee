@@ -5,8 +5,10 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.billing.serializers import CampaignInvoicePreviewSerializer, InvoiceSerializer
+from apps.billing.services import InvoiceService
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, SALES
+from core.roles import ALL_ROLES, ADMIN, FINANCE, SALES
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
@@ -27,6 +29,7 @@ class CampaignViewSet(ServiceModelViewSet):
     service_class = CampaignService
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, SALES)
+    write_roles_by_action = {"generate_invoice": (ADMIN, FINANCE)}
     filterset_fields = ["status", "client", "account_manager"]
     search_fields = ["name", "code", "client__email", "account_manager__email"]
     ordering_fields = ["start_date", "end_date", "budget", "created_at"]
@@ -36,6 +39,20 @@ class CampaignViewSet(ServiceModelViewSet):
     def summary(self, request):
         summary = self.get_service().get_summary(user=request.user)
         return Response(CampaignSummarySerializer(instance=summary).data)
+
+    @extend_schema(responses=CampaignInvoicePreviewSerializer)
+    @action(detail=True, methods=["get"], url_path="invoice-preview")
+    def invoice_preview(self, request, pk=None):
+        campaign = self.get_object()
+        preview = InvoiceService().preview_for_campaign(campaign=campaign)
+        return Response(CampaignInvoicePreviewSerializer(instance=preview).data)
+
+    @extend_schema(request=None, responses=InvoiceSerializer)
+    @action(detail=True, methods=["post"], url_path="generate-invoice")
+    def generate_invoice(self, request, pk=None):
+        campaign = self.get_object()
+        invoice = InvoiceService().generate_for_campaign(actor=request.user, campaign=campaign)
+        return Response(InvoiceSerializer(instance=invoice, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class CampaignAssetViewSet(ServiceModelViewSet):

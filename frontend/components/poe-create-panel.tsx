@@ -105,7 +105,7 @@ export function PoeCreatePanel({
           <span>Write access</span>
         </div>
         <p className="section-copy creation-copy">
-          Create a proof-of-execution record against a booking and attach real uploaded evidence that is stored in the backend media system.
+          Create a proof-of-execution record against a booking and attach field evidence for operations review.
         </p>
         {formError ? <p className="error">{formError}</p> : null}
         {formSuccess ? <p className="success">{formSuccess}</p> : null}

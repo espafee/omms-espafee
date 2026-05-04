@@ -104,8 +104,8 @@ function readEmailForm(settings: OrganizationEmailSettings): EmailSettingsForm {
 
 function getSetupErrorMessage(error: unknown, fallback: string) {
   if (error instanceof ApiError) {
-    const backendReason = error.fieldErrors.error?.[0];
-    return backendReason ? `${error.message} ${backendReason}` : error.message;
+    const serverReason = error.fieldErrors.error?.[0];
+    return serverReason ? `${error.message} ${serverReason}` : error.message;
   }
   return error instanceof Error ? error.message : fallback;
 }

@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.core.files.base import ContentFile
@@ -12,6 +12,7 @@ from core.services import BaseService
 from core.storage_backends import PrivateDocumentStorage, build_private_document_signed_url
 
 from apps.bookings.models import Booking
+from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import build_invoice_pdf_storage_name, render_invoice_pdf
@@ -31,6 +32,79 @@ ZERO = Decimal("0.00")
 
 def quantize_money(value: Decimal | int | str) -> Decimal:
     return Decimal(value).quantize(MONEY, rounding=ROUND_HALF_UP)
+
+
+def get_booking_media_cost(booking: Booking) -> Decimal:
+    media_cost = booking.agreed_media_cost or ZERO
+    return quantize_money(media_cost if media_cost > ZERO else booking.booked_rate)
+
+
+def build_booking_invoice_line_payload(booking: Booking, *, line_number: int) -> dict:
+    media_cost = get_booking_media_cost(booking)
+    flex_cost = quantize_money(booking.flex_cost or ZERO)
+    installation_cost = quantize_money(booking.installation_cost or ZERO)
+    other_cost = quantize_money(booking.other_cost or ZERO)
+    line_total = quantize_money(media_cost + flex_cost + installation_cost + other_cost)
+    site = booking.media_unit.site
+    media_unit_label = booking.media_unit.unit_code
+
+    return {
+        "booking_id": booking.id,
+        "line_number": line_number,
+        "site_name": site.name,
+        "media_unit_label": media_unit_label,
+        "start_date": booking.start_date,
+        "end_date": booking.end_date,
+        "media_cost": media_cost,
+        "flex_cost": flex_cost,
+        "installation_cost": installation_cost,
+        "other_cost": other_cost,
+        "cost_notes": booking.cost_notes,
+        "line_total": line_total,
+        "description": f"Outdoor media display - {site.name} / {media_unit_label}",
+    }
+
+
+def get_confirmed_campaign_bookings(campaign: Campaign):
+    return campaign.bookings.select_related("media_unit", "media_unit__site").filter(
+        status=Booking.Status.CONFIRMED
+    ).order_by("start_date", "media_unit__site__name", "media_unit__unit_code")
+
+
+def build_campaign_invoice_preview(campaign: Campaign) -> dict:
+    confirmed_bookings = list(get_confirmed_campaign_bookings(campaign))
+    lines = [
+        build_booking_invoice_line_payload(booking, line_number=index)
+        for index, booking in enumerate(confirmed_bookings, start=1)
+    ]
+    subtotal = quantize_money(sum((line["line_total"] for line in lines), ZERO))
+    existing_invoice = campaign.invoices.exclude(status=Invoice.Status.CANCELLED).order_by("-created_at").first()
+    can_generate = not existing_invoice and campaign.start_date <= timezone.localdate() and bool(lines)
+
+    message = ""
+    if existing_invoice:
+        message = "An invoice already exists for this campaign."
+    elif campaign.start_date > timezone.localdate():
+        message = "Invoice can be generated only from the campaign start date onward."
+    elif not lines:
+        message = "No confirmed bookings found for this campaign. Confirm bookings before generating an invoice."
+
+    return {
+        "campaign_id": campaign.id,
+        "campaign_name": campaign.name,
+        "campaign_code": campaign.code,
+        "client_name": campaign.client.organization_name or campaign.client.get_full_name() or campaign.client.email,
+        "start_date": campaign.start_date,
+        "end_date": campaign.end_date,
+        "confirmed_booking_count": len(lines),
+        "subtotal": subtotal,
+        "total_amount": subtotal,
+        "existing_invoice_id": existing_invoice.id if existing_invoice else None,
+        "existing_invoice_number": existing_invoice.invoice_number if existing_invoice else None,
+        "can_generate": can_generate,
+        "message": message,
+        "lines": lines,
+    }
 
 
 def get_indian_financial_year(invoice_date: date) -> str:
@@ -204,7 +278,9 @@ def validate_invoice_campaign_ready(invoice: Invoice) -> None:
             {"campaign": ["Invoice can be generated only from the campaign start date onward."]}
         )
     if not invoice.campaign.bookings.filter(status=Booking.Status.CONFIRMED).exists():
-        raise ValidationError({"campaign": ["Invoice requires at least one confirmed booking."]})
+        raise ValidationError(
+            {"campaign": ["No confirmed bookings found for this campaign. Confirm bookings before generating an invoice."]}
+        )
 
 
 @transaction.atomic
@@ -445,6 +521,11 @@ class InvoiceService(BaseService):
     @transaction.atomic
     def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=Decimal("18.00"), sac_code="998361"):
         invoice_date = invoice_date or timezone.localdate()
+        due_date = due_date or invoice_date + timedelta(days=15)
+        existing_invoice = campaign.invoices.exclude(status=Invoice.Status.CANCELLED).order_by("-created_at").first()
+        if existing_invoice:
+            raise ValidationError({"campaign": ["An invoice already exists for this campaign."]})
+
         invoice = Invoice(
             campaign=campaign,
             supplier_profile=supplier_profile,
@@ -455,28 +536,54 @@ class InvoiceService(BaseService):
             client_legal_name=campaign.client.organization_name or campaign.client.get_full_name() or campaign.client.email,
         )
         validate_invoice_campaign_ready(invoice)
-        invoice.save()
 
-        confirmed_bookings = campaign.bookings.select_related("media_unit", "media_unit__site").filter(
-            status=Booking.Status.CONFIRMED
-        )
+        confirmed_bookings = list(get_confirmed_campaign_bookings(campaign))
+        if not confirmed_bookings:
+            raise ValidationError(
+                {"campaign": ["No confirmed bookings found for this campaign. Confirm bookings before generating an invoice."]}
+            )
+
+        invoice.save()
         for index, booking in enumerate(confirmed_bookings, start=1):
-            site = booking.media_unit.site
+            line_payload = build_booking_invoice_line_payload(booking, line_number=index)
             InvoiceLine.objects.create(
                 invoice=invoice,
                 booking=booking,
                 line_number=index,
-                item_description=f"Outdoor media display - {site.name} / {booking.media_unit.unit_code}",
-                description=f"Outdoor media display - {site.name} / {booking.media_unit.unit_code}",
+                site_name=line_payload["site_name"],
+                media_unit_label=line_payload["media_unit_label"],
+                booking_start_date=line_payload["start_date"],
+                booking_end_date=line_payload["end_date"],
+                media_cost=line_payload["media_cost"],
+                flex_cost=line_payload["flex_cost"],
+                installation_cost=line_payload["installation_cost"],
+                other_cost=line_payload["other_cost"],
+                cost_notes=line_payload["cost_notes"],
+                item_description=line_payload["description"],
+                description=line_payload["description"],
                 sac_code=sac_code,
                 quantity=Decimal("1.00"),
                 unit_of_measure="booking",
-                unit_price=booking.booked_rate,
+                unit_price=line_payload["line_total"],
                 gst_rate=gst_rate,
             )
         calculate_invoice_totals(invoice)
         invoice.save()
         return invoice
+
+    def preview_for_campaign(self, *, campaign):
+        return build_campaign_invoice_preview(campaign)
+
+    @transaction.atomic
+    def generate_for_campaign(self, *, actor=None, campaign):
+        return self.generate_from_bookings(
+            actor=actor,
+            campaign=campaign,
+            invoice_date=timezone.localdate(),
+            due_date=timezone.localdate() + timedelta(days=15),
+            payment_terms="Net 15",
+            gst_rate=Decimal("0.00"),
+        )
 
 
 class InvoiceLineService(BaseService):

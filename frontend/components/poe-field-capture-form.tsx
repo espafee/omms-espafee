@@ -163,7 +163,7 @@ export function PoeFieldCaptureForm({
               <option value="video">Video</option>
               <option value="document">Document</option>
             </select>
-            <p className="field-help">The backend stores each uploaded evidence item against the POE record.</p>
+            <p className="field-help">Each uploaded evidence item is attached to this POE record for review.</p>
             {renderFieldError(fieldErrors, "media_type")}
           </div>
 

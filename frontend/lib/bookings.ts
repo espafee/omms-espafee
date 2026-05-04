@@ -19,6 +19,11 @@ export type Booking = {
   start_date: string;
   end_date: string;
   booked_rate: string;
+  agreed_media_cost: string;
+  flex_cost: string;
+  installation_cost: string;
+  other_cost: string;
+  cost_notes: string;
   status: string;
   remarks: string;
   created_at: string;
@@ -31,6 +36,11 @@ export type BookingCreateInput = {
   start_date: string;
   end_date: string;
   booked_rate: string;
+  agreed_media_cost?: string;
+  flex_cost?: string;
+  installation_cost?: string;
+  other_cost?: string;
+  cost_notes?: string;
   status: string;
   remarks: string;
   field_staff_user_id?: number | null;
@@ -52,7 +62,11 @@ async function list<T>(path: string) {
 
 export function getBookingCreateError(error: unknown) {
   if (error instanceof ApiError) {
-    return { message: error.message, fieldErrors: error.fieldErrors };
+    const rawMessages = [error.message, ...Object.values(error.fieldErrors).flat()].join(" ").toLowerCase();
+    const message = rawMessages.includes("unique set") || rawMessages.includes("unique_booking_window")
+      ? "This campaign already has a booking for the selected media unit and date range."
+      : error.message;
+    return { message, fieldErrors: error.fieldErrors };
   }
   return {
     message: error instanceof Error ? error.message : "Unable to create booking.",

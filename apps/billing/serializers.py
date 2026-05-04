@@ -46,6 +46,39 @@ class PaymentSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
+class CampaignInvoicePreviewLineSerializer(serializers.Serializer):
+    booking_id = serializers.IntegerField()
+    line_number = serializers.IntegerField()
+    site_name = serializers.CharField()
+    media_unit_label = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    media_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
+    flex_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
+    installation_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
+    other_cost = serializers.DecimalField(max_digits=12, decimal_places=2)
+    cost_notes = serializers.CharField(allow_blank=True)
+    line_total = serializers.DecimalField(max_digits=12, decimal_places=2)
+    description = serializers.CharField()
+
+
+class CampaignInvoicePreviewSerializer(serializers.Serializer):
+    campaign_id = serializers.IntegerField()
+    campaign_name = serializers.CharField()
+    campaign_code = serializers.CharField()
+    client_name = serializers.CharField()
+    start_date = serializers.DateField()
+    end_date = serializers.DateField()
+    confirmed_booking_count = serializers.IntegerField()
+    subtotal = serializers.DecimalField(max_digits=12, decimal_places=2)
+    total_amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    existing_invoice_id = serializers.IntegerField(allow_null=True)
+    existing_invoice_number = serializers.CharField(allow_null=True)
+    can_generate = serializers.BooleanField()
+    message = serializers.CharField(allow_blank=True)
+    lines = CampaignInvoicePreviewLineSerializer(many=True)
+
+
 class CampaignEstimateLineSerializer(serializers.ModelSerializer):
     media_unit_label = serializers.SerializerMethodField()
 

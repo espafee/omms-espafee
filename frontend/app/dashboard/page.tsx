@@ -60,9 +60,9 @@ export default function DashboardPage() {
 
   const headline = useMemo(() => {
     if (!user?.role) {
-      return "Your account is connected and ready.";
+      return "Monitor campaigns, bookings, inventory, and billing performance from one operations view.";
     }
-    return `Signed in as ${user.role}. Your summaries are filtered according to your access level.`;
+    return `Welcome back. Your dashboard is tailored for ${user.role.replace("_", " ")} workflows.`;
   }, [user]);
 
   function handleLogout() {
@@ -86,7 +86,7 @@ export default function DashboardPage() {
   return (
     <AppShell
       active="dashboard"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Dashboard overview"
       description={headline}
@@ -180,19 +180,19 @@ export default function DashboardPage() {
 
         <section className="activity-strip">
           <article className="activity-card">
-            <p className="stat-label">Session</p>
-            <p className="activity-value">JWT authenticated</p>
-            <p className="activity-copy">Stored in localStorage and used for summary requests.</p>
+            <p className="stat-label">Bookings needing attention</p>
+            <p className="activity-value">{isLoading ? "..." : dashboard?.bookings.pending_bookings ?? 0}</p>
+            <p className="activity-copy">Pending booking windows awaiting confirmation or follow-up.</p>
           </article>
           <article className="activity-card">
-            <p className="stat-label">Dashboard source</p>
-            <p className="activity-value">Live API summaries</p>
-            <p className="activity-copy">Campaign, booking, and billing cards are loaded from the backend.</p>
+            <p className="stat-label">Inventory in use</p>
+            <p className="activity-value">{isLoading ? "..." : dashboard?.bookings.unique_media_units ?? 0}</p>
+            <p className="activity-copy">Media units currently represented across visible booking activity.</p>
           </article>
           <article className="activity-card">
-            <p className="stat-label">Next frontend slice</p>
-            <p className="activity-value">Module detail pages</p>
-            <p className="activity-copy">Campaign tables, booking workflows, and invoice detail screens fit next.</p>
+            <p className="stat-label">Actions needed</p>
+            <p className="activity-value">{isLoading ? "..." : dashboard?.billing.overdue_invoices ?? 0}</p>
+            <p className="activity-copy">Overdue invoices or campaign finance items that may need attention.</p>
           </article>
         </section>
     </AppShell>

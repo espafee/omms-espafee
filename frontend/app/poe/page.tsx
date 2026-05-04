@@ -265,7 +265,7 @@ export default function PoePage() {
   return (
     <AppShell
       active="poe"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Proof of execution"
       eyebrow="POE"

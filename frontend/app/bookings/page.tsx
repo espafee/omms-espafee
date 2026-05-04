@@ -27,6 +27,11 @@ const INITIAL_FORM: BookingFormState = {
   start_date: "",
   end_date: "",
   booked_rate: "",
+  agreed_media_cost: "",
+  flex_cost: "0.00",
+  installation_cost: "0.00",
+  other_cost: "0.00",
+  cost_notes: "",
   status: "pending",
   remarks: "",
   field_staff_user_id: null,
@@ -79,6 +84,7 @@ export default function BookingsPage() {
       site: current.site || firstSite?.id || 0,
       media_unit: current.media_unit || firstUnit?.id || 0,
       booked_rate: current.booked_rate || firstUnit?.monthly_rate || "",
+      agreed_media_cost: current.agreed_media_cost || firstUnit?.monthly_rate || "",
       status: current.status || "pending",
     }));
 
@@ -144,6 +150,7 @@ export default function BookingsPage() {
         site: siteId,
         media_unit: nextUnit?.id || 0,
         booked_rate: nextUnit?.monthly_rate || "",
+        agreed_media_cost: nextUnit?.monthly_rate || "",
       }));
       return;
     }
@@ -155,6 +162,7 @@ export default function BookingsPage() {
         ...current,
         media_unit: unitId,
         booked_rate: unit?.monthly_rate || current.booked_rate,
+        agreed_media_cost: unit?.monthly_rate || current.agreed_media_cost,
       }));
       return;
     }
@@ -183,6 +191,11 @@ export default function BookingsPage() {
         start_date: form.start_date,
         end_date: form.end_date,
         booked_rate: Number(form.booked_rate).toFixed(2),
+        agreed_media_cost: Number(form.agreed_media_cost || form.booked_rate || 0).toFixed(2),
+        flex_cost: Number(form.flex_cost || 0).toFixed(2),
+        installation_cost: Number(form.installation_cost || 0).toFixed(2),
+        other_cost: Number(form.other_cost || 0).toFixed(2),
+        cost_notes: form.cost_notes,
         status: form.status,
         remarks: form.remarks,
         field_staff_user_id: form.field_staff_user_id || null,
@@ -336,7 +349,7 @@ export default function BookingsPage() {
   return (
     <AppShell
       active="bookings"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Booking board"
       eyebrow="Bookings"

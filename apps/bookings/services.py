@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.db import IntegrityError
 from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from core.services import BaseService
@@ -30,15 +31,42 @@ class BookingService(BaseService):
         if overlap_exists:
             raise ValidationError("The selected media unit is already booked for the given date range.")
 
+    def _validate_unique_booking_window(self, campaign, media_unit, start_date, end_date, exclude_id=None):
+        duplicate_exists = Booking.objects.filter(
+            campaign=campaign,
+            media_unit=media_unit,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        if exclude_id:
+            duplicate_exists = duplicate_exists.exclude(id=exclude_id)
+        if duplicate_exists.exists():
+            raise ValidationError("This campaign already has a booking for the selected media unit and date range.")
+
     def create(self, actor=None, **validated_data):
         assigned_user = validated_data.pop("assigned_user", None)
         self._validate_dates(validated_data["start_date"], validated_data["end_date"])
+        self._validate_unique_booking_window(
+            campaign=validated_data["campaign"],
+            media_unit=validated_data["media_unit"],
+            start_date=validated_data["start_date"],
+            end_date=validated_data["end_date"],
+        )
         self._validate_availability(
             media_unit=validated_data["media_unit"],
             start_date=validated_data["start_date"],
             end_date=validated_data["end_date"],
         )
-        booking = super().create(actor=actor, **validated_data)
+        if not validated_data.get("agreed_media_cost"):
+            validated_data["agreed_media_cost"] = validated_data["booked_rate"]
+        try:
+            booking = super().create(actor=actor, **validated_data)
+        except IntegrityError as exc:
+            if "unique_booking_window_per_campaign_unit" in str(exc):
+                raise ValidationError(
+                    "This campaign already has a booking for the selected media unit and date range."
+                ) from exc
+            raise
         if assigned_user:
             self._set_assignment(booking=booking, assigned_user=assigned_user, actor=actor)
         trigger_campaign_booked_notification(booking, actor=actor)
@@ -50,15 +78,32 @@ class BookingService(BaseService):
         start_date = validated_data.get("start_date", instance.start_date)
         end_date = validated_data.get("end_date", instance.end_date)
         media_unit = validated_data.get("media_unit", instance.media_unit)
+        campaign = validated_data.get("campaign", instance.campaign)
 
         self._validate_dates(start_date, end_date)
+        self._validate_unique_booking_window(
+            campaign=campaign,
+            media_unit=media_unit,
+            start_date=start_date,
+            end_date=end_date,
+            exclude_id=instance.id,
+        )
         self._validate_availability(
             media_unit=media_unit,
             start_date=start_date,
             end_date=end_date,
             exclude_id=instance.id,
         )
-        booking = super().update(instance, actor=actor, **validated_data)
+        if "agreed_media_cost" not in validated_data and not instance.agreed_media_cost:
+            validated_data["agreed_media_cost"] = validated_data.get("booked_rate", instance.booked_rate)
+        try:
+            booking = super().update(instance, actor=actor, **validated_data)
+        except IntegrityError as exc:
+            if "unique_booking_window_per_campaign_unit" in str(exc):
+                raise ValidationError(
+                    "This campaign already has a booking for the selected media unit and date range."
+                ) from exc
+            raise
         if assignment_was_provided:
             self._set_assignment(booking=booking, assigned_user=assigned_user, actor=actor)
         return booking

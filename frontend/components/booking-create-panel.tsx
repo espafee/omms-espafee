@@ -238,6 +238,75 @@ export function BookingCreatePanel({
           {renderFieldError(fieldErrors, "booked_rate")}
         </div>
 
+        <div className="field field-rate">
+          <label htmlFor="booking-media-cost">Media Cost</label>
+          <input
+            id="booking-media-cost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.agreed_media_cost ?? ""}
+            onChange={(event) => onChange("agreed_media_cost", event.target.value)}
+            placeholder="70000"
+          />
+          <p className="field-help">Used as the media display cost when generating campaign invoices.</p>
+          {renderFieldError(fieldErrors, "agreed_media_cost")}
+        </div>
+
+        <div className="field field-rate">
+          <label htmlFor="booking-flex-cost">Flex / Printing Cost</label>
+          <input
+            id="booking-flex-cost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.flex_cost ?? ""}
+            onChange={(event) => onChange("flex_cost", event.target.value)}
+            placeholder="0.00"
+          />
+          {renderFieldError(fieldErrors, "flex_cost")}
+        </div>
+
+        <div className="field field-rate">
+          <label htmlFor="booking-installation-cost">Installation Charges</label>
+          <input
+            id="booking-installation-cost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.installation_cost ?? ""}
+            onChange={(event) => onChange("installation_cost", event.target.value)}
+            placeholder="0.00"
+          />
+          {renderFieldError(fieldErrors, "installation_cost")}
+        </div>
+
+        <div className="field field-rate">
+          <label htmlFor="booking-other-cost">Other Charges</label>
+          <input
+            id="booking-other-cost"
+            type="number"
+            min="0"
+            step="0.01"
+            value={form.other_cost ?? ""}
+            onChange={(event) => onChange("other_cost", event.target.value)}
+            placeholder="0.00"
+          />
+          {renderFieldError(fieldErrors, "other_cost")}
+        </div>
+
+        <div className="field field-full">
+          <label htmlFor="booking-cost-notes">Cost Notes</label>
+          <textarea
+            id="booking-cost-notes"
+            value={form.cost_notes ?? ""}
+            onChange={(event) => onChange("cost_notes", event.target.value)}
+            placeholder="Optional billing notes for media, printing, installation, or other charges."
+            rows={3}
+          />
+          {renderFieldError(fieldErrors, "cost_notes")}
+        </div>
+
         <div className="field field-full">
           <label htmlFor="booking-remarks">Remarks</label>
           <textarea

@@ -1,17 +1,56 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
-import { fetchBillingData, type BillingPayload } from "@/lib/billing";
+import {
+  approveCampaignEstimate,
+  createCampaignEstimate,
+  createCampaignEstimateLine,
+  fetchBillingData,
+  fetchCampaignInvoicePreview,
+  finalizeCampaignEstimate,
+  generateCampaignInvoice,
+  getInvoiceActionError,
+  shareCampaignEstimate,
+  type BillingPayload,
+  type CampaignEstimate,
+  type CampaignInvoicePreview,
+} from "@/lib/billing";
+import { type Campaign } from "@/lib/campaigns";
 import { formatCurrency } from "@/lib/dashboard";
+import { fetchInventoryData, type InventoryUnit } from "@/lib/inventory";
+import { fetchClients, type ClientOption } from "@/lib/users";
 
 type StoredUser = {
   email?: string;
   role?: string;
 };
+
+type EstimateLineDraft = {
+  localId: number;
+  media_unit: number | null;
+  description: string;
+  start_date: string;
+  end_date: string;
+  quantity: string;
+  unit_rate: string;
+  tax_rate: string;
+};
+
+type EstimateFormState = {
+  client: number;
+  campaign: number | null;
+  title: string;
+  start_date: string;
+  end_date: string;
+  notes: string;
+  lines: EstimateLineDraft[];
+};
+
+const WRITE_ROLES = new Set(["admin", "finance"]);
 
 function formatDate(dateValue: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -21,12 +60,80 @@ function formatDate(dateValue: string) {
   }).format(new Date(dateValue));
 }
 
+function createEmptyLine(localId: number): EstimateLineDraft {
+  return {
+    localId,
+    media_unit: null,
+    description: "",
+    start_date: "",
+    end_date: "",
+    quantity: "1.00",
+    unit_rate: "",
+    tax_rate: "18.00",
+  };
+}
+
 export default function BillingPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
   const [billingData, setBillingData] = useState<BillingPayload | null>(null);
+  const [clients, setClients] = useState<ClientOption[]>([]);
+  const [inventoryUnits, setInventoryUnits] = useState<InventoryUnit[]>([]);
   const [error, setError] = useState("");
+  const [invoiceMessage, setInvoiceMessage] = useState("");
+  const [invoiceError, setInvoiceError] = useState("");
+  const [estimateMessage, setEstimateMessage] = useState("");
+  const [estimateError, setEstimateError] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<number>(0);
+  const [invoicePreview, setInvoicePreview] = useState<CampaignInvoicePreview | null>(null);
+  const [estimateActionId, setEstimateActionId] = useState<number | null>(null);
+  const [estimateForm, setEstimateForm] = useState<EstimateFormState>({
+    client: 0,
+    campaign: null,
+    title: "",
+    start_date: "",
+    end_date: "",
+    notes: "",
+    lines: [createEmptyLine(1)],
+  });
+  const [nextEstimateLineId, setNextEstimateLineId] = useState(2);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false);
+
+  const canManageBilling = WRITE_ROLES.has(user?.role ?? "");
+
+  const loadBilling = useCallback(async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      const profile = await fetchCurrentUser();
+      if (profile) {
+        setUser(profile);
+      }
+
+      const [payload, clientDirectory, inventoryPayload] = await Promise.all([
+        fetchBillingData(),
+        WRITE_ROLES.has(profile?.role ?? "") ? fetchClients() : Promise.resolve([]),
+        WRITE_ROLES.has(profile?.role ?? "") ? fetchInventoryData() : Promise.resolve({ sites: [], units: [] }),
+      ]);
+
+      setBillingData(payload);
+      setClients(clientDirectory);
+      setInventoryUnits(inventoryPayload.units);
+      setSelectedCampaignId((current) => current || payload.campaigns[0]?.id || 0);
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Unable to load billing data.";
+      setError(message);
+      if (message.includes("sign in again")) {
+        router.replace("/login");
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -40,42 +147,346 @@ export default function BillingPage() {
       setUser(storedUser);
     }
 
-    async function loadBilling() {
-      setIsLoading(true);
-      setError("");
+    void loadBilling();
+  }, [loadBilling, router]);
 
-      try {
-        const [profile, payload] = await Promise.all([fetchCurrentUser(), fetchBillingData()]);
-        if (profile) {
-          setUser(profile);
-        }
-        setBillingData(payload);
-      } catch (loadError) {
-        const message = loadError instanceof Error ? loadError.message : "Unable to load billing data.";
-        setError(message);
-        if (message.includes("sign in again")) {
-          router.replace("/login");
-        }
-      } finally {
-        setIsLoading(false);
-      }
+  const campaignMap = useMemo(() => {
+    const map = new Map<number, Campaign>();
+    for (const campaign of billingData?.campaigns ?? []) {
+      map.set(campaign.id, campaign);
+    }
+    return map;
+  }, [billingData]);
+
+  const finalizedCampaigns = useMemo(() => {
+    const ids = new Set(
+      (billingData?.estimates ?? [])
+        .filter((estimate) => estimate.status === "finalized" && estimate.campaign)
+        .map((estimate) => estimate.campaign as number),
+    );
+    return (billingData?.campaigns ?? []).filter((campaign) => ids.has(campaign.id));
+  }, [billingData]);
+
+  const campaignsForSelectedClient = useMemo(() => {
+    if (!estimateForm.client) {
+      return billingData?.campaigns ?? [];
+    }
+    return (billingData?.campaigns ?? []).filter((campaign) => campaign.client === estimateForm.client);
+  }, [billingData, estimateForm.client]);
+
+  const inventoryUnitMap = useMemo(() => {
+    const map = new Map<number, InventoryUnit>();
+    for (const unit of inventoryUnits) {
+      map.set(unit.id, unit);
+    }
+    return map;
+  }, [inventoryUnits]);
+
+  useEffect(() => {
+    if (!canManageBilling || clients.length === 0) {
+      return;
     }
 
-    void loadBilling();
-  }, [router]);
+    setEstimateForm((current) => {
+      const nextClient = current.client || clients[0]?.id || 0;
+      const matchingCampaign =
+        (current.campaign ? campaignMap.get(current.campaign) : null) ??
+        (billingData?.campaigns ?? []).find((campaign) => campaign.client === nextClient) ??
+        null;
+
+      if (!matchingCampaign && current.client === nextClient) {
+        return {
+          ...current,
+          client: nextClient,
+        };
+      }
+
+      return {
+        ...current,
+        client: nextClient,
+        campaign: matchingCampaign?.id ?? current.campaign,
+        title: current.title || (matchingCampaign ? `${matchingCampaign.name} Campaign Estimate` : ""),
+        start_date: current.start_date || matchingCampaign?.start_date || "",
+        end_date: current.end_date || matchingCampaign?.end_date || "",
+        lines: current.lines.map((line) => ({
+          ...line,
+          start_date: line.start_date || matchingCampaign?.start_date || "",
+          end_date: line.end_date || matchingCampaign?.end_date || "",
+        })),
+      };
+    });
+  }, [billingData, campaignMap, canManageBilling, clients]);
+
+  useEffect(() => {
+    if (selectedCampaignId && finalizedCampaigns.some((campaign) => campaign.id === selectedCampaignId)) {
+      return;
+    }
+    setSelectedCampaignId(finalizedCampaigns[0]?.id || 0);
+  }, [finalizedCampaigns, selectedCampaignId]);
 
   function handleLogout() {
     clearAuthSession();
     router.replace("/login");
   }
 
-  const campaignMap = useMemo(() => {
-    const map = new Map<number, { name: string; code: string }>();
-    for (const campaign of billingData?.campaigns ?? []) {
-      map.set(campaign.id, { name: campaign.name, code: campaign.code });
+  function getClientLabel(clientId: number) {
+    const client = clients.find((entry) => entry.id === clientId);
+    return client?.organization_name || client?.email || `Client #${clientId}`;
+  }
+
+  function getMediaUnitLabel(unitId: number | null) {
+    if (!unitId) {
+      return "Select site / media unit";
     }
-    return map;
-  }, [billingData]);
+    const unit = inventoryUnitMap.get(unitId);
+    if (!unit) {
+      return `Media unit #${unitId}`;
+    }
+    return `${unit.unit_code} • Site ${unit.site}`;
+  }
+
+  function updateEstimateForm<K extends keyof EstimateFormState>(field: K, value: EstimateFormState[K]) {
+    setEstimateError("");
+    setEstimateMessage("");
+
+    if (field === "client") {
+      const nextClientId = Number(value);
+      const nextCampaign = (billingData?.campaigns ?? []).find((campaign) => campaign.client === nextClientId) ?? null;
+      setEstimateForm((current) => ({
+        ...current,
+        client: nextClientId,
+        campaign: nextCampaign?.id ?? null,
+        title: nextCampaign ? `${nextCampaign.name} Campaign Estimate` : current.title,
+        start_date: nextCampaign?.start_date ?? current.start_date,
+        end_date: nextCampaign?.end_date ?? current.end_date,
+        lines: current.lines.map((line) => ({
+          ...line,
+          start_date: line.start_date || nextCampaign?.start_date || "",
+          end_date: line.end_date || nextCampaign?.end_date || "",
+        })),
+      }));
+      return;
+    }
+
+    if (field === "campaign") {
+      const nextCampaignId = value ? Number(value) : null;
+      const nextCampaign = nextCampaignId ? campaignMap.get(nextCampaignId) ?? null : null;
+      setEstimateForm((current) => ({
+        ...current,
+        campaign: nextCampaignId,
+        client: nextCampaign?.client ?? current.client,
+        title: nextCampaign ? `${nextCampaign.name} Campaign Estimate` : current.title,
+        start_date: nextCampaign?.start_date ?? current.start_date,
+        end_date: nextCampaign?.end_date ?? current.end_date,
+        lines: current.lines.map((line) => ({
+          ...line,
+          start_date: line.start_date || nextCampaign?.start_date || "",
+          end_date: line.end_date || nextCampaign?.end_date || "",
+        })),
+      }));
+      return;
+    }
+
+    setEstimateForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  function updateEstimateLine(localId: number, field: keyof EstimateLineDraft, value: string | number | null) {
+    setEstimateError("");
+    setEstimateMessage("");
+
+    setEstimateForm((current) => ({
+      ...current,
+      lines: current.lines.map((line) => {
+        if (line.localId !== localId) {
+          return line;
+        }
+
+        if (field === "media_unit") {
+          const unitId = value ? Number(value) : null;
+          const unit = unitId ? inventoryUnitMap.get(unitId) : null;
+          return {
+            ...line,
+            media_unit: unitId,
+            description: unit ? `Outdoor media display - ${unit.unit_code}` : line.description,
+            unit_rate: unit ? unit.monthly_rate : line.unit_rate,
+            start_date: line.start_date || estimateForm.start_date,
+            end_date: line.end_date || estimateForm.end_date,
+          };
+        }
+
+        return {
+          ...line,
+          [field]: String(value),
+        };
+      }),
+    }));
+  }
+
+  function addEstimateLine() {
+    setEstimateForm((current) => ({
+      ...current,
+      lines: [
+        ...current.lines,
+        {
+          ...createEmptyLine(nextEstimateLineId),
+          start_date: current.start_date,
+          end_date: current.end_date,
+        },
+      ],
+    }));
+    setNextEstimateLineId((current) => current + 1);
+  }
+
+  function removeEstimateLine(localId: number) {
+    setEstimateForm((current) => ({
+      ...current,
+      lines: current.lines.length > 1 ? current.lines.filter((line) => line.localId !== localId) : current.lines,
+    }));
+  }
+
+  async function submitEstimateFlow(mode: "draft" | "share") {
+    if (isSavingEstimate) {
+      return;
+    }
+
+    if (!estimateForm.client || !estimateForm.title || !estimateForm.start_date || !estimateForm.end_date) {
+      setEstimateError("Select client, campaign details, and estimate dates before saving.");
+      return;
+    }
+
+    const incompleteLine = estimateForm.lines.find(
+      (line) => !line.description || !line.start_date || !line.end_date || !line.quantity || !line.unit_rate || !line.tax_rate,
+    );
+    if (incompleteLine) {
+      setEstimateError("Each proposed media line needs description, dates, rate, quantity, and tax.");
+      return;
+    }
+
+    setEstimateError("");
+    setEstimateMessage("");
+    setIsSavingEstimate(true);
+
+    try {
+      const createdEstimate = await createCampaignEstimate({
+        client: estimateForm.client,
+        campaign: estimateForm.campaign,
+        title: estimateForm.title,
+        start_date: estimateForm.start_date,
+        end_date: estimateForm.end_date,
+        notes: estimateForm.notes,
+      });
+
+      for (const line of estimateForm.lines) {
+        await createCampaignEstimateLine({
+          estimate: createdEstimate.id,
+          media_unit: line.media_unit,
+          description: line.description,
+          start_date: line.start_date,
+          end_date: line.end_date,
+          quantity: Number(line.quantity).toFixed(2),
+          unit_rate: Number(line.unit_rate).toFixed(2),
+          tax_rate: Number(line.tax_rate).toFixed(2),
+        });
+      }
+
+      if (mode === "share") {
+        await shareCampaignEstimate(createdEstimate.id);
+      }
+
+      setEstimateMessage(
+        mode === "share"
+          ? "Campaign Estimate saved and shared for client approval."
+          : "Campaign Estimate saved as a draft.",
+      );
+      setEstimateForm({
+        client: estimateForm.client,
+        campaign: estimateForm.campaign,
+        title: "",
+        start_date: estimateForm.start_date,
+        end_date: estimateForm.end_date,
+        notes: "",
+        lines: [createEmptyLine(nextEstimateLineId)],
+      });
+      setNextEstimateLineId((current) => current + 1);
+      await loadBilling();
+    } catch (saveError) {
+      setEstimateError(getInvoiceActionError(saveError));
+    } finally {
+      setIsSavingEstimate(false);
+    }
+  }
+
+  async function handleEstimateLifecycleAction(estimate: CampaignEstimate, action: "share" | "approve" | "finalize") {
+    if (estimateActionId) {
+      return;
+    }
+
+    setEstimateError("");
+    setEstimateMessage("");
+    setEstimateActionId(estimate.id);
+
+    try {
+      if (action === "share") {
+        await shareCampaignEstimate(estimate.id);
+      } else if (action === "approve") {
+        await approveCampaignEstimate(estimate.id);
+      } else {
+        await finalizeCampaignEstimate(estimate.id);
+      }
+      setEstimateMessage(`Campaign Estimate ${action}d successfully.`);
+      await loadBilling();
+    } catch (actionError) {
+      setEstimateError(getInvoiceActionError(actionError));
+    } finally {
+      setEstimateActionId(null);
+    }
+  }
+
+  async function handlePreviewInvoice() {
+    if (!selectedCampaignId || isPreviewLoading) {
+      return;
+    }
+
+    setInvoiceError("");
+    setInvoiceMessage("");
+    setInvoicePreview(null);
+    setIsPreviewLoading(true);
+
+    try {
+      const preview = await fetchCampaignInvoicePreview(selectedCampaignId);
+      setInvoicePreview(preview);
+      setInvoiceMessage(preview.message || "Invoice preview is ready for review.");
+    } catch (previewError) {
+      setInvoiceError(getInvoiceActionError(previewError));
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  }
+
+  async function handleGenerateInvoice() {
+    if (!selectedCampaignId || isGeneratingInvoice) {
+      return;
+    }
+
+    setInvoiceError("");
+    setInvoiceMessage("");
+    setIsGeneratingInvoice(true);
+
+    try {
+      const invoice = await generateCampaignInvoice(selectedCampaignId);
+      setInvoiceMessage(`Invoice created${invoice.invoice_number ? `: ${invoice.invoice_number}` : " as a draft"}.`);
+      const refreshedPreview = await fetchCampaignInvoicePreview(selectedCampaignId);
+      setInvoicePreview(refreshedPreview);
+      await loadBilling();
+    } catch (generateError) {
+      setInvoiceError(getInvoiceActionError(generateError));
+    } finally {
+      setIsGeneratingInvoice(false);
+    }
+  }
 
   const quickStats = useMemo(() => {
     if (!billingData) {
@@ -105,7 +516,7 @@ export default function BillingPage() {
   return (
     <AppShell
       active="billing"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Estimate and invoice desk"
       eyebrow="Billing"
@@ -119,19 +530,312 @@ export default function BillingPage() {
           <div>
             <h2>Campaign Estimate → Client Approval → Booking → Invoice</h2>
             <p className="section-copy">
-              Create a Campaign Estimate before booking inventory, share it for approval, finalize it, then create confirmed bookings. Invoices are generated from confirmed bookings only once the campaign start date is today or in the past.
+              Campaign Estimate is shared before booking. Invoice is generated after campaign starts.
             </p>
           </div>
           <span>Lifecycle</span>
         </div>
-        <div className="campaign-share-actions">
-          <button className="submit" type="button" onClick={() => router.push("/campaigns")}>
-            Create Campaign Estimate
-          </button>
-          <button className="ghost" type="button" onClick={() => router.push("/bookings")}>
-            Generate Invoice
-          </button>
-        </div>
+        <p className="section-copy">
+          Create a Campaign Estimate before booking inventory, move it through client approval and finalization, then generate Invoice from confirmed bookings only when the campaign start date is today or in the past.
+        </p>
+      </section>
+
+      <section className="billing-layout">
+        <article className="module-card module-card-wide">
+          <div className="module-head">
+            <div>
+              <h2>Campaign Estimate</h2>
+              <p className="section-copy">Select client, proposed campaign, sites, media units, dates, rates, and taxes before sharing for approval.</p>
+            </div>
+            <span>Pre-booking</span>
+          </div>
+          {estimateError ? <p className="error">{estimateError}</p> : null}
+          {estimateMessage ? <p className="success">{estimateMessage}</p> : null}
+          {canManageBilling ? (
+            <div className="campaign-creation-stack">
+              <div className="campaign-form-grid">
+                <div className="field">
+                  <label htmlFor="estimate-client">Client</label>
+                  <select
+                    id="estimate-client"
+                    value={estimateForm.client || ""}
+                    onChange={(event) => updateEstimateForm("client", Number(event.target.value))}
+                  >
+                    <option value="" disabled>
+                      Select client
+                    </option>
+                    {clients.map((client) => (
+                      <option key={client.id} value={client.id}>
+                        {client.organization_name || client.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="estimate-campaign">Proposed campaign</label>
+                  <select
+                    id="estimate-campaign"
+                    value={estimateForm.campaign ?? ""}
+                    onChange={(event) => updateEstimateForm("campaign", event.target.value ? Number(event.target.value) : null)}
+                  >
+                    <option value="">Select campaign</option>
+                    {campaignsForSelectedClient.map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.name} ({campaign.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field field-span-2">
+                  <label htmlFor="estimate-title">Estimate title</label>
+                  <input
+                    id="estimate-title"
+                    value={estimateForm.title}
+                    onChange={(event) => updateEstimateForm("title", event.target.value)}
+                    placeholder="Airport Corridor Campaign Estimate"
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="estimate-start-date">Start date</label>
+                  <input
+                    id="estimate-start-date"
+                    type="date"
+                    value={estimateForm.start_date}
+                    onChange={(event) => updateEstimateForm("start_date", event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="estimate-end-date">End date</label>
+                  <input
+                    id="estimate-end-date"
+                    type="date"
+                    value={estimateForm.end_date}
+                    onChange={(event) => updateEstimateForm("end_date", event.target.value)}
+                  />
+                </div>
+                <div className="field field-full">
+                  <label htmlFor="estimate-notes">Notes</label>
+                  <textarea
+                    id="estimate-notes"
+                    rows={3}
+                    value={estimateForm.notes}
+                    onChange={(event) => updateEstimateForm("notes", event.target.value)}
+                    placeholder="Share placement assumptions, tax notes, and approval context."
+                  />
+                </div>
+              </div>
+
+              <div className="module-head">
+                <h2>Proposed media lines</h2>
+                <button className="ghost" type="button" onClick={addEstimateLine}>
+                  Add proposed site / unit
+                </button>
+              </div>
+
+              {estimateForm.lines.map((line, index) => (
+                <div className="campaign-form-grid" key={line.localId}>
+                  <div className="field field-span-2">
+                    <label htmlFor={`estimate-line-unit-${line.localId}`}>Site / media unit {index + 1}</label>
+                    <select
+                      id={`estimate-line-unit-${line.localId}`}
+                      value={line.media_unit ?? ""}
+                      onChange={(event) => updateEstimateLine(line.localId, "media_unit", event.target.value ? Number(event.target.value) : null)}
+                    >
+                      <option value="">{getMediaUnitLabel(null)}</option>
+                      {inventoryUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {getMediaUnitLabel(unit.id)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field field-full">
+                    <label htmlFor={`estimate-line-description-${line.localId}`}>Description</label>
+                    <input
+                      id={`estimate-line-description-${line.localId}`}
+                      value={line.description}
+                      onChange={(event) => updateEstimateLine(line.localId, "description", event.target.value)}
+                      placeholder="Outdoor media display - Site / Unit"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`estimate-line-start-${line.localId}`}>Line start</label>
+                    <input
+                      id={`estimate-line-start-${line.localId}`}
+                      type="date"
+                      value={line.start_date}
+                      onChange={(event) => updateEstimateLine(line.localId, "start_date", event.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`estimate-line-end-${line.localId}`}>Line end</label>
+                    <input
+                      id={`estimate-line-end-${line.localId}`}
+                      type="date"
+                      value={line.end_date}
+                      onChange={(event) => updateEstimateLine(line.localId, "end_date", event.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`estimate-line-quantity-${line.localId}`}>Quantity</label>
+                    <input
+                      id={`estimate-line-quantity-${line.localId}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.quantity}
+                      onChange={(event) => updateEstimateLine(line.localId, "quantity", event.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`estimate-line-rate-${line.localId}`}>Rate</label>
+                    <input
+                      id={`estimate-line-rate-${line.localId}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.unit_rate}
+                      onChange={(event) => updateEstimateLine(line.localId, "unit_rate", event.target.value)}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`estimate-line-tax-${line.localId}`}>Tax %</label>
+                    <input
+                      id={`estimate-line-tax-${line.localId}`}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={line.tax_rate}
+                      onChange={(event) => updateEstimateLine(line.localId, "tax_rate", event.target.value)}
+                    />
+                  </div>
+                  <div className="field form-actions">
+                    <button
+                      className="ghost"
+                      type="button"
+                      disabled={estimateForm.lines.length === 1}
+                      onClick={() => removeEstimateLine(line.localId)}
+                    >
+                      Remove line
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              <div className="form-actions">
+                <button className="submit" type="button" disabled={isSavingEstimate} onClick={() => void submitEstimateFlow("draft")}>
+                  {isSavingEstimate ? "Saving..." : "Create Campaign Estimate"}
+                </button>
+                <button className="ghost" type="button" disabled={isSavingEstimate} onClick={() => void submitEstimateFlow("share")}>
+                  {isSavingEstimate ? "Saving..." : "Save & Share Estimate"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="empty-state">You currently have read-only access to Campaign Estimate workflows.</p>
+          )}
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <div>
+              <h2>Invoice</h2>
+              <p className="section-copy">Select a finalized campaign with confirmed bookings. Invoice is available from the campaign start date onward.</p>
+            </div>
+            <span>Post-start</span>
+          </div>
+          {invoiceError ? <p className="error">{invoiceError}</p> : null}
+          {invoiceMessage ? <p className={invoiceMessage.includes("ready") || invoiceMessage.includes("created") ? "success" : "info"}>{invoiceMessage}</p> : null}
+          <div className="campaign-share-actions">
+            <select
+              className="table-select billing-campaign-select"
+              value={selectedCampaignId || ""}
+              onChange={(event) => {
+                setSelectedCampaignId(Number(event.target.value));
+                setInvoicePreview(null);
+                setInvoiceError("");
+                setInvoiceMessage("");
+              }}
+              aria-label="Select finalized campaign for invoice generation"
+            >
+              <option value="" disabled>
+                Select finalized campaign
+              </option>
+              {finalizedCampaigns.map((campaign) => (
+                <option key={campaign.id} value={campaign.id}>
+                  {campaign.name} ({campaign.code})
+                </option>
+              ))}
+            </select>
+            <button className="ghost" type="button" disabled={!selectedCampaignId || isPreviewLoading} onClick={() => void handlePreviewInvoice()}>
+              {isPreviewLoading ? "Preparing preview..." : "Preview Invoice"}
+            </button>
+            <button
+              className="submit"
+              type="button"
+              disabled={!invoicePreview?.can_generate || isGeneratingInvoice}
+              onClick={() => void handleGenerateInvoice()}
+            >
+              {isGeneratingInvoice ? "Generating invoice..." : "Generate Invoice"}
+            </button>
+          </div>
+          {finalizedCampaigns.length === 0 ? (
+            <p className="empty-state">Finalize a Campaign Estimate first, then confirm bookings before generating Invoice.</p>
+          ) : null}
+          {invoicePreview ? (
+            <div className="campaign-detail-panel">
+              <div className="campaign-detail-head">
+                <div>
+                  <p className="site-code">Invoice preview</p>
+                  <h3>{invoicePreview.campaign_name}</h3>
+                  <p className="section-copy">
+                    {invoicePreview.confirmed_booking_count} confirmed booking(s) for {invoicePreview.client_name}
+                  </p>
+                </div>
+                <div className="table-primary">
+                  <strong>{formatCurrency(invoicePreview.total_amount)}</strong>
+                  <span>Campaign total</span>
+                </div>
+              </div>
+              <div className="inventory-table-wrap">
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Site / unit</th>
+                      <th>Dates</th>
+                      <th>Media</th>
+                      <th>Flex / printing</th>
+                      <th>Installation</th>
+                      <th>Other</th>
+                      <th>Line total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoicePreview.lines.map((line) => (
+                      <tr key={line.booking_id}>
+                        <td>
+                          <div className="table-primary">
+                            <strong>{line.site_name}</strong>
+                            <span>{line.media_unit_label}</span>
+                          </div>
+                        </td>
+                        <td>{formatDate(line.start_date)} - {formatDate(line.end_date)}</td>
+                        <td>{formatCurrency(line.media_cost)}</td>
+                        <td>{formatCurrency(line.flex_cost)}</td>
+                        <td>{formatCurrency(line.installation_cost)}</td>
+                        <td>{formatCurrency(line.other_cost)}</td>
+                        <td>{formatCurrency(line.line_total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {invoicePreview.lines.length === 0 ? (
+                <p className="empty-state">No confirmed bookings found for this campaign. Confirm bookings before generating an Invoice.</p>
+              ) : null}
+            </div>
+          ) : null}
+        </article>
       </section>
 
       <section className="summary-row" aria-label="Billing stats">
@@ -151,7 +855,7 @@ export default function BillingPage() {
           </div>
           <div className="module-stats">
             <div className="module-stat">
-              <p className="stat-label">Draft/shared</p>
+              <p className="stat-label">Draft / shared</p>
               <p className="stat-value">
                 {isLoading ? "..." : (billingData?.estimates ?? []).filter((estimate) => ["draft", "shared"].includes(estimate.status)).length}
               </p>
@@ -206,9 +910,7 @@ export default function BillingPage() {
             </div>
             <div className="module-stat">
               <p className="stat-label">Paid</p>
-              <p className="stat-value">
-                {isLoading ? "..." : billingData?.summary.paid_invoices ?? 0}
-              </p>
+              <p className="stat-value">{isLoading ? "..." : billingData?.summary.paid_invoices ?? 0}</p>
             </div>
             <div className="module-stat">
               <p className="stat-label">Collected</p>
@@ -235,6 +937,7 @@ export default function BillingPage() {
                 <th>Status</th>
                 <th>Total</th>
                 <th>Lines</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -246,13 +949,47 @@ export default function BillingPage() {
                       <span>{estimate.title}</span>
                     </div>
                   </td>
-                  <td>{estimate.client_name}</td>
+                  <td>{estimate.client_name || getClientLabel(estimate.client)}</td>
                   <td>{formatDate(estimate.start_date)} - {formatDate(estimate.end_date)}</td>
                   <td>
                     <span className={`status-pill status-${estimate.status}`}>{estimate.status}</span>
                   </td>
                   <td>{formatCurrency(estimate.total_amount)}</td>
                   <td>{estimate.lines.length} proposed item(s)</td>
+                  <td>
+                    <div className="campaign-share-actions">
+                      {estimate.status === "draft" ? (
+                        <button
+                          className="ghost table-action"
+                          type="button"
+                          disabled={estimateActionId === estimate.id}
+                          onClick={() => void handleEstimateLifecycleAction(estimate, "share")}
+                        >
+                          Share
+                        </button>
+                      ) : null}
+                      {estimate.status === "shared" ? (
+                        <button
+                          className="ghost table-action"
+                          type="button"
+                          disabled={estimateActionId === estimate.id}
+                          onClick={() => void handleEstimateLifecycleAction(estimate, "approve")}
+                        >
+                          Approve
+                        </button>
+                      ) : null}
+                      {estimate.status === "approved" ? (
+                        <button
+                          className="ghost table-action"
+                          type="button"
+                          disabled={estimateActionId === estimate.id}
+                          onClick={() => void handleEstimateLifecycleAction(estimate, "finalize")}
+                        >
+                          Finalize
+                        </button>
+                      ) : null}
+                    </div>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -285,10 +1022,7 @@ export default function BillingPage() {
               <tbody>
                 {(billingData?.invoices ?? []).map((invoice) => {
                   const campaign = campaignMap.get(invoice.campaign);
-                  const totalPaid = invoice.payments.reduce(
-                    (sum, payment) => sum + Number(payment.amount),
-                    0,
-                  );
+                  const totalPaid = invoice.payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
 
                   return (
                     <tr key={invoice.id}>

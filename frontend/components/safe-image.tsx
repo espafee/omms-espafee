@@ -13,16 +13,12 @@ type SafeImageProps = {
 
 export function SafeImage({ src, alt, className, fallback, loading = "lazy" }: SafeImageProps) {
   const [failed, setFailed] = useState(false);
-  const isDebugMode = process.env.NODE_ENV !== "production";
 
   useEffect(() => {
     setFailed(false);
   }, [src]);
 
   if (!src || failed) {
-    if (isDebugMode && src) {
-      return <div title={`Failed image URL: ${src}`}>{fallback}</div>;
-    }
     return <>{fallback}</>;
   }
 
@@ -34,9 +30,6 @@ export function SafeImage({ src, alt, className, fallback, loading = "lazy" }: S
       loading={loading}
       decoding="async"
       onError={() => {
-        if (isDebugMode) {
-          console.warn("[SafeImage] Failed to load image", { src, alt });
-        }
         setFailed(true);
       }}
     />

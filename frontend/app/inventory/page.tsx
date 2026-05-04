@@ -580,11 +580,11 @@ export default function InventoryPage() {
   return (
     <AppShell
       active="inventory"
-      roleLabel={user?.role ?? "Authenticated"}
+      roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
       title="Inventory command"
       eyebrow="Inventory"
-      description="Manage live site and media-unit imagery alongside the operational inventory metadata already connected to your backend scope."
+      description="Manage live site and media-unit imagery alongside operational inventory details for planning and booking."
       onLogout={handleLogout}
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}

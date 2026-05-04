@@ -359,6 +359,144 @@ class BillingApiTests(APITestCase):
         self.assertEqual(response.data["payment_count"], 1)
         self.assertEqual(Decimal(response.data["total_paid"]), Decimal("59.00"))
 
+    def test_campaign_invoice_preview_uses_confirmed_booking_costs(self):
+        self.booking.agreed_media_cost = Decimal("50000.00")
+        self.booking.flex_cost = Decimal("8000.00")
+        self.booking.installation_cost = Decimal("3500.00")
+        self.booking.other_cost = Decimal("1500.00")
+        self.booking.cost_notes = "Includes mounting support."
+        self.booking.save(
+            update_fields=[
+                "agreed_media_cost",
+                "flex_cost",
+                "installation_cost",
+                "other_cost",
+                "cost_notes",
+                "updated_at",
+            ]
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(f"/api/v1/campaigns/{self.campaign.id}/invoice-preview/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["can_generate"])
+        self.assertEqual(response.data["confirmed_booking_count"], 1)
+        self.assertEqual(Decimal(response.data["total_amount"]), Decimal("63000.00"))
+        line = response.data["lines"][0]
+        self.assertEqual(line["site_name"], self.site.name)
+        self.assertEqual(line["media_unit_label"], self.unit.unit_code)
+        self.assertEqual(Decimal(line["media_cost"]), Decimal("50000.00"))
+        self.assertEqual(Decimal(line["flex_cost"]), Decimal("8000.00"))
+        self.assertEqual(Decimal(line["installation_cost"]), Decimal("3500.00"))
+        self.assertEqual(Decimal(line["other_cost"]), Decimal("1500.00"))
+        self.assertEqual(Decimal(line["line_total"]), Decimal("63000.00"))
+
+    def test_campaign_generate_invoice_creates_one_campaign_level_invoice(self):
+        self.booking.agreed_media_cost = Decimal("50000.00")
+        self.booking.flex_cost = Decimal("8000.00")
+        self.booking.installation_cost = Decimal("3500.00")
+        self.booking.other_cost = Decimal("1500.00")
+        self.booking.save(
+            update_fields=[
+                "agreed_media_cost",
+                "flex_cost",
+                "installation_cost",
+                "other_cost",
+                "updated_at",
+            ]
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invoice = Invoice.objects.get(id=response.data["id"])
+        self.assertEqual(invoice.campaign, self.campaign)
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+        self.assertEqual(invoice.total_amount, Decimal("63000.00"))
+        line = invoice.lines.get()
+        self.assertEqual(line.booking, self.booking)
+        self.assertEqual(line.site_name, self.site.name)
+        self.assertEqual(line.media_unit_label, self.unit.unit_code)
+        self.assertEqual(line.media_cost, Decimal("50000.00"))
+        self.assertEqual(line.flex_cost, Decimal("8000.00"))
+        self.assertEqual(line.installation_cost, Decimal("3500.00"))
+        self.assertEqual(line.other_cost, Decimal("1500.00"))
+        self.assertEqual(line.line_total, Decimal("63000.00"))
+
+    def test_campaign_generate_invoice_prevents_duplicate_campaign_invoices(self):
+        self.client.force_authenticate(user=self.finance)
+        first = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+        second = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(first.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(second.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("campaign", second.data)
+        self.assertEqual(Invoice.objects.filter(campaign=self.campaign).count(), 1)
+
+    def test_campaign_invoice_preview_blocks_generation_before_campaign_start_date(self):
+        future_campaign = Campaign.objects.create(
+            name="Future Billing Campaign",
+            code="CMP-FUTURE-001",
+            client=self.client_user,
+            account_manager=self.sales,
+            start_date=date.today() + timedelta(days=5),
+            end_date=date.today() + timedelta(days=35),
+            budget=Decimal("125000.00"),
+            status=Campaign.Status.ACTIVE,
+            objective="Future launch",
+        )
+        Booking.objects.create(
+            campaign=future_campaign,
+            media_unit=self.unit,
+            start_date=future_campaign.start_date,
+            end_date=future_campaign.end_date,
+            booked_rate=Decimal("50000.00"),
+            status=Booking.Status.CONFIRMED,
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(f"/api/v1/campaigns/{future_campaign.id}/invoice-preview/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["can_generate"])
+        self.assertEqual(
+            response.data["message"],
+            "Invoice can be generated only from the campaign start date onward.",
+        )
+
+    def test_campaign_generate_invoice_rejects_future_campaign_start_date(self):
+        future_campaign = Campaign.objects.create(
+            name="Future Billing Campaign",
+            code="CMP-FUTURE-002",
+            client=self.client_user,
+            account_manager=self.sales,
+            start_date=date.today() + timedelta(days=3),
+            end_date=date.today() + timedelta(days=20),
+            budget=Decimal("98000.00"),
+            status=Campaign.Status.ACTIVE,
+            objective="Future launch",
+        )
+        Booking.objects.create(
+            campaign=future_campaign,
+            media_unit=self.unit,
+            start_date=future_campaign.start_date,
+            end_date=future_campaign.end_date,
+            booked_rate=Decimal("42000.00"),
+            status=Booking.Status.CONFIRMED,
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(f"/api/v1/campaigns/{future_campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("campaign", response.data)
+        self.assertEqual(
+            response.data["campaign"][0],
+            "Invoice can be generated only from the campaign start date onward.",
+        )
+
     def test_supplier_profile_list_endpoint_works(self):
         self.client.force_authenticate(user=self.finance)
 

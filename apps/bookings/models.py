@@ -19,6 +19,11 @@ class Booking(TimeStampedModel):
     start_date = models.DateField()
     end_date = models.DateField()
     booked_rate = models.DecimalField(max_digits=12, decimal_places=2)
+    agreed_media_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    flex_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    installation_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    other_cost = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    cost_notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     remarks = models.TextField(blank=True)
 
