@@ -66,6 +66,12 @@ function formatDate(dateValue: string) {
   }).format(new Date(dateValue));
 }
 
+function getTodayLocalIsoDate() {
+  const now = new Date();
+  const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
+  return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
+}
+
 function createEmptyLine(localId: number): EstimateLineDraft {
   return {
     localId,
@@ -176,14 +182,37 @@ export default function BillingPage() {
     return map;
   }, [billingData]);
 
-  const approvedCampaigns = useMemo(() => {
-    const ids = new Set(
+  const approvedEstimateCampaignIds = useMemo(() => {
+    return new Set(
       (billingData?.estimates ?? [])
         .filter((estimate) => estimate.status === "approved" && estimate.campaign)
         .map((estimate) => estimate.campaign as number),
     );
-    return (billingData?.campaigns ?? []).filter((campaign) => ids.has(campaign.id));
   }, [billingData]);
+
+  const invoiceCampaigns = useMemo(() => {
+    const today = getTodayLocalIsoDate();
+    return [...(billingData?.campaigns ?? [])]
+      .filter((campaign) => {
+        if (approvedEstimateCampaignIds.has(campaign.id)) {
+          return true;
+        }
+
+        const hasStarted = Boolean(campaign.start_date) && campaign.start_date <= today;
+        const isInvoiceLifecycleStatus = ["active", "paused", "completed"].includes(campaign.status);
+        return hasStarted && isInvoiceLifecycleStatus;
+      })
+      .sort((left, right) => {
+        const leftApproved = approvedEstimateCampaignIds.has(left.id) ? 1 : 0;
+        const rightApproved = approvedEstimateCampaignIds.has(right.id) ? 1 : 0;
+
+        if (leftApproved !== rightApproved) {
+          return rightApproved - leftApproved;
+        }
+
+        return left.start_date.localeCompare(right.start_date);
+      });
+  }, [approvedEstimateCampaignIds, billingData]);
 
   const campaignsForSelectedClient = useMemo(() => {
     if (!estimateForm.client) {
@@ -236,11 +265,11 @@ export default function BillingPage() {
   }, [billingData, campaignMap, canManageBilling, clients]);
 
   useEffect(() => {
-    if (selectedCampaignId && approvedCampaigns.some((campaign) => campaign.id === selectedCampaignId)) {
+    if (selectedCampaignId && invoiceCampaigns.some((campaign) => campaign.id === selectedCampaignId)) {
       return;
     }
-    setSelectedCampaignId(approvedCampaigns[0]?.id || 0);
-  }, [approvedCampaigns, selectedCampaignId]);
+    setSelectedCampaignId(invoiceCampaigns[0]?.id || 0);
+  }, [invoiceCampaigns, selectedCampaignId]);
 
   function handleLogout() {
     clearAuthSession();
@@ -821,7 +850,7 @@ export default function BillingPage() {
           <div className="module-head">
             <div>
               <h2>Invoice</h2>
-              <p className="section-copy">Select an approved campaign with confirmed bookings. Invoice is available from the campaign start date onward.</p>
+              <p className="section-copy">Select a running or completed campaign for invoice review. Approved estimates are prioritised, and invoice generation still depends on confirmed bookings and the campaign start date.</p>
             </div>
             <span>Post-start</span>
           </div>
@@ -837,14 +866,14 @@ export default function BillingPage() {
                 setInvoiceError("");
                 setInvoiceMessage("");
               }}
-              aria-label="Select approved campaign for invoice generation"
+              aria-label="Select campaign for invoice generation"
             >
               <option value="" disabled>
-                Select approved campaign
+                Select campaign for invoice
               </option>
-              {approvedCampaigns.map((campaign) => (
+              {invoiceCampaigns.map((campaign) => (
                 <option key={campaign.id} value={campaign.id}>
-                  {campaign.name} ({campaign.code})
+                  {campaign.name} ({campaign.code}){approvedEstimateCampaignIds.has(campaign.id) ? " • estimate approved" : ""}
                 </option>
               ))}
             </select>
@@ -860,8 +889,8 @@ export default function BillingPage() {
               {isGeneratingInvoice ? "Generating invoice..." : "Generate Invoice"}
             </button>
           </div>
-          {approvedCampaigns.length === 0 ? (
-            <p className="empty-state">Get a Campaign Estimate approved first, then confirm bookings before generating Invoice.</p>
+          {invoiceCampaigns.length === 0 ? (
+            <p className="empty-state">No running campaigns are ready for invoice review yet. Campaigns appear here after the start date, and preview will confirm confirmed bookings before Invoice can be generated.</p>
           ) : null}
           {invoicePreview ? (
             <div className="campaign-detail-panel">
