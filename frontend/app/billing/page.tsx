@@ -11,12 +11,15 @@ import {
   createCampaignEstimateLine,
   fetchBillingData,
   fetchCampaignInvoicePreview,
+  fetchInvoicePdfLink,
+  generateInvoicePdf,
   generateCampaignInvoice,
   getInvoiceActionError,
   shareCampaignEstimate,
   type BillingPayload,
   type CampaignEstimate,
   type CampaignInvoicePreview,
+  type Invoice,
   type InvoicePaymentCreateInput,
 } from "@/lib/billing";
 import { type Campaign } from "@/lib/campaigns";
@@ -124,6 +127,7 @@ export default function BillingPage() {
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [isSavingEstimate, setIsSavingEstimate] = useState(false);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [invoicePdfActionId, setInvoicePdfActionId] = useState<number | null>(null);
 
   const canManageBilling = WRITE_ROLES.has(user?.role ?? "");
 
@@ -620,6 +624,31 @@ export default function BillingPage() {
       setPaymentError(getInvoiceActionError(saveError));
     } finally {
       setIsSavingPayment(false);
+    }
+  }
+
+  async function handleDownloadInvoice(invoice: Invoice) {
+    if (!invoice) {
+      return;
+    }
+
+    setInvoiceError("");
+    setInvoiceMessage("");
+    setInvoicePdfActionId(invoice.id);
+
+    try {
+      if (!invoice.pdf_file) {
+        await generateInvoicePdf(invoice.id);
+      }
+
+      const { url } = await fetchInvoicePdfLink(invoice.id);
+      window.open(url, "_blank", "noopener,noreferrer");
+      setInvoiceMessage(`Invoice PDF ready for ${invoice.invoice_number ?? `draft #${invoice.id}`}.`);
+      await loadBilling();
+    } catch (downloadError) {
+      setInvoiceError(getInvoiceActionError(downloadError));
+    } finally {
+      setInvoicePdfActionId(null);
     }
   }
 
@@ -1158,9 +1187,19 @@ export default function BillingPage() {
                       <td>{formatCurrency(invoice.amount_paid)}</td>
                       <td>{formatCurrency(invoice.balance_due)}</td>
                       <td>
-                        <button className="ghost table-action" type="button" onClick={() => setSelectedInvoiceId(invoice.id)}>
-                          Record Payment
-                        </button>
+                        <div className="form-actions">
+                          <button className="ghost table-action" type="button" onClick={() => setSelectedInvoiceId(invoice.id)}>
+                            Record Payment
+                          </button>
+                          <button
+                            className="ghost table-action"
+                            type="button"
+                            disabled={invoicePdfActionId === invoice.id}
+                            onClick={() => void handleDownloadInvoice(invoice)}
+                          >
+                            {invoicePdfActionId === invoice.id ? "Preparing PDF..." : "Download PDF"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1199,6 +1238,16 @@ export default function BillingPage() {
                   <p className="stat-label">Balance due</p>
                   <p className="field-summary-value">{formatCurrency(selectedInvoice.balance_due)}</p>
                 </div>
+              </div>
+              <div className="form-actions">
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={invoicePdfActionId === selectedInvoice.id}
+                  onClick={() => void handleDownloadInvoice(selectedInvoice)}
+                >
+                  {invoicePdfActionId === selectedInvoice.id ? "Preparing PDF..." : "Download Invoice PDF"}
+                </button>
               </div>
               <div className="campaign-form-grid">
                 <div className="field">

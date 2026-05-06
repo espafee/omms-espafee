@@ -50,6 +50,7 @@ export type Invoice = {
   amount_paid: string;
   balance_due: string;
   payment_status: string;
+  pdf_file?: string | null;
   lines: InvoiceLine[];
   payments: Payment[];
 };
@@ -223,6 +224,16 @@ export async function createInvoicePayment(invoiceId: number, payload: InvoicePa
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function generateInvoicePdf(invoiceId: number) {
+  return apiFetch<Invoice>(`billing/invoices/${invoiceId}/generate-pdf/`, {
+    method: "POST",
+  });
+}
+
+export async function fetchInvoicePdfLink(invoiceId: number) {
+  return apiFetch<{ url: string; expires_in: number }>(`billing/invoices/${invoiceId}/pdf-link/`);
 }
 
 export function getInvoiceActionError(error: unknown) {
