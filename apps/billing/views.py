@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
 from rest_framework.permissions import AllowAny
@@ -148,6 +149,15 @@ class InvoiceViewSet(ServiceModelViewSet):
                 "expires_in": getattr(settings, "AWS_PRIVATE_SIGNED_URL_EXPIRY_SECONDS", 900),
             }
         )
+
+    @extend_schema(request=None, responses=None)
+    @action(detail=True, methods=["get"], url_path="download-pdf")
+    def download_pdf(self, request, pk=None):
+        invoice = self.get_object()
+        pdf_bytes, filename = self.get_service().render_pdf_download(invoice)
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @extend_schema(request=InvoicePaymentCreateSerializer, responses=PaymentSerializer)
     @action(detail=True, methods=["post"], url_path="payments")

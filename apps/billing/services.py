@@ -15,7 +15,7 @@ from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
-from .pdf import build_invoice_pdf_storage_name, render_invoice_pdf
+from .pdf import build_invoice_pdf_storage_name, build_safe_invoice_pdf_name, render_invoice_pdf
 from .repositories import (
     CampaignEstimateLineRepository,
     CampaignEstimateRepository,
@@ -380,6 +380,18 @@ def get_invoice_pdf_link(invoice: Invoice, *, expiry_seconds: int | None = None)
     )
 
 
+def render_invoice_pdf_download(invoice: Invoice) -> tuple[bytes, str]:
+    invoice = (
+        Invoice.objects.select_related("campaign", "supplier_profile", "issued_by")
+        .prefetch_related("lines__booking__media_unit__site")
+        .get(pk=invoice.pk)
+    )
+    validate_invoice_for_pdf(invoice)
+    calculate_invoice_totals(invoice)
+    filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
+    return render_invoice_pdf(invoice), filename
+
+
 class SupplierProfileService(BaseService):
     repository_class = SupplierProfileRepository
 
@@ -627,6 +639,9 @@ class InvoiceService(BaseService):
 
     def get_pdf_link(self, instance, *, expiry_seconds: int | None = None):
         return get_invoice_pdf_link(instance, expiry_seconds=expiry_seconds)
+
+    def render_pdf_download(self, instance):
+        return render_invoice_pdf_download(instance)
 
     @transaction.atomic
     def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=Decimal("18.00"), sac_code="998361"):

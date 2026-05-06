@@ -9,12 +9,14 @@ import {
   createInvoicePayment,
   createCampaignEstimate,
   createCampaignEstimateLine,
+  downloadInvoicePdf,
   fetchBillingData,
   fetchCampaignInvoicePreview,
   fetchInvoicePdfLink,
   generateInvoicePdf,
   generateCampaignInvoice,
   getInvoiceActionError,
+  issueInvoice,
   shareCampaignEstimate,
   type BillingPayload,
   type CampaignEstimate,
@@ -628,22 +630,33 @@ export default function BillingPage() {
   }
 
   async function handleDownloadInvoice(invoice: Invoice) {
-    if (!invoice) {
-      return;
-    }
-
     setInvoiceError("");
     setInvoiceMessage("");
     setInvoicePdfActionId(invoice.id);
 
     try {
-      if (!invoice.pdf_file) {
-        await generateInvoicePdf(invoice.id);
+      const activeInvoice = invoice.status === "draft" ? await issueInvoice(invoice.id) : invoice;
+
+      if (activeInvoice.pdf_file) {
+        const { url } = await fetchInvoicePdfLink(activeInvoice.id);
+        window.open(url, "_blank", "noopener,noreferrer");
+      } else {
+        if (activeInvoice.status !== "draft") {
+          await generateInvoicePdf(activeInvoice.id);
+        }
+
+        const { blob, filename } = await downloadInvoicePdf(activeInvoice.id);
+        const objectUrl = window.URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = objectUrl;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        window.URL.revokeObjectURL(objectUrl);
       }
 
-      const { url } = await fetchInvoicePdfLink(invoice.id);
-      window.open(url, "_blank", "noopener,noreferrer");
-      setInvoiceMessage(`Invoice PDF ready for ${invoice.invoice_number ?? `draft #${invoice.id}`}.`);
+      setInvoiceMessage(`Invoice PDF ready for ${activeInvoice.invoice_number ?? `draft #${activeInvoice.id}`}.`);
       await loadBilling();
     } catch (downloadError) {
       setInvoiceError(getInvoiceActionError(downloadError));
@@ -1197,7 +1210,11 @@ export default function BillingPage() {
                             disabled={invoicePdfActionId === invoice.id}
                             onClick={() => void handleDownloadInvoice(invoice)}
                           >
-                            {invoicePdfActionId === invoice.id ? "Preparing PDF..." : "Download PDF"}
+                            {invoicePdfActionId === invoice.id
+                              ? "Preparing PDF..."
+                              : invoice.status === "draft"
+                                ? "Issue & Download PDF"
+                                : "Download PDF"}
                           </button>
                         </div>
                       </td>
@@ -1246,7 +1263,11 @@ export default function BillingPage() {
                   disabled={invoicePdfActionId === selectedInvoice.id}
                   onClick={() => void handleDownloadInvoice(selectedInvoice)}
                 >
-                  {invoicePdfActionId === selectedInvoice.id ? "Preparing PDF..." : "Download Invoice PDF"}
+                  {invoicePdfActionId === selectedInvoice.id
+                    ? "Preparing PDF..."
+                    : selectedInvoice.status === "draft"
+                      ? "Issue & Download Invoice PDF"
+                      : "Download Invoice PDF"}
                 </button>
               </div>
               <div className="campaign-form-grid">

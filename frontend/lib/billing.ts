@@ -1,4 +1,4 @@
-import { ApiError, apiFetch } from "@/lib/auth";
+import { ApiError, apiFetch, getAccessToken, parseApiError } from "@/lib/auth";
 import type { BillingSummary } from "@/lib/dashboard";
 import type { Campaign } from "@/lib/campaigns";
 
@@ -234,6 +234,47 @@ export async function generateInvoicePdf(invoiceId: number) {
 
 export async function fetchInvoicePdfLink(invoiceId: number) {
   return apiFetch<{ url: string; expires_in: number }>(`billing/invoices/${invoiceId}/pdf-link/`);
+}
+
+export async function issueInvoice(invoiceId: number) {
+  return apiFetch<Invoice>(`billing/invoices/${invoiceId}/issue/`, {
+    method: "POST",
+  });
+}
+
+function normalizeUrl(root: string, path: string) {
+  return `${root.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+}
+
+function getFilenameFromDisposition(contentDisposition: string | null) {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+
+  const basicMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+  return basicMatch?.[1] ?? null;
+}
+
+export async function downloadInvoicePdf(invoiceId: number) {
+  const token = getAccessToken();
+  const apiRoot = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
+  const response = await fetch(normalizeUrl(apiRoot, `billing/invoices/${invoiceId}/download-pdf/`), {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: getFilenameFromDisposition(response.headers.get("content-disposition")) ?? `invoice-${invoiceId}.pdf`,
+  };
 }
 
 export function getInvoiceActionError(error: unknown) {
