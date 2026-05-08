@@ -593,6 +593,23 @@ class BillingApiTests(APITestCase):
         self.assertEqual(line.other_cost, Decimal("1500.00"))
         self.assertEqual(line.line_total, Decimal("63000.00"))
 
+    def test_campaign_generated_draft_can_be_issued_without_full_snapshot_fields(self):
+        self.client.force_authenticate(user=self.finance)
+        created = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        invoice = Invoice.objects.get(id=created.data["id"])
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+        self.assertIsNone(invoice.supplier_profile)
+        self.assertEqual(invoice.client_legal_name, self.client_user.email)
+
+        issued = self.client.post(reverse("billing-invoices-issue", args=[invoice.id]), format="json")
+
+        self.assertEqual(issued.status_code, status.HTTP_200_OK)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.ISSUED)
+        self.assertIsNotNone(invoice.invoice_number)
+
     def test_campaign_generate_invoice_prevents_duplicate_campaign_invoices(self):
         self.client.force_authenticate(user=self.finance)
         first = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")

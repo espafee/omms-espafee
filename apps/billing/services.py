@@ -254,20 +254,7 @@ def populate_supplier_snapshot(invoice: Invoice, supplier_profile: SupplierProfi
 
 def validate_invoice_for_issue(invoice: Invoice) -> None:
     required_fields = {
-        "supplier_legal_name": invoice.supplier_legal_name,
-        "supplier_gstin": invoice.supplier_gstin,
-        "supplier_address_line_1": invoice.supplier_address_line_1,
-        "supplier_city": invoice.supplier_city,
-        "supplier_state": invoice.supplier_state,
-        "supplier_postal_code": invoice.supplier_postal_code,
-        "supplier_state_code": invoice.supplier_state_code,
         "client_legal_name": invoice.client_legal_name,
-        "client_billing_address_line_1": invoice.client_billing_address_line_1,
-        "client_billing_city": invoice.client_billing_city,
-        "client_billing_state": invoice.client_billing_state,
-        "client_billing_postal_code": invoice.client_billing_postal_code,
-        "place_of_supply_state": invoice.place_of_supply_state,
-        "place_of_supply_state_code": invoice.place_of_supply_state_code,
         "invoice_date": invoice.invoice_date,
         "due_date": invoice.due_date,
     }
