@@ -170,6 +170,23 @@ class BillingServiceTests(TestCase):
         self.assertEqual(first.invoice_number, "INV/2025-26/0001")
         self.assertEqual(second.invoice_number, "INV/2025-26/0002")
 
+    def test_invoice_number_allocation_skips_existing_numbers_without_sequence(self):
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_number="INV/2025-26/0001",
+            financial_year="2025-26",
+            status=Invoice.Status.CANCELLED,
+        )
+
+        issued = issue_invoice(self._build_invoice(invoice_date=date(2025, 4, 15)), self.finance)
+
+        self.assertEqual(issued.invoice_number, "INV/2025-26/0002")
+        sequence = InvoiceSequence.objects.get(
+            document_type=InvoiceSequence.DocumentType.INVOICE,
+            financial_year="2025-26",
+        )
+        self.assertEqual(sequence.last_number, 2)
+
     def test_issue_overrides_manual_draft_invoice_number(self):
         invoice = self._build_invoice(invoice_date=date(2025, 4, 15))
         invoice.invoice_number = "MANUAL-DRAFT-001"
@@ -606,6 +623,24 @@ class BillingApiTests(APITestCase):
         issued = self.client.post(reverse("billing-invoices-issue", args=[invoice.id]), format="json")
 
         self.assertEqual(issued.status_code, status.HTTP_200_OK)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.ISSUED)
+        self.assertIsNotNone(invoice.invoice_number)
+
+    def test_download_pdf_endpoint_issues_campaign_generated_draft_invoice(self):
+        self.client.force_authenticate(user=self.finance)
+        created = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(created.status_code, status.HTTP_201_CREATED)
+        invoice = Invoice.objects.get(id=created.data["id"])
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+
+        response = self.client.get(reverse("billing-invoices-download-pdf", args=[invoice.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertTrue(response.content.startswith(b"%PDF"))
         invoice.refresh_from_db()
         self.assertEqual(invoice.status, Invoice.Status.ISSUED)
         self.assertIsNotNone(invoice.invoice_number)

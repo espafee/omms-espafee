@@ -128,9 +128,12 @@ def allocate_invoice_number(document_type: str, financial_year: str) -> str:
         financial_year=financial_year,
         defaults={"last_number": 0},
     )
-    sequence.last_number += 1
-    sequence.save(update_fields=["last_number", "updated_at"])
-    return f"{document_type}/{financial_year}/{sequence.last_number:04d}"
+    while True:
+        sequence.last_number += 1
+        invoice_number = f"{document_type}/{financial_year}/{sequence.last_number:04d}"
+        if not Invoice.objects.filter(invoice_number=invoice_number).exists():
+            sequence.save(update_fields=["last_number", "updated_at"])
+            return invoice_number
 
 
 def calculate_invoice_totals(invoice: Invoice) -> Invoice:
@@ -278,14 +281,39 @@ def validate_invoice_campaign_ready(invoice: Invoice) -> None:
         )
 
 
+def populate_invoice_issue_defaults(invoice: Invoice) -> None:
+    if not invoice.invoice_date:
+        invoice.invoice_date = invoice.issue_date or timezone.localdate()
+    if not invoice.issue_date:
+        invoice.issue_date = invoice.invoice_date
+    if not invoice.due_date:
+        invoice.due_date = invoice.invoice_date + timedelta(days=15)
+    if not invoice.client_legal_name:
+        client = getattr(invoice.campaign, "client", None)
+        client_name = ""
+        if client:
+            client_name = (
+                getattr(client, "organization_name", "")
+                or getattr(client, "email", "")
+                or f"Client #{client.pk}"
+            )
+        invoice.client_legal_name = client_name
+
+
 @transaction.atomic
 def issue_invoice(invoice: Invoice, actor) -> Invoice:
-    invoice = Invoice.objects.select_for_update().prefetch_related("lines").select_related("supplier_profile").get(pk=invoice.pk)
+    invoice = (
+        Invoice.objects.select_for_update()
+        .prefetch_related("lines")
+        .select_related("supplier_profile", "campaign__client")
+        .get(pk=invoice.pk)
+    )
     if invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": ["Only draft invoices can be issued."]})
 
     if invoice.supplier_profile:
         populate_supplier_snapshot(invoice, invoice.supplier_profile)
+    populate_invoice_issue_defaults(invoice)
 
     validate_invoice_for_issue(invoice)
     invoice.financial_year = invoice.financial_year or get_indian_financial_year(invoice.invoice_date)
@@ -367,7 +395,9 @@ def get_invoice_pdf_link(invoice: Invoice, *, expiry_seconds: int | None = None)
     )
 
 
-def render_invoice_pdf_download(invoice: Invoice) -> tuple[bytes, str]:
+def render_invoice_pdf_download(invoice: Invoice, actor=None) -> tuple[bytes, str]:
+    if invoice.status == Invoice.Status.DRAFT:
+        invoice = issue_invoice(invoice, actor=actor)
     invoice = (
         Invoice.objects.select_related("campaign", "supplier_profile", "issued_by")
         .prefetch_related("lines__booking__media_unit__site")
@@ -627,8 +657,8 @@ class InvoiceService(BaseService):
     def get_pdf_link(self, instance, *, expiry_seconds: int | None = None):
         return get_invoice_pdf_link(instance, expiry_seconds=expiry_seconds)
 
-    def render_pdf_download(self, instance):
-        return render_invoice_pdf_download(instance)
+    def render_pdf_download(self, instance, actor=None):
+        return render_invoice_pdf_download(instance, actor=actor)
 
     @transaction.atomic
     def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=Decimal("18.00"), sac_code="998361"):

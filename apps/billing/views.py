@@ -154,7 +154,7 @@ class InvoiceViewSet(ServiceModelViewSet):
     @action(detail=True, methods=["get"], url_path="download-pdf")
     def download_pdf(self, request, pk=None):
         invoice = self.get_object()
-        pdf_bytes, filename = self.get_service().render_pdf_download(invoice)
+        pdf_bytes, filename = self.get_service().render_pdf_download(invoice, actor=request.user)
         response = HttpResponse(pdf_bytes, content_type="application/pdf")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response

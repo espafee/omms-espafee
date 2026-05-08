@@ -14,7 +14,6 @@ import {
   fetchCampaignInvoicePreview,
   generateCampaignInvoice,
   getInvoiceActionError,
-  issueInvoice,
   shareCampaignEstimate,
   type BillingPayload,
   type CampaignEstimate,
@@ -633,8 +632,7 @@ export default function BillingPage() {
     setInvoicePdfActionId(invoice.id);
 
     try {
-      const activeInvoice = invoice.status === "draft" ? await issueInvoice(invoice.id) : invoice;
-      const { blob, filename } = await downloadInvoicePdf(activeInvoice.id);
+      const { blob, filename } = await downloadInvoicePdf(invoice.id);
       const objectUrl = window.URL.createObjectURL(blob);
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
@@ -644,7 +642,7 @@ export default function BillingPage() {
       anchor.remove();
       window.URL.revokeObjectURL(objectUrl);
 
-      setInvoiceMessage(`Invoice PDF ready for ${activeInvoice.invoice_number ?? `draft #${activeInvoice.id}`}.`);
+      setInvoiceMessage(`Invoice PDF ready for ${invoice.invoice_number ?? `draft #${invoice.id}`}.`);
       await loadBilling();
     } catch (downloadError) {
       setInvoiceError(getInvoiceActionError(downloadError));
