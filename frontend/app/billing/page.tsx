@@ -12,8 +12,6 @@ import {
   downloadInvoicePdf,
   fetchBillingData,
   fetchCampaignInvoicePreview,
-  fetchInvoicePdfLink,
-  generateInvoicePdf,
   generateCampaignInvoice,
   getInvoiceActionError,
   issueInvoice,
@@ -636,25 +634,15 @@ export default function BillingPage() {
 
     try {
       const activeInvoice = invoice.status === "draft" ? await issueInvoice(invoice.id) : invoice;
-
-      if (activeInvoice.pdf_file) {
-        const { url } = await fetchInvoicePdfLink(activeInvoice.id);
-        window.open(url, "_blank", "noopener,noreferrer");
-      } else {
-        if (activeInvoice.status !== "draft") {
-          await generateInvoicePdf(activeInvoice.id);
-        }
-
-        const { blob, filename } = await downloadInvoicePdf(activeInvoice.id);
-        const objectUrl = window.URL.createObjectURL(blob);
-        const anchor = document.createElement("a");
-        anchor.href = objectUrl;
-        anchor.download = filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        window.URL.revokeObjectURL(objectUrl);
-      }
+      const { blob, filename } = await downloadInvoicePdf(activeInvoice.id);
+      const objectUrl = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = objectUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(objectUrl);
 
       setInvoiceMessage(`Invoice PDF ready for ${activeInvoice.invoice_number ?? `draft #${activeInvoice.id}`}.`);
       await loadBilling();
