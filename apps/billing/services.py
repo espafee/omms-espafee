@@ -16,7 +16,13 @@ from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
-from .pdf import build_invoice_pdf_storage_name, build_safe_invoice_pdf_name, render_invoice_pdf, render_invoice_pdf_fallback
+from .pdf import (
+    build_invoice_pdf_storage_name,
+    build_safe_invoice_pdf_name,
+    render_invoice_pdf,
+    render_invoice_pdf_fallback,
+    render_invoice_pdf_last_resort,
+)
 from .repositories import (
     CampaignEstimateLineRepository,
     CampaignEstimateRepository,
@@ -183,6 +189,8 @@ def calculate_invoice_totals(invoice: Invoice) -> Invoice:
         line_total = quantize_money(taxable_value + cgst_amount + sgst_amount + igst_amount + cess_amount)
 
         line.line_number = index
+        line.gst_rate = gst_rate
+        line.cess_rate = cess_rate
         line.gross_value = gross_value
         line.taxable_value = taxable_value
         line.cgst_rate = cgst_rate
@@ -200,6 +208,8 @@ def calculate_invoice_totals(invoice: Invoice) -> Invoice:
         line.save(
             update_fields=[
                 "line_number",
+                "gst_rate",
+                "cess_rate",
                 "gross_value",
                 "taxable_value",
                 "cgst_rate",
@@ -273,6 +283,8 @@ def validate_invoice_for_issue(invoice: Invoice) -> None:
 
 def validate_invoice_campaign_ready(invoice: Invoice) -> None:
     today = timezone.localdate()
+    if not getattr(invoice.campaign, "start_date", None):
+        raise ValidationError({"campaign": ["Campaign start date is required before generating an invoice."]})
     if invoice.campaign.start_date > today:
         raise ValidationError(
             {"campaign": ["Invoice can be generated only from the campaign start date onward."]}
@@ -398,17 +410,27 @@ def get_invoice_pdf_link(invoice: Invoice, *, expiry_seconds: int | None = None)
 
 
 def render_invoice_pdf_download(invoice: Invoice, actor=None) -> tuple[bytes, str]:
-    if invoice.status == Invoice.Status.DRAFT:
-        invoice = issue_invoice(invoice, actor=actor)
-    invoice = (
-        Invoice.objects.select_related("campaign", "supplier_profile", "issued_by")
-        .prefetch_related("lines__booking__media_unit__site")
-        .get(pk=invoice.pk)
-    )
-    validate_invoice_for_pdf(invoice)
-    calculate_invoice_totals(invoice)
-    filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
-    return render_invoice_pdf_safely(invoice), filename
+    try:
+        if invoice.status == Invoice.Status.DRAFT:
+            invoice = issue_invoice(invoice, actor=actor)
+        invoice = (
+            Invoice.objects.select_related("campaign", "supplier_profile", "issued_by")
+            .prefetch_related("lines__booking__media_unit__site")
+            .get(pk=invoice.pk)
+        )
+        validate_invoice_for_pdf(invoice)
+        calculate_invoice_totals(invoice)
+        filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
+        return render_invoice_pdf_safely(invoice), filename
+    except ValidationError:
+        raise
+    except Exception:
+        logger.exception("Invoice PDF download failed; using simplified fallback PDF.", extra={"invoice_id": invoice.pk})
+        fallback_invoice = get_invoice_for_pdf_fallback(invoice)
+        filename = build_safe_invoice_pdf_name(
+            getattr(fallback_invoice, "invoice_number", "") or f"invoice_{invoice.pk}"
+        )
+        return render_invoice_pdf_fallback_safely(fallback_invoice), filename
 
 
 def render_invoice_pdf_safely(invoice: Invoice) -> bytes:
@@ -416,7 +438,29 @@ def render_invoice_pdf_safely(invoice: Invoice) -> bytes:
         return render_invoice_pdf(invoice)
     except Exception:
         logger.exception("Invoice PDF renderer failed; using fallback PDF.", extra={"invoice_id": invoice.pk})
+        return render_invoice_pdf_fallback_safely(invoice)
+
+
+def render_invoice_pdf_fallback_safely(invoice: Invoice) -> bytes:
+    try:
         return render_invoice_pdf_fallback(invoice)
+    except Exception:
+        logger.exception("Fallback invoice PDF renderer failed; using last-resort PDF.", extra={"invoice_id": invoice.pk})
+        return render_invoice_pdf_last_resort(
+            invoice_id=getattr(invoice, "pk", None),
+            invoice_number=getattr(invoice, "invoice_number", None),
+        )
+
+
+def get_invoice_for_pdf_fallback(invoice: Invoice) -> Invoice:
+    try:
+        return (
+            Invoice.objects.select_related("campaign", "supplier_profile", "issued_by")
+            .prefetch_related("lines__booking__media_unit__site")
+            .get(pk=invoice.pk)
+        )
+    except Exception:
+        return invoice
 
 
 class SupplierProfileService(BaseService):

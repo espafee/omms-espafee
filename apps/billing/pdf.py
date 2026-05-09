@@ -461,6 +461,27 @@ def render_invoice_pdf_fallback(invoice: Invoice) -> bytes:
     return buffer.getvalue()
 
 
+def render_invoice_pdf_last_resort(*, invoice_id=None, invoice_number=None) -> bytes:
+    buffer = io.BytesIO()
+    canvas = UncompressedCanvas(buffer, pagesize=A4)
+    width, height = A4
+    left = 18 * mm
+    y = height - 18 * mm
+
+    canvas.setFont("Helvetica-Bold", 16)
+    canvas.drawString(left, y, "Invoice PDF")
+    y -= 12 * mm
+    canvas.setFont("Helvetica", 10)
+    canvas.drawString(left, y, f"Invoice: {invoice_number or invoice_id or '-'}")
+    y -= 8 * mm
+    canvas.drawString(left, y, "A simplified PDF was generated because the full invoice layout could not be rendered.")
+    y -= 8 * mm
+    canvas.drawString(left, y, "Please contact the OMMS administrator if full tax-invoice details are required.")
+    canvas.showPage()
+    canvas.save()
+    return buffer.getvalue()
+
+
 def _build_service_location(invoice: Invoice) -> str:
     parts = []
     first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)

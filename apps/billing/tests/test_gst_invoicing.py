@@ -689,6 +689,35 @@ class BillingApiTests(APITestCase):
         self.assertEqual(invoice.status, Invoice.Status.ISSUED)
         self.assertIsNotNone(invoice.invoice_number)
 
+    @patch("apps.billing.services.logger.exception")
+    @patch("apps.billing.services.issue_invoice", side_effect=RuntimeError("production issue failure"))
+    def test_download_pdf_endpoint_returns_fallback_pdf_for_unexpected_issue_failure(
+        self,
+        _issue_invoice,
+        _logger_exception,
+    ):
+        invoice = self._create_draft_invoice()
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(reverse("billing-invoices-download-pdf", args=[invoice.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertTrue(response.content.startswith(b"%PDF"))
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.DRAFT)
+
+    def test_download_pdf_endpoint_preserves_business_validation_errors(self):
+        invoice = self._create_draft_invoice()
+        self.campaign.start_date = date.today() + timedelta(days=7)
+        self.campaign.save(update_fields=["start_date", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(reverse("billing-invoices-download-pdf", args=[invoice.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("campaign", response.data)
+
     def test_campaign_generate_invoice_prevents_duplicate_campaign_invoices(self):
         self.client.force_authenticate(user=self.finance)
         first = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
