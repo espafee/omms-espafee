@@ -637,10 +637,11 @@ export default function BillingPage() {
       const anchor = document.createElement("a");
       anchor.href = objectUrl;
       anchor.download = filename;
+      anchor.style.display = "none";
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
-      window.URL.revokeObjectURL(objectUrl);
+      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
 
       setInvoiceMessage(`Invoice PDF ready for ${invoice.invoice_number ?? `draft #${invoice.id}`}.`);
       await loadBilling();

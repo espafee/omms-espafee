@@ -224,6 +224,43 @@ class BillingServiceTests(TestCase):
         self.assertNotIn("ESPA FEE Pvt Ltd", extracted_text)
 
     @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
+    def test_generate_pdf_escapes_xml_sensitive_business_text(self):
+        invoice = self._build_invoice(place_of_supply_state_code="01")
+        invoice.supplier_profile.trade_name = "OMMS & Partners <North>"
+        invoice.supplier_profile.bank_details = "A/c Holder: OMMS & Partners\nBank & Branch: Demo <Main>"
+        invoice.supplier_profile.save(update_fields=["trade_name", "bank_details", "updated_at"])
+        invoice.client_legal_name = "Client & Co <North>"
+        invoice.client_billing_address_line_1 = "A & B Tower <Level 2>"
+        invoice.campaign.name = "Admission & Launch <May>"
+        invoice.campaign.save(update_fields=["name", "updated_at"])
+        invoice.save(update_fields=["client_legal_name", "client_billing_address_line_1", "updated_at"])
+        line = invoice.lines.get()
+        line.description = "Flex & Installation <Premium>"
+        line.item_description = "Flex & Installation <Premium>"
+        line.unit_of_measure = "sqft & display"
+        line.save(update_fields=["description", "item_description", "unit_of_measure", "updated_at"])
+
+        issued = issue_invoice(invoice, self.finance)
+        generated = generate_invoice_pdf(issued, actor=self.finance)
+
+        pdf_bytes = MemoryPrivateDocumentStorage.saved_files[generated.pdf_file.name]
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+
+    @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
+    @patch("apps.billing.services.logger.exception")
+    @patch("apps.billing.services.render_invoice_pdf", side_effect=RuntimeError("renderer failed"))
+    def test_generate_pdf_falls_back_when_primary_renderer_errors(self, _render_invoice_pdf, _logger_exception):
+        issued = issue_invoice(self._build_invoice(place_of_supply_state_code="01"), self.finance)
+
+        generated = generate_invoice_pdf(issued, actor=self.finance)
+
+        pdf_bytes = MemoryPrivateDocumentStorage.saved_files[generated.pdf_file.name]
+        extracted_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_bytes)).pages)
+        self.assertTrue(pdf_bytes.startswith(b"%PDF"))
+        self.assertIn("Tax Invoice", extracted_text)
+        self.assertIn(issued.invoice_number, extracted_text)
+
+    @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
     def test_draft_invoice_cannot_generate_official_pdf(self):
         invoice = self._build_invoice(place_of_supply_state_code="01")
 
@@ -629,6 +666,13 @@ class BillingApiTests(APITestCase):
 
     def test_download_pdf_endpoint_issues_campaign_generated_draft_invoice(self):
         self.client.force_authenticate(user=self.finance)
+        self.campaign.name = "SP Smart & School <Admission>"
+        self.site.name = "Main & Market <North>"
+        self.unit.unit_code = "SP&ADM<001>"
+        self.campaign.save(update_fields=["name", "updated_at"])
+        self.site.save(update_fields=["name", "updated_at"])
+        self.unit.save(update_fields=["unit_code", "updated_at"])
+
         created = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
 
         self.assertEqual(created.status_code, status.HTTP_201_CREATED)

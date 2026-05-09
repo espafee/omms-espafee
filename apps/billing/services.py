@@ -1,3 +1,4 @@
+import logging
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -15,7 +16,7 @@ from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
-from .pdf import build_invoice_pdf_storage_name, build_safe_invoice_pdf_name, render_invoice_pdf
+from .pdf import build_invoice_pdf_storage_name, build_safe_invoice_pdf_name, render_invoice_pdf, render_invoice_pdf_fallback
 from .repositories import (
     CampaignEstimateLineRepository,
     CampaignEstimateRepository,
@@ -28,6 +29,7 @@ from .repositories import (
 SUMMARY_DECIMAL_FIELD = DecimalField(max_digits=14, decimal_places=2)
 MONEY = Decimal("0.01")
 ZERO = Decimal("0.00")
+logger = logging.getLogger(__name__)
 
 
 def quantize_money(value: Decimal | int | str) -> Decimal:
@@ -351,7 +353,7 @@ def generate_invoice_pdf(invoice: Invoice, actor=None) -> Invoice:
     validate_invoice_for_pdf(invoice)
     calculate_invoice_totals(invoice)
 
-    pdf_bytes = render_invoice_pdf(invoice)
+    pdf_bytes = render_invoice_pdf_safely(invoice)
     storage = PrivateDocumentStorage()
     target_name = build_invoice_pdf_storage_name(invoice)
 
@@ -406,7 +408,15 @@ def render_invoice_pdf_download(invoice: Invoice, actor=None) -> tuple[bytes, st
     validate_invoice_for_pdf(invoice)
     calculate_invoice_totals(invoice)
     filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
-    return render_invoice_pdf(invoice), filename
+    return render_invoice_pdf_safely(invoice), filename
+
+
+def render_invoice_pdf_safely(invoice: Invoice) -> bytes:
+    try:
+        return render_invoice_pdf(invoice)
+    except Exception:
+        logger.exception("Invoice PDF renderer failed; using fallback PDF.", extra={"invoice_id": invoice.pk})
+        return render_invoice_pdf_fallback(invoice)
 
 
 class SupplierProfileService(BaseService):

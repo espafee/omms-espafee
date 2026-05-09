@@ -4,6 +4,7 @@ import io
 import re
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
+from html import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
@@ -36,6 +37,32 @@ def build_invoice_pdf_storage_name(invoice: Invoice) -> str:
     financial_year = invoice.financial_year or "draft"
     filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
     return f"invoices/{financial_year}/{filename}"
+
+
+def _pdf_text(value, default: str = "-") -> str:
+    if value in ("", None):
+        value = default
+    return escape(str(value), quote=False)
+
+
+def _pdf_bold(value, default: str = "-") -> str:
+    return f"<b>{_pdf_text(value, default=default)}</b>"
+
+
+def _pdf_lines(parts) -> str:
+    return "<br/>".join(str(part) for part in parts if part not in ("", None))
+
+
+def _pdf_text_lines(parts, default: str = "-") -> str:
+    lines = [_pdf_text(part, default="") for part in parts if part not in ("", None)]
+    return "<br/>".join(line for line in lines if line) or _pdf_text(default, default="")
+
+
+def _pdf_multiline(value, default: str = "-") -> str:
+    if value in ("", None):
+        return _pdf_text(default)
+    lines = [_pdf_text(line, default="") for line in str(value).splitlines()]
+    return "<br/>".join(line for line in lines if line) or _pdf_text(default)
 
 
 class UncompressedCanvas(Canvas):
@@ -118,16 +145,14 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
             ],
         )
     )
-    seller_contact = "<br/>".join(
-        filter(
-            None,
-            [
-                f"Phone No.: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
-                f"Email ID: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
-                f"GSTIN: {invoice.supplier_gstin}" if invoice.supplier_gstin else "",
-                f"State: {invoice.supplier_state}" if invoice.supplier_state else "",
-            ],
-        )
+    seller_contact = _pdf_text_lines(
+        [
+            f"Phone No.: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
+            f"Email ID: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
+            f"GSTIN: {invoice.supplier_gstin}" if invoice.supplier_gstin else "",
+            f"State: {invoice.supplier_state}" if invoice.supplier_state else "",
+        ],
+        default="",
     )
 
     client_address = ", ".join(
@@ -154,28 +179,22 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
             ],
             [
                 Paragraph(
-                    "<br/>".join(
-                        filter(
-                            None,
-                            [
-                                f"<b>{seller_name}</b>",
-                                seller_address,
-                                seller_contact,
-                            ],
-                        )
+                    _pdf_lines(
+                        [
+                            _pdf_bold(seller_name),
+                            _pdf_text(seller_address, default=""),
+                            seller_contact,
+                        ]
                     ),
                     styles["Cell"],
                 ),
                 Paragraph(
-                    "<br/>".join(
-                        filter(
-                            None,
-                            [
-                                f"Invoice No.: <b>{invoice.invoice_number or '-'}</b>",
-                                f"Date: {invoice.invoice_date:%d-%m-%Y}" if invoice.invoice_date else "Date: -",
-                                f"Client GSTIN No.: {invoice.client_gstin or '-'}",
-                            ],
-                        )
+                    _pdf_lines(
+                        [
+                            f"Invoice No.: <b>{_pdf_text(invoice.invoice_number)}</b>",
+                            f"Date: {invoice.invoice_date:%d-%m-%Y}" if invoice.invoice_date else "Date: -",
+                            f"Client GSTIN No.: {_pdf_text(invoice.client_gstin)}",
+                        ]
                     ),
                     styles["Cell"],
                 ),
@@ -186,26 +205,23 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
             ],
             [
                 Paragraph(
-                    "<br/>".join(
-                        filter(
-                            None,
-                            [
-                                f"<b>{invoice.client_legal_name or '-'}</b>",
-                                client_address or "-",
-                            ],
-                        )
+                    _pdf_lines(
+                        [
+                            _pdf_bold(invoice.client_legal_name),
+                            _pdf_text(client_address),
+                        ]
                     ),
                     styles["Cell"],
                 ),
-                Paragraph(service_location or "-", styles["Cell"]),
+                Paragraph(_pdf_multiline(service_location), styles["Cell"]),
             ],
             [
                 Paragraph("<b>Campaign / Service Description</b>", styles["SectionLabel"]),
                 Paragraph("<b>Period</b>", styles["SectionLabel"]),
             ],
             [
-                Paragraph(campaign_description or "-", styles["Cell"]),
-                Paragraph(campaign_period or "-", styles["Cell"]),
+                Paragraph(_pdf_text(campaign_description), styles["Cell"]),
+                Paragraph(_pdf_text(campaign_period), styles["Cell"]),
             ],
         ],
         colWidths=[95 * mm, 85 * mm],
@@ -250,11 +266,11 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
         line_rows.append(
             [
                 Paragraph(str(index), styles["Cell"]),
-                Paragraph(line.item_description or line.description or "-", styles["Cell"]),
-                Paragraph(qty_label, styles["Cell"]),
-                Paragraph(line.unit_of_measure or "-", styles["Cell"]),
+                Paragraph(_pdf_text(line.item_description or line.description), styles["Cell"]),
+                Paragraph(_pdf_text(qty_label), styles["Cell"]),
+                Paragraph(_pdf_text(line.unit_of_measure), styles["Cell"]),
                 Paragraph(format_money(line.unit_price), styles["SmallRight"]),
-                Paragraph(line.hsn_code or line.sac_code or "-", styles["Cell"]),
+                Paragraph(_pdf_text(line.hsn_code or line.sac_code), styles["Cell"]),
                 Paragraph(f"{line.cgst_rate}%", styles["SmallRight"]),
                 Paragraph(format_money(line.cgst_amount), styles["SmallRight"]),
                 Paragraph(f"{line.sgst_rate}%", styles["SmallRight"]),
@@ -350,7 +366,7 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
                 Paragraph("<b>Terms &amp; Conditions</b>", styles["SectionLabel"]),
             ],
             [
-                Paragraph(account_details, styles["Cell"]),
+                Paragraph(_pdf_multiline(account_details), styles["Cell"]),
                 Paragraph(
                     "<br/>".join(
                         [
@@ -389,6 +405,62 @@ def render_invoice_pdf(invoice: Invoice) -> bytes:
     return buffer.getvalue()
 
 
+def render_invoice_pdf_fallback(invoice: Invoice) -> bytes:
+    buffer = io.BytesIO()
+    canvas = UncompressedCanvas(buffer, pagesize=A4)
+    width, height = A4
+    left = 18 * mm
+    right = width - 18 * mm
+    y = height - 18 * mm
+
+    def clean(value, default: str = "-") -> str:
+        if value in ("", None):
+            value = default
+        return str(value).replace("\r", " ").replace("\n", " ")
+
+    def draw(label: str, value, *, bold: bool = False) -> None:
+        nonlocal y
+        canvas.setFont("Helvetica-Bold" if bold else "Helvetica", 10)
+        canvas.drawString(left, y, f"{label}: {clean(value)}"[:115])
+        y -= 7 * mm
+
+    canvas.setFont("Helvetica-Bold", 16)
+    canvas.drawString(left, y, "Tax Invoice")
+    canvas.setFont("Helvetica", 9)
+    canvas.drawRightString(right, y, "Generated by OMMS")
+    y -= 12 * mm
+
+    draw("Invoice No.", invoice.invoice_number, bold=True)
+    draw("Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y") if invoice.invoice_date else "-")
+    draw("Due Date", invoice.due_date.strftime("%d-%m-%Y") if invoice.due_date else "-")
+    draw("Client", invoice.client_legal_name, bold=True)
+    draw("Campaign", invoice.campaign.name if invoice.campaign_id else "-")
+    y -= 3 * mm
+
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(left, y, "Line items")
+    y -= 7 * mm
+    canvas.setFont("Helvetica", 9)
+    for index, line in enumerate(invoice.lines.all().order_by("line_number", "id"), start=1):
+        description = clean(line.item_description or line.description)
+        amount = format_money(line.line_total)
+        canvas.drawString(left, y, f"{index}. {description}"[:90])
+        canvas.drawRightString(right, y, amount)
+        y -= 6 * mm
+        if y < 30 * mm:
+            canvas.showPage()
+            y = height - 18 * mm
+            canvas.setFont("Helvetica", 9)
+
+    y -= 4 * mm
+    canvas.setFont("Helvetica-Bold", 11)
+    canvas.drawString(left, y, "Total")
+    canvas.drawRightString(right, y, format_money(invoice.grand_total))
+    canvas.showPage()
+    canvas.save()
+    return buffer.getvalue()
+
+
 def _build_service_location(invoice: Invoice) -> str:
     parts = []
     first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
@@ -400,7 +472,7 @@ def _build_service_location(invoice: Invoice) -> str:
         parts.append(location)
     elif invoice.campaign:
         parts.append(invoice.campaign.name)
-    return "<br/>".join(filter(None, parts))
+    return "\n".join(filter(None, parts))
 
 
 def _build_campaign_description(invoice: Invoice) -> str:
@@ -482,5 +554,5 @@ def _build_account_details(invoice: Invoice) -> str:
     if invoice.supplier_profile and invoice.supplier_profile.bank_details:
         bank_details = invoice.supplier_profile.bank_details.strip()
     if bank_details:
-        return bank_details.replace("\n", "<br/>")
-    return "A/c Holder: -<br/>Bank Name &amp; Branch: -<br/>A/c No.: -<br/>IFSC: -"
+        return bank_details
+    return "A/c Holder: -\nBank Name & Branch: -\nA/c No.: -\nIFSC: -"
