@@ -4,14 +4,11 @@ import io
 import re
 from collections import defaultdict
 from decimal import Decimal, ROUND_HALF_UP
-from html import escape
 
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen.canvas import Canvas
 
 from .models import Invoice
@@ -19,12 +16,29 @@ from .models import Invoice
 MONEY = Decimal("0.01")
 ZERO = Decimal("0.00")
 
+PAGE_WIDTH, PAGE_HEIGHT = A4
+MARGIN_X = 11 * mm
+MARGIN_TOP = 10 * mm
+MARGIN_BOTTOM = 10 * mm
+TABLE_WIDTH = PAGE_WIDTH - (MARGIN_X * 2)
 
-def quantize_money(value: Decimal | int | str) -> Decimal:
+FOREST = colors.HexColor("#0f513d")
+FOREST_DARK = colors.HexColor("#063f2e")
+MINT = colors.HexColor("#eef8f3")
+MINT_DARK = colors.HexColor("#d8eee5")
+GRID = colors.HexColor("#8aa99b")
+TEXT = colors.HexColor("#1f2933")
+MUTED = colors.HexColor("#52635c")
+WHITE = colors.white
+
+
+def quantize_money(value: Decimal | int | str | None) -> Decimal:
+    if value in ("", None):
+        value = ZERO
     return Decimal(value).quantize(MONEY, rounding=ROUND_HALF_UP)
 
 
-def format_money(value: Decimal | int | str) -> str:
+def format_money(value: Decimal | int | str | None) -> str:
     return f"{quantize_money(value):,.2f}"
 
 
@@ -39,32 +53,6 @@ def build_invoice_pdf_storage_name(invoice: Invoice) -> str:
     return f"invoices/{financial_year}/{filename}"
 
 
-def _pdf_text(value, default: str = "-") -> str:
-    if value in ("", None):
-        value = default
-    return escape(str(value), quote=False)
-
-
-def _pdf_bold(value, default: str = "-") -> str:
-    return f"<b>{_pdf_text(value, default=default)}</b>"
-
-
-def _pdf_lines(parts) -> str:
-    return "<br/>".join(str(part) for part in parts if part not in ("", None))
-
-
-def _pdf_text_lines(parts, default: str = "-") -> str:
-    lines = [_pdf_text(part, default="") for part in parts if part not in ("", None)]
-    return "<br/>".join(line for line in lines if line) or _pdf_text(default, default="")
-
-
-def _pdf_multiline(value, default: str = "-") -> str:
-    if value in ("", None):
-        return _pdf_text(default)
-    lines = [_pdf_text(line, default="") for line in str(value).splitlines()]
-    return "<br/>".join(line for line in lines if line) or _pdf_text(default)
-
-
 class UncompressedCanvas(Canvas):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("pageCompression", 0)
@@ -72,508 +60,636 @@ class UncompressedCanvas(Canvas):
 
 
 def render_invoice_pdf(invoice: Invoice) -> bytes:
-    buffer = io.BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        topMargin=10 * mm,
-        bottomMargin=10 * mm,
-        leftMargin=10 * mm,
-        rightMargin=10 * mm,
-    )
-
-    styles = getSampleStyleSheet()
-    styles.add(
-        ParagraphStyle(
-            name="InvoiceTitle",
-            parent=styles["Heading1"],
-            fontName="Helvetica-Bold",
-            fontSize=16,
-            leading=19,
-            alignment=TA_CENTER,
-            spaceAfter=8,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="SectionLabel",
-            parent=styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=9,
-            leading=11,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="Cell",
-            parent=styles["Normal"],
-            fontSize=8.5,
-            leading=10.5,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="CellBold",
-            parent=styles["Normal"],
-            fontName="Helvetica-Bold",
-            fontSize=8.5,
-            leading=10.5,
-        )
-    )
-    styles.add(
-        ParagraphStyle(
-            name="SmallRight",
-            parent=styles["Normal"],
-            fontSize=8.5,
-            leading=10.5,
-            alignment=TA_RIGHT,
-        )
-    )
-
-    story: list = [Paragraph("Tax Invoice", styles["InvoiceTitle"])]
-
-    seller_name = invoice.supplier_trade_name or invoice.supplier_legal_name or "-"
-    seller_address = ", ".join(
-        filter(
-            None,
-            [
-                invoice.supplier_address_line_1,
-                invoice.supplier_address_line_2,
-                invoice.supplier_city,
-                invoice.supplier_state,
-                invoice.supplier_postal_code,
-            ],
-        )
-    )
-    seller_contact = _pdf_text_lines(
-        [
-            f"Phone No.: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
-            f"Email ID: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
-            f"GSTIN: {invoice.supplier_gstin}" if invoice.supplier_gstin else "",
-            f"State: {invoice.supplier_state}" if invoice.supplier_state else "",
-        ],
-        default="",
-    )
-
-    client_address = ", ".join(
-        filter(
-            None,
-            [
-                invoice.client_billing_address_line_1,
-                invoice.client_billing_address_line_2,
-                invoice.client_billing_city,
-                invoice.client_billing_state,
-                invoice.client_billing_postal_code,
-            ],
-        )
-    )
-    service_location = _build_service_location(invoice)
-    campaign_description = _build_campaign_description(invoice)
-    campaign_period = _build_campaign_period(invoice)
-
-    header_table = Table(
-        [
-            [
-                Paragraph("<b>Seller / Supplier</b>", styles["SectionLabel"]),
-                Paragraph("<b>Invoice Details</b>", styles["SectionLabel"]),
-            ],
-            [
-                Paragraph(
-                    _pdf_lines(
-                        [
-                            _pdf_bold(seller_name),
-                            _pdf_text(seller_address, default=""),
-                            seller_contact,
-                        ]
-                    ),
-                    styles["Cell"],
-                ),
-                Paragraph(
-                    _pdf_lines(
-                        [
-                            f"Invoice No.: <b>{_pdf_text(invoice.invoice_number)}</b>",
-                            f"Date: {invoice.invoice_date:%d-%m-%Y}" if invoice.invoice_date else "Date: -",
-                            f"Client GSTIN No.: {_pdf_text(invoice.client_gstin)}",
-                        ]
-                    ),
-                    styles["Cell"],
-                ),
-            ],
-            [
-                Paragraph("<b>Bill To</b>", styles["SectionLabel"]),
-                Paragraph("<b>Shipping To / Service Location</b>", styles["SectionLabel"]),
-            ],
-            [
-                Paragraph(
-                    _pdf_lines(
-                        [
-                            _pdf_bold(invoice.client_legal_name),
-                            _pdf_text(client_address),
-                        ]
-                    ),
-                    styles["Cell"],
-                ),
-                Paragraph(_pdf_multiline(service_location), styles["Cell"]),
-            ],
-            [
-                Paragraph("<b>Campaign / Service Description</b>", styles["SectionLabel"]),
-                Paragraph("<b>Period</b>", styles["SectionLabel"]),
-            ],
-            [
-                Paragraph(_pdf_text(campaign_description), styles["Cell"]),
-                Paragraph(_pdf_text(campaign_period), styles["Cell"]),
-            ],
-        ],
-        colWidths=[95 * mm, 85 * mm],
-    )
-    header_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("BACKGROUND", (0, 2), (-1, 2), colors.HexColor("#f9fafb")),
-                ("BACKGROUND", (0, 4), (-1, 4), colors.HexColor("#f9fafb")),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-            ]
-        )
-    )
-    story.extend([header_table, Spacer(1, 6)])
-
-    line_rows = [
-        [
-            Paragraph("<b>S.No.</b>", styles["CellBold"]),
-            Paragraph("<b>Item name</b>", styles["CellBold"]),
-            Paragraph("<b>Qty/Size</b>", styles["CellBold"]),
-            Paragraph("<b>Unit</b>", styles["CellBold"]),
-            Paragraph("<b>Price/Unit</b>", styles["CellBold"]),
-            Paragraph("<b>HSN/SAC</b>", styles["CellBold"]),
-            Paragraph("<b>CGST Rate</b>", styles["CellBold"]),
-            Paragraph("<b>CGST Amt.</b>", styles["CellBold"]),
-            Paragraph("<b>SGST Rate</b>", styles["CellBold"]),
-            Paragraph("<b>SGST Amt.</b>", styles["CellBold"]),
-            Paragraph("<b>IGST Rate/Amt</b>", styles["CellBold"]),
-            Paragraph("<b>Amount</b>", styles["CellBold"]),
-        ]
-    ]
-
-    for index, line in enumerate(invoice.lines.all().order_by("line_number", "id"), start=1):
-        qty_label = _build_qty_size_label(line.quantity, getattr(line.booking, "media_unit", None))
-        igst_display = "-" if not line.igst_rate and not line.igst_amount else f"{line.igst_rate}% / {format_money(line.igst_amount)}"
-        line_rows.append(
-            [
-                Paragraph(str(index), styles["Cell"]),
-                Paragraph(_pdf_text(line.item_description or line.description), styles["Cell"]),
-                Paragraph(_pdf_text(qty_label), styles["Cell"]),
-                Paragraph(_pdf_text(line.unit_of_measure), styles["Cell"]),
-                Paragraph(format_money(line.unit_price), styles["SmallRight"]),
-                Paragraph(_pdf_text(line.hsn_code or line.sac_code), styles["Cell"]),
-                Paragraph(f"{line.cgst_rate}%", styles["SmallRight"]),
-                Paragraph(format_money(line.cgst_amount), styles["SmallRight"]),
-                Paragraph(f"{line.sgst_rate}%", styles["SmallRight"]),
-                Paragraph(format_money(line.sgst_amount), styles["SmallRight"]),
-                Paragraph(igst_display, styles["SmallRight"]),
-                Paragraph(format_money(line.line_total), styles["SmallRight"]),
-            ]
-        )
-
-    line_table = Table(
-        line_rows,
-        repeatRows=1,
-        colWidths=[8 * mm, 32 * mm, 14 * mm, 10 * mm, 14 * mm, 14 * mm, 12 * mm, 14 * mm, 12 * mm, 14 * mm, 16 * mm, 18 * mm],
-    )
-    line_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e5e7eb")),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]
-        )
-    )
-    story.extend([line_table, Spacer(1, 6)])
-
-    tax_summary = _build_tax_summary_rows(invoice)
-    tax_summary_table = Table(
-        [
-            [
-                Paragraph("<b>Tax Rate</b>", styles["CellBold"]),
-                Paragraph("<b>Taxable Amount</b>", styles["CellBold"]),
-                Paragraph("<b>CGST Amt.</b>", styles["CellBold"]),
-                Paragraph("<b>SGST Amt.</b>", styles["CellBold"]),
-                Paragraph("<b>IGST Amt.</b>", styles["CellBold"]),
-                Paragraph("<b>Total Tax</b>", styles["CellBold"]),
-            ]
-        ]
-        + tax_summary,
-        colWidths=[30 * mm, 35 * mm, 30 * mm, 30 * mm, 30 * mm, 30 * mm],
-    )
-    tax_summary_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f3f4f6")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 4),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]
-        )
-    )
-    story.extend([tax_summary_table, Spacer(1, 6)])
-
-    rounded_total = quantize_money(invoice.grand_total.quantize(MONEY, rounding=ROUND_HALF_UP))
-    totals_table = Table(
-        [
-            [Paragraph("<b>Sub Total</b>", styles["CellBold"]), Paragraph(format_money(invoice.subtotal), styles["SmallRight"])],
-            [Paragraph("<b>CGST</b>", styles["CellBold"]), Paragraph(format_money(invoice.cgst_total), styles["SmallRight"])],
-            [Paragraph("<b>SGST</b>", styles["CellBold"]), Paragraph(format_money(invoice.sgst_total), styles["SmallRight"])],
-            [Paragraph("<b>IGST</b>", styles["CellBold"]), Paragraph(format_money(invoice.igst_total), styles["SmallRight"])],
-            [Paragraph("<b>Discount</b>", styles["CellBold"]), Paragraph(format_money(invoice.discount_total), styles["SmallRight"])],
-            [Paragraph("<b>Total</b>", styles["CellBold"]), Paragraph(format_money(invoice.grand_total), styles["SmallRight"])],
-            [Paragraph("<b>Total after Round Off</b>", styles["CellBold"]), Paragraph(format_money(rounded_total), styles["SmallRight"])],
-        ],
-        colWidths=[55 * mm, 35 * mm],
-        hAlign="RIGHT",
-    )
-    totals_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("BACKGROUND", (0, 0), (-1, -1), colors.white),
-                ("BACKGROUND", (0, 5), (-1, 6), colors.HexColor("#f3f4f6")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 4),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-            ]
-        )
-    )
-    story.extend([totals_table, Spacer(1, 8)])
-
-    account_details = _build_account_details(invoice)
-    footer_table = Table(
-        [
-            [
-                Paragraph("<b>Account Details</b>", styles["SectionLabel"]),
-                Paragraph("<b>Terms &amp; Conditions</b>", styles["SectionLabel"]),
-            ],
-            [
-                Paragraph(_pdf_multiline(account_details), styles["Cell"]),
-                Paragraph(
-                    "<br/>".join(
-                        [
-                            "1. E. &amp; O.E.",
-                            "2. Goods/services once sold will not be taken back.",
-                            "3. Interest @ 18% p.a. may apply on overdue balances.",
-                            "4. Subject to local jurisdiction.",
-                        ]
-                    ),
-                    styles["Cell"],
-                ),
-            ],
-            [
-                Paragraph("", styles["Cell"]),
-                Paragraph("<b>For Authorised Signatory</b><br/><br/>________________________", styles["Cell"]),
-            ],
-        ],
-        colWidths=[95 * mm, 85 * mm],
-    )
-    footer_table.setStyle(
-        TableStyle(
-            [
-                ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
-                ("VALIGN", (0, 0), (-1, -1), "TOP"),
-                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 6),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-                ("TOPPADDING", (0, 0), (-1, -1), 5),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ]
-        )
-    )
-    story.append(footer_table)
-
-    document.build(story, canvasmaker=UncompressedCanvas)
-    return buffer.getvalue()
+    return _render_standard_invoice(invoice)
 
 
 def render_invoice_pdf_fallback(invoice: Invoice) -> bytes:
-    buffer = io.BytesIO()
-    canvas = UncompressedCanvas(buffer, pagesize=A4)
-    width, height = A4
-    left = 18 * mm
-    right = width - 18 * mm
-    y = height - 18 * mm
-
-    def clean(value, default: str = "-") -> str:
-        if value in ("", None):
-            value = default
-        return str(value).replace("\r", " ").replace("\n", " ")
-
-    def draw(label: str, value, *, bold: bool = False) -> None:
-        nonlocal y
-        canvas.setFont("Helvetica-Bold" if bold else "Helvetica", 10)
-        canvas.drawString(left, y, f"{label}: {clean(value)}"[:115])
-        y -= 7 * mm
-
-    canvas.setFont("Helvetica-Bold", 16)
-    canvas.drawString(left, y, "Tax Invoice")
-    canvas.setFont("Helvetica", 9)
-    canvas.drawRightString(right, y, "Generated by OMMS")
-    y -= 12 * mm
-
-    draw("Invoice No.", invoice.invoice_number, bold=True)
-    draw("Invoice Date", invoice.invoice_date.strftime("%d-%m-%Y") if invoice.invoice_date else "-")
-    draw("Due Date", invoice.due_date.strftime("%d-%m-%Y") if invoice.due_date else "-")
-    draw("Client", invoice.client_legal_name, bold=True)
-    draw("Campaign", invoice.campaign.name if invoice.campaign_id else "-")
-    y -= 3 * mm
-
-    canvas.setFont("Helvetica-Bold", 10)
-    canvas.drawString(left, y, "Line items")
-    y -= 7 * mm
-    canvas.setFont("Helvetica", 9)
-    for index, line in enumerate(invoice.lines.all().order_by("line_number", "id"), start=1):
-        description = clean(line.item_description or line.description)
-        amount = format_money(line.line_total)
-        canvas.drawString(left, y, f"{index}. {description}"[:90])
-        canvas.drawRightString(right, y, amount)
-        y -= 6 * mm
-        if y < 30 * mm:
-            canvas.showPage()
-            y = height - 18 * mm
-            canvas.setFont("Helvetica", 9)
-
-    y -= 4 * mm
-    canvas.setFont("Helvetica-Bold", 11)
-    canvas.drawString(left, y, "Total")
-    canvas.drawRightString(right, y, format_money(invoice.grand_total))
-    canvas.showPage()
-    canvas.save()
-    return buffer.getvalue()
+    return _render_standard_invoice(invoice)
 
 
 def render_invoice_pdf_last_resort(*, invoice_id=None, invoice_number=None) -> bytes:
     buffer = io.BytesIO()
     canvas = UncompressedCanvas(buffer, pagesize=A4)
-    width, height = A4
-    left = 18 * mm
-    y = height - 18 * mm
-
-    canvas.setFont("Helvetica-Bold", 16)
-    canvas.drawString(left, y, "Invoice PDF")
-    y -= 12 * mm
-    canvas.setFont("Helvetica", 10)
-    canvas.drawString(left, y, f"Invoice: {invoice_number or invoice_id or '-'}")
+    _draw_page_chrome(canvas, title="Invoice PDF")
+    y = PAGE_HEIGHT - 34 * mm
+    _draw_text(canvas, "Invoice PDF", MARGIN_X, y, font="Helvetica-Bold", size=18, color=FOREST_DARK)
+    y -= 10 * mm
+    _draw_text(canvas, f"Invoice: {_clean(invoice_number or invoice_id)}", MARGIN_X, y, font="Helvetica-Bold", size=10)
     y -= 8 * mm
-    canvas.drawString(left, y, "A simplified PDF was generated because the full invoice layout could not be rendered.")
-    y -= 8 * mm
-    canvas.drawString(left, y, "Please contact the OMMS administrator if full tax-invoice details are required.")
+    _draw_text(
+        canvas,
+        "A simplified PDF was generated because the invoice details could not be loaded.",
+        MARGIN_X,
+        y,
+        size=9,
+    )
+    y -= 7 * mm
+    _draw_text(canvas, "Please contact the OMMS administrator for the full tax invoice.", MARGIN_X, y, size=9)
+    _draw_footer(canvas, 1)
     canvas.showPage()
     canvas.save()
     return buffer.getvalue()
 
 
-def _build_service_location(invoice: Invoice) -> str:
-    parts = []
-    first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
-    booking = getattr(first_line, "booking", None)
-    media_unit = getattr(booking, "media_unit", None)
-    site = getattr(media_unit, "site", None)
-    if site:
-        location = ", ".join(filter(None, [site.name, site.address, site.city, site.state]))
-        parts.append(location)
-    elif invoice.campaign:
-        parts.append(invoice.campaign.name)
-    return "\n".join(filter(None, parts))
+def _render_standard_invoice(invoice: Invoice) -> bytes:
+    buffer = io.BytesIO()
+    canvas = UncompressedCanvas(buffer, pagesize=A4)
+    page_number = 1
+
+    _draw_page_chrome(canvas)
+    y = PAGE_HEIGHT - MARGIN_TOP
+    y = _draw_header(canvas, invoice, y)
+    y = _draw_party_blocks(canvas, invoice, y)
+    y = _draw_campaign_block(canvas, invoice, y)
+    y, page_number = _draw_line_table(canvas, invoice, y, page_number)
+
+    if y < 142 * mm:
+        _draw_footer(canvas, page_number)
+        canvas.showPage()
+        page_number += 1
+        _draw_page_chrome(canvas)
+        y = PAGE_HEIGHT - 22 * mm
+
+    y = _draw_summary_section(canvas, invoice, y)
+    _draw_footer_blocks(canvas, invoice, y)
+    _draw_footer(canvas, page_number)
+    canvas.showPage()
+    canvas.save()
+    return buffer.getvalue()
 
 
-def _build_campaign_description(invoice: Invoice) -> str:
-    first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
-    booking = getattr(first_line, "booking", None)
-    media_unit = getattr(booking, "media_unit", None)
-    site = getattr(media_unit, "site", None)
-    site_label = site.name if site else invoice.campaign.name if invoice.campaign_id else ""
-    prefix = "Hoarding Display"
-    line_description = (first_line.item_description or first_line.description) if first_line else ""
-    if site_label:
-        return f"{prefix} - {site_label}"
-    return line_description or prefix
+def _draw_page_chrome(canvas: Canvas, *, title: str = "Tax Invoice") -> None:
+    canvas.setFillColor(FOREST)
+    canvas.rect(0, PAGE_HEIGHT - 8 * mm, PAGE_WIDTH, 8 * mm, stroke=0, fill=1)
+    canvas.setStrokeColor(MINT_DARK)
+    canvas.setLineWidth(0.8)
+    canvas.rect(MARGIN_X - 3 * mm, MARGIN_BOTTOM - 3 * mm, TABLE_WIDTH + 6 * mm, PAGE_HEIGHT - MARGIN_TOP - MARGIN_BOTTOM, stroke=1, fill=0)
+    canvas.setFillColor(FOREST_DARK)
+    canvas.setFont("Helvetica-Bold", 15)
+    canvas.drawCentredString(PAGE_WIDTH / 2, PAGE_HEIGHT - 15 * mm, title)
 
 
-def _build_campaign_period(invoice: Invoice) -> str:
-    if invoice.campaign and invoice.campaign.start_date and invoice.campaign.end_date:
-        return f"{invoice.campaign.start_date:%d-%m-%Y} to {invoice.campaign.end_date:%d-%m-%Y}"
-    if invoice.invoice_date and invoice.due_date:
-        return f"{invoice.invoice_date:%d-%m-%Y} to {invoice.due_date:%d-%m-%Y}"
-    return ""
+def _draw_header(canvas: Canvas, invoice: Invoice, y: float) -> float:
+    y -= 22 * mm
+    _draw_text(canvas, "Outdoor Media Operations & Execution Management System", MARGIN_X, y, size=7.5, color=MUTED)
+    _draw_text(canvas, "Original for Recipient", PAGE_WIDTH - MARGIN_X - 83, y, size=7.5, color=MUTED)
+    y -= 5 * mm
+    canvas.setStrokeColor(FOREST)
+    canvas.setLineWidth(1)
+    canvas.line(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y)
+    return y - 4 * mm
 
 
-def _build_qty_size_label(quantity, media_unit) -> str:
-    if media_unit and media_unit.width and media_unit.height:
-        return f"{quantity} / {media_unit.width}x{media_unit.height}"
-    return str(quantity)
+def _draw_party_blocks(canvas: Canvas, invoice: Invoice, y: float) -> float:
+    box_gap = 4 * mm
+    box_width = (TABLE_WIDTH - box_gap) / 2
+    top = y
+    supplier_height = 36 * mm
+    bill_height = 34 * mm
+
+    supplier_lines = _supplier_lines(invoice)
+    invoice_lines = [
+        ("Invoice No.", invoice.invoice_number or f"Draft #{invoice.pk}"),
+        ("Invoice Date", _date(invoice.invoice_date)),
+        ("Due Date", _date(invoice.due_date)),
+        ("Financial Year", invoice.financial_year or "-"),
+        ("Reverse Charge", "Yes" if invoice.reverse_charge else "No"),
+        ("Place of Supply", _join_state(invoice.place_of_supply_state, invoice.place_of_supply_state_code)),
+    ]
+    _draw_info_box(canvas, MARGIN_X, top, box_width, supplier_height, "Supplier Details", supplier_lines)
+    _draw_key_value_box(canvas, MARGIN_X + box_width + box_gap, top, box_width, supplier_height, "Invoice Details", invoice_lines)
+
+    top -= supplier_height + box_gap
+    bill_to_lines = _bill_to_lines(invoice)
+    service_lines = [
+        ("Service Location", _build_service_location(invoice) or "-"),
+        ("Campaign", _campaign_label(invoice)),
+        ("Campaign Period", _build_campaign_period(invoice) or "-"),
+    ]
+    _draw_info_box(canvas, MARGIN_X, top, box_width, bill_height, "Bill To", bill_to_lines)
+    _draw_key_value_box(canvas, MARGIN_X + box_width + box_gap, top, box_width, bill_height, "Service / Shipping Details", service_lines)
+    return top - bill_height - 4 * mm
 
 
-def _build_tax_summary_rows(invoice: Invoice) -> list[list[Paragraph]]:
-    styles = getSampleStyleSheet()
-    cell = ParagraphStyle(name="TaxCell", parent=styles["Normal"], fontSize=8.5, leading=10.5)
-    right = ParagraphStyle(name="TaxRight", parent=styles["Normal"], fontSize=8.5, leading=10.5, alignment=TA_RIGHT)
+def _draw_campaign_block(canvas: Canvas, invoice: Invoice, y: float) -> float:
+    height = 17 * mm
+    _draw_box(canvas, MARGIN_X, y, TABLE_WIDTH, height, fill=MINT)
+    _draw_text(canvas, "Campaign / Booking Summary", MARGIN_X + 3 * mm, y - 5 * mm, font="Helvetica-Bold", size=8, color=FOREST_DARK)
+    details = [
+        f"Campaign: {_campaign_label(invoice)}",
+        f"Service: {_build_campaign_description(invoice)}",
+        f"Payment Terms: {invoice.payment_terms or '-'}",
+    ]
+    _draw_wrapped_text(canvas, " | ".join(details), MARGIN_X + 3 * mm, y - 10 * mm, TABLE_WIDTH - 6 * mm, size=7.3, leading=8)
+    return y - height - 4 * mm
 
+
+def _draw_line_table(canvas: Canvas, invoice: Invoice, y: float, page_number: int) -> tuple[float, int]:
+    columns = [
+        ("#", 18),
+        ("Description", 111),
+        ("Period", 45),
+        ("HSN/SAC", 33),
+        ("Qty", 29),
+        ("Rate", 42),
+        ("Taxable", 47),
+        ("GST%", 29),
+        ("CGST", 38),
+        ("SGST", 38),
+        ("IGST", 38),
+        ("Total", 44),
+    ]
+    rows = list(invoice.lines.all().order_by("line_number", "id"))
+    if not rows:
+        rows = [None]
+
+    y = _draw_table_header(canvas, y, columns)
+    for index, line in enumerate(rows, start=1):
+        description = "No line items available."
+        values = ["", "", "", "", "", "", "", "", "", "", ""]
+        if line is not None:
+            description = _line_description(line)
+            values = [
+                _line_period(line, invoice),
+                line.hsn_code or line.sac_code or "-",
+                _decimal_label(line.quantity),
+                format_money(line.unit_price),
+                format_money(line.taxable_value),
+                _percent(line.gst_rate),
+                format_money(line.cgst_amount),
+                format_money(line.sgst_amount),
+                format_money(line.igst_amount),
+                format_money(line.line_total),
+            ]
+        row_values = [str(index), description, *values]
+        row_height = _calculate_row_height(canvas, row_values, columns, size=6.5, leading=7.2)
+        if y - row_height < 28 * mm:
+            _draw_footer(canvas, page_number)
+            canvas.showPage()
+            page_number += 1
+            _draw_page_chrome(canvas)
+            y = PAGE_HEIGHT - 24 * mm
+            _draw_text(canvas, f"Invoice No.: {invoice.invoice_number or f'Draft #{invoice.pk}'}", MARGIN_X, y, font="Helvetica-Bold", size=8)
+            y -= 7 * mm
+            y = _draw_table_header(canvas, y, columns)
+        _draw_table_row(canvas, y, columns, row_values, row_height)
+        y -= row_height
+    return y - 4 * mm, page_number
+
+
+def _draw_summary_section(canvas: Canvas, invoice: Invoice, y: float) -> float:
+    tax_rows = _build_tax_summary(invoice)
+    tax_width = 285
+    totals_width = TABLE_WIDTH - tax_width - 8 * mm
+    tax_x = MARGIN_X
+    totals_x = MARGIN_X + tax_width + 8 * mm
+    top = y
+
+    _draw_box(canvas, tax_x, top, tax_width, 37 * mm, fill=WHITE)
+    _draw_text(canvas, "Tax Summary", tax_x + 3 * mm, top - 5 * mm, font="Helvetica-Bold", size=8, color=FOREST_DARK)
+    summary_columns = [("Rate", 40), ("Taxable", 58), ("CGST", 48), ("SGST", 48), ("IGST", 48), ("Tax", 43)]
+    row_y = top - 9 * mm
+    row_y = _draw_table_header(canvas, row_y, summary_columns, height=6 * mm, size=6.4)
+    for tax_row in tax_rows[:3]:
+        row_values = [
+            f"{tax_row['rate']}%",
+            format_money(tax_row["taxable"]),
+            format_money(tax_row["cgst"]),
+            format_money(tax_row["sgst"]),
+            format_money(tax_row["igst"]),
+            format_money(tax_row["total_tax"]),
+        ]
+        _draw_table_row(canvas, row_y, summary_columns, row_values, 6 * mm, size=6.4)
+        row_y -= 6 * mm
+
+    _draw_box(canvas, totals_x, top, totals_width, 37 * mm, fill=MINT)
+    totals = [
+        ("Subtotal", invoice.subtotal),
+        ("Discount", invoice.discount_total),
+        ("CGST", invoice.cgst_total),
+        ("SGST", invoice.sgst_total),
+        ("IGST", invoice.igst_total),
+        ("Grand Total", invoice.grand_total),
+    ]
+    row_y = top - 5 * mm
+    for label, value in totals:
+        font = "Helvetica-Bold" if label == "Grand Total" else "Helvetica"
+        size = 8.5 if label == "Grand Total" else 7.4
+        _draw_text(canvas, label, totals_x + 4 * mm, row_y, font=font, size=size, color=FOREST_DARK if label == "Grand Total" else TEXT)
+        _draw_text(canvas, format_money(value), totals_x + totals_width - 4 * mm, row_y, font=font, size=size, align="right")
+        row_y -= 5 * mm
+
+    y = top - 42 * mm
+    amount_words = amount_to_words(invoice.grand_total)
+    _draw_box(canvas, MARGIN_X, y, TABLE_WIDTH, 11 * mm, fill=MINT)
+    _draw_text(canvas, "Amount in Words", MARGIN_X + 3 * mm, y - 4 * mm, font="Helvetica-Bold", size=7, color=FOREST_DARK)
+    _draw_wrapped_text(canvas, amount_words, MARGIN_X + 35 * mm, y - 4 * mm, TABLE_WIDTH - 38 * mm, font="Helvetica-Bold", size=7.4, leading=8)
+    return y - 15 * mm
+
+
+def _draw_footer_blocks(canvas: Canvas, invoice: Invoice, y: float) -> None:
+    box_gap = 4 * mm
+    box_width = (TABLE_WIDTH - box_gap) / 2
+    height = 34 * mm
+    terms = [
+        "1. E. & O.E.",
+        "2. Subject to local jurisdiction.",
+        "3. Interest may apply on overdue balances.",
+        "4. This invoice is generated from confirmed OMMS bookings.",
+    ]
+    _draw_info_box(canvas, MARGIN_X, y, box_width, height, "Bank / Payment Details", _split_lines(_build_account_details(invoice)))
+    _draw_info_box(canvas, MARGIN_X + box_width + box_gap, y, box_width, height, "Terms & Conditions", terms)
+
+    sign_y = y - height - 6 * mm
+    _draw_text(canvas, "For Authorised Signatory", PAGE_WIDTH - MARGIN_X - 3 * mm, sign_y, font="Helvetica-Bold", size=8, align="right")
+    canvas.setStrokeColor(GRID)
+    canvas.line(PAGE_WIDTH - MARGIN_X - 52 * mm, sign_y - 12 * mm, PAGE_WIDTH - MARGIN_X - 3 * mm, sign_y - 12 * mm)
+
+
+def _draw_info_box(canvas: Canvas, x: float, top: float, width: float, height: float, title: str, lines: list[str]) -> None:
+    _draw_box(canvas, x, top, width, height, fill=WHITE)
+    _draw_section_title(canvas, x, top, width, title)
+    y = top - 9 * mm
+    first = True
+    for line in [line for line in lines if _clean(line, default="")]:
+        font = "Helvetica-Bold" if first else "Helvetica"
+        size = 7.6 if first else 7.1
+        used_lines = _draw_wrapped_text(canvas, line, x + 3 * mm, y, width - 6 * mm, font=font, size=size, leading=7.8, max_lines=2)
+        y -= max(used_lines, 1) * 4 * mm
+        first = False
+        if y < top - height + 5 * mm:
+            break
+
+
+def _draw_key_value_box(canvas: Canvas, x: float, top: float, width: float, height: float, title: str, rows: list[tuple[str, str]]) -> None:
+    _draw_box(canvas, x, top, width, height, fill=WHITE)
+    _draw_section_title(canvas, x, top, width, title)
+    y = top - 9 * mm
+    for label, value in rows:
+        _draw_text(canvas, label, x + 3 * mm, y, font="Helvetica-Bold", size=7.1, color=MUTED)
+        used_lines = _draw_wrapped_text(canvas, _clean(value), x + 29 * mm, y, width - 32 * mm, size=7.1, leading=7.6, max_lines=2)
+        y -= max(used_lines, 1) * 4 * mm
+        if y < top - height + 5 * mm:
+            break
+
+
+def _draw_section_title(canvas: Canvas, x: float, top: float, width: float, title: str) -> None:
+    canvas.setFillColor(MINT_DARK)
+    canvas.rect(x, top - 7 * mm, width, 7 * mm, stroke=0, fill=1)
+    _draw_text(canvas, title, x + 3 * mm, top - 4.8 * mm, font="Helvetica-Bold", size=7.5, color=FOREST_DARK)
+
+
+def _draw_box(canvas: Canvas, x: float, top: float, width: float, height: float, *, fill=WHITE) -> None:
+    canvas.setFillColor(fill)
+    canvas.setStrokeColor(GRID)
+    canvas.setLineWidth(0.55)
+    canvas.rect(x, top - height, width, height, stroke=1, fill=1)
+
+
+def _draw_table_header(canvas: Canvas, y: float, columns: list[tuple[str, float]], *, height: float = 7 * mm, size: float = 6.2) -> float:
+    x = MARGIN_X
+    for label, width in columns:
+        _draw_cell(canvas, x, y, width, height, label, font="Helvetica-Bold", size=size, fill=FOREST, color=WHITE, align="center")
+        x += width
+    return y - height
+
+
+def _draw_table_row(canvas: Canvas, y: float, columns: list[tuple[str, float]], values: list[str], height: float, *, size: float = 6.5) -> None:
+    x = MARGIN_X
+    for index, ((_, width), value) in enumerate(zip(columns, values)):
+        align = "right" if index >= 5 else "left"
+        if index in {0, 3, 4, 7}:
+            align = "center"
+        _draw_cell(canvas, x, y, width, height, value, size=size, align=align)
+        x += width
+
+
+def _draw_cell(
+    canvas: Canvas,
+    x: float,
+    top: float,
+    width: float,
+    height: float,
+    text: str,
+    *,
+    font: str = "Helvetica",
+    size: float = 6.5,
+    fill=WHITE,
+    color=TEXT,
+    align: str = "left",
+) -> None:
+    canvas.setFillColor(fill)
+    canvas.setStrokeColor(GRID)
+    canvas.setLineWidth(0.4)
+    canvas.rect(x, top - height, width, height, stroke=1, fill=1)
+    _draw_wrapped_text(canvas, text, x + 2, top - 4, max(width - 4, 4), font=font, size=size, leading=size + 1.1, color=color, align=align)
+
+
+def _calculate_row_height(canvas: Canvas, values: list[str], columns: list[tuple[str, float]], *, size: float, leading: float) -> float:
+    line_counts = [
+        len(_wrap_text(_clean(value), max(width - 4, 4), font="Helvetica", size=size))
+        for value, (_, width) in zip(values, columns)
+    ]
+    return max(9 * mm, (max(line_counts or [1]) * leading) + 6)
+
+
+def _draw_text(
+    canvas: Canvas,
+    text: str,
+    x: float,
+    y: float,
+    *,
+    font: str = "Helvetica",
+    size: float = 8,
+    color=TEXT,
+    align: str = "left",
+) -> None:
+    value = _clean(text)
+    canvas.setFont(font, size)
+    canvas.setFillColor(color)
+    if align == "right":
+        canvas.drawRightString(x, y, value)
+    elif align == "center":
+        canvas.drawCentredString(x, y, value)
+    else:
+        canvas.drawString(x, y, value)
+
+
+def _draw_wrapped_text(
+    canvas: Canvas,
+    text: str,
+    x: float,
+    y: float,
+    width: float,
+    *,
+    font: str = "Helvetica",
+    size: float = 8,
+    leading: float = 9,
+    color=TEXT,
+    max_lines: int | None = None,
+    align: str = "left",
+) -> int:
+    lines = _wrap_text(_clean(text), width, font=font, size=size)
+    if max_lines is not None and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = _truncate_to_width(lines[-1] + "...", width, font, size)
+    for offset, line in enumerate(lines):
+        _draw_text(canvas, line, x if align != "right" else x + width, y - (offset * leading), font=font, size=size, color=color, align=align)
+    return len(lines)
+
+
+def _wrap_text(text: str, width: float, *, font: str, size: float) -> list[str]:
+    if not text:
+        return ["-"]
+    result: list[str] = []
+    for paragraph in str(text).splitlines() or [str(text)]:
+        words = paragraph.split()
+        if not words:
+            result.append("")
+            continue
+        line = words[0]
+        for word in words[1:]:
+            candidate = f"{line} {word}"
+            if stringWidth(candidate, font, size) <= width:
+                line = candidate
+                continue
+            result.extend(_break_long_word(line, width, font, size))
+            line = word
+        result.extend(_break_long_word(line, width, font, size))
+    return result or ["-"]
+
+
+def _break_long_word(word: str, width: float, font: str, size: float) -> list[str]:
+    if stringWidth(word, font, size) <= width:
+        return [word]
+    pieces: list[str] = []
+    current = ""
+    for char in word:
+        candidate = current + char
+        if current and stringWidth(candidate, font, size) > width:
+            pieces.append(current)
+            current = char
+        else:
+            current = candidate
+    if current:
+        pieces.append(current)
+    return pieces or [word]
+
+
+def _truncate_to_width(text: str, width: float, font: str, size: float) -> str:
+    value = text
+    while value and stringWidth(value, font, size) > width:
+        value = value[:-1]
+    return value
+
+
+def _draw_footer(canvas: Canvas, page_number: int) -> None:
+    y = 7 * mm
+    canvas.setStrokeColor(MINT_DARK)
+    canvas.line(MARGIN_X, y + 4 * mm, PAGE_WIDTH - MARGIN_X, y + 4 * mm)
+    _draw_text(canvas, "Generated by OMMS", MARGIN_X, y, size=6.8, color=MUTED)
+    _draw_text(canvas, f"Page {page_number}", PAGE_WIDTH - MARGIN_X, y, size=6.8, color=MUTED, align="right")
+
+
+def _supplier_lines(invoice: Invoice) -> list[str]:
+    name = invoice.supplier_trade_name or invoice.supplier_legal_name or "Supplier"
+    legal_name = invoice.supplier_legal_name if invoice.supplier_trade_name and invoice.supplier_legal_name != invoice.supplier_trade_name else ""
+    address = _join(
+        invoice.supplier_address_line_1,
+        invoice.supplier_address_line_2,
+        invoice.supplier_city,
+        invoice.supplier_state,
+        invoice.supplier_postal_code,
+        invoice.supplier_country,
+    )
+    return [
+        name,
+        legal_name,
+        address,
+        f"GSTIN: {invoice.supplier_gstin or '-'} | State Code: {invoice.supplier_state_code or '-'}",
+        _join(f"Email: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "", f"Phone: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "", sep=" | "),
+    ]
+
+
+def _bill_to_lines(invoice: Invoice) -> list[str]:
+    address = _join(
+        invoice.client_billing_address_line_1,
+        invoice.client_billing_address_line_2,
+        invoice.client_billing_city,
+        invoice.client_billing_state,
+        invoice.client_billing_postal_code,
+        invoice.client_billing_country,
+    )
+    return [
+        invoice.client_legal_name or "Client",
+        address or "-",
+        f"GSTIN: {invoice.client_gstin or '-'} | State Code: {invoice.client_billing_state_code or '-'}",
+    ]
+
+
+def _line_description(line) -> str:
+    parts = [
+        line.item_description or line.description or "Outdoor media display",
+        f"Site: {line.site_name}" if line.site_name else "",
+        f"Media Unit: {line.media_unit_label}" if line.media_unit_label else "",
+    ]
+    return _join(*parts, sep=" | ")
+
+
+def _line_period(line, invoice: Invoice) -> str:
+    start = line.booking_start_date or getattr(invoice.campaign, "start_date", None)
+    end = line.booking_end_date or getattr(invoice.campaign, "end_date", None)
+    if start and end:
+        return f"{_date(start)} to {_date(end)}"
+    return "-"
+
+
+def _build_tax_summary(invoice: Invoice) -> list[dict[str, Decimal | str]]:
     groups: dict[str, dict[str, Decimal]] = defaultdict(
-        lambda: {
-            "taxable": ZERO,
-            "cgst": ZERO,
-            "sgst": ZERO,
-            "igst": ZERO,
-        }
+        lambda: {"taxable": ZERO, "cgst": ZERO, "sgst": ZERO, "igst": ZERO}
     )
     for line in invoice.lines.all().order_by("line_number", "id"):
-        rate_key = format(line.gst_rate, "g")
+        rate_key = format(quantize_money(line.gst_rate or ZERO), "g")
         groups[rate_key]["taxable"] += quantize_money(line.taxable_value)
         groups[rate_key]["cgst"] += quantize_money(line.cgst_amount)
         groups[rate_key]["sgst"] += quantize_money(line.sgst_amount)
         groups[rate_key]["igst"] += quantize_money(line.igst_amount)
 
     rows = []
-    for rate, values in groups.items():
+    for rate, values in sorted(groups.items(), key=lambda item: Decimal(item[0])):
         total_tax = values["cgst"] + values["sgst"] + values["igst"]
-        rows.append(
-            [
-                Paragraph(f"{rate}%", cell),
-                Paragraph(format_money(values["taxable"]), right),
-                Paragraph(format_money(values["cgst"]), right),
-                Paragraph(format_money(values["sgst"]), right),
-                Paragraph(format_money(values["igst"]), right),
-                Paragraph(format_money(total_tax), right),
-            ]
-        )
-    if not rows:
-        rows.append(
-            [
-                Paragraph("-", cell),
-                Paragraph("0.00", right),
-                Paragraph("0.00", right),
-                Paragraph("0.00", right),
-                Paragraph("0.00", right),
-                Paragraph("0.00", right),
-            ]
-        )
-    return rows
+        rows.append({"rate": rate, **values, "total_tax": total_tax})
+    return rows or [{"rate": "-", "taxable": ZERO, "cgst": ZERO, "sgst": ZERO, "igst": ZERO, "total_tax": ZERO}]
+
+
+def _build_service_location(invoice: Invoice) -> str:
+    first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
+    booking = getattr(first_line, "booking", None)
+    media_unit = getattr(booking, "media_unit", None)
+    site = getattr(media_unit, "site", None)
+    if site:
+        return _join(site.name, site.address, site.city, site.state)
+    return _campaign_label(invoice)
+
+
+def _build_campaign_description(invoice: Invoice) -> str:
+    first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
+    if first_line and (first_line.item_description or first_line.description):
+        return first_line.item_description or first_line.description
+    return "Outdoor media display services"
+
+
+def _build_campaign_period(invoice: Invoice) -> str:
+    if invoice.campaign and invoice.campaign.start_date and invoice.campaign.end_date:
+        return f"{_date(invoice.campaign.start_date)} to {_date(invoice.campaign.end_date)}"
+    if invoice.invoice_date and invoice.due_date:
+        return f"{_date(invoice.invoice_date)} to {_date(invoice.due_date)}"
+    return ""
 
 
 def _build_account_details(invoice: Invoice) -> str:
-    bank_details = ""
     if invoice.supplier_profile and invoice.supplier_profile.bank_details:
-        bank_details = invoice.supplier_profile.bank_details.strip()
-    if bank_details:
-        return bank_details
+        return invoice.supplier_profile.bank_details.strip()
     return "A/c Holder: -\nBank Name & Branch: -\nA/c No.: -\nIFSC: -"
+
+
+def amount_to_words(value: Decimal | int | str | None) -> str:
+    amount = quantize_money(value)
+    rupees = int(amount)
+    paise = int((amount - Decimal(rupees)) * 100)
+    if rupees == 0:
+        words = "Zero"
+    else:
+        words = _number_to_words_indian(rupees)
+    if paise:
+        return f"INR {words} and Paise {_number_to_words_indian(paise)} Only"
+    return f"INR {words} Only"
+
+
+def _number_to_words_indian(number: int) -> str:
+    ones = [
+        "",
+        "One",
+        "Two",
+        "Three",
+        "Four",
+        "Five",
+        "Six",
+        "Seven",
+        "Eight",
+        "Nine",
+        "Ten",
+        "Eleven",
+        "Twelve",
+        "Thirteen",
+        "Fourteen",
+        "Fifteen",
+        "Sixteen",
+        "Seventeen",
+        "Eighteen",
+        "Nineteen",
+    ]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+
+    def below_thousand(value: int) -> str:
+        parts = []
+        if value >= 100:
+            parts.append(f"{ones[value // 100]} Hundred")
+            value %= 100
+        if value >= 20:
+            parts.append(tens[value // 10])
+            value %= 10
+        if value:
+            parts.append(ones[value])
+        return " ".join(parts)
+
+    parts = []
+    for divisor, label in [(10_000_000, "Crore"), (100_000, "Lakh"), (1_000, "Thousand")]:
+        if number >= divisor:
+            count, number = divmod(number, divisor)
+            parts.append(f"{below_thousand(count)} {label}")
+    if number:
+        parts.append(below_thousand(number))
+    return " ".join(part for part in parts if part).strip()
+
+
+def _campaign_label(invoice: Invoice) -> str:
+    if invoice.campaign_id:
+        code = getattr(invoice.campaign, "code", "")
+        name = getattr(invoice.campaign, "name", "")
+        return _join(name, code, sep=" / ")
+    return "-"
+
+
+def _join(*parts, sep: str = ", ") -> str:
+    return sep.join(_clean(part, default="") for part in parts if _clean(part, default=""))
+
+
+def _join_state(state, code) -> str:
+    if state and code:
+        return f"{state} ({code})"
+    return state or code or "-"
+
+
+def _split_lines(value: str) -> list[str]:
+    return [_clean(line, default="") for line in str(value or "").splitlines() if _clean(line, default="")]
+
+
+def _date(value) -> str:
+    if not value:
+        return "-"
+    return value.strftime("%d-%m-%Y")
+
+
+def _percent(value) -> str:
+    return f"{format(quantize_money(value), 'g')}%"
+
+
+def _decimal_label(value) -> str:
+    return format(quantize_money(value), "g")
+
+
+def _clean(value, default: str = "-") -> str:
+    if value in ("", None):
+        value = default
+    return re.sub(r"\s+", " ", str(value)).strip()
