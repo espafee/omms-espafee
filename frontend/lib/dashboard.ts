@@ -28,7 +28,9 @@ export type BillingSummary = {
   total_estimated: string;
   total_approved_estimates: string;
   total_invoices: number;
+  draft_invoices: number;
   issued_invoices: number;
+  due_soon_invoices: number;
   overdue_invoices: number;
   paid_invoices: number;
   partially_paid_invoices: number;
@@ -36,6 +38,7 @@ export type BillingSummary = {
   total_invoiced: string;
   overdue_amount: string;
   total_paid: string;
+  payments_received_this_month: string;
   total_collected: string;
   outstanding_amount: string;
   outstanding_balance: string;

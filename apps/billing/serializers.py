@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.campaigns.models import Campaign
 
-from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .services import get_invoice_payment_status
 
 
@@ -12,7 +12,9 @@ class InvoiceSummarySerializer(serializers.Serializer):
     total_estimated = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_approved_estimates = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_invoices = serializers.IntegerField()
+    draft_invoices = serializers.IntegerField()
     issued_invoices = serializers.IntegerField()
+    due_soon_invoices = serializers.IntegerField()
     overdue_invoices = serializers.IntegerField()
     paid_invoices = serializers.IntegerField()
     partially_paid_invoices = serializers.IntegerField()
@@ -20,6 +22,7 @@ class InvoiceSummarySerializer(serializers.Serializer):
     total_invoiced = serializers.DecimalField(max_digits=14, decimal_places=2)
     overdue_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_paid = serializers.DecimalField(max_digits=14, decimal_places=2)
+    payments_received_this_month = serializers.DecimalField(max_digits=14, decimal_places=2)
     total_collected = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_balance = serializers.DecimalField(max_digits=14, decimal_places=2)
@@ -48,6 +51,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
 class PaymentSerializer(serializers.ModelSerializer):
     payment_mode = serializers.CharField(source="method", required=False)
+    recorded_by_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Payment
@@ -60,10 +64,18 @@ class PaymentSerializer(serializers.ModelSerializer):
             "payment_mode",
             "reference_number",
             "notes",
+            "recorded_by",
+            "recorded_by_name",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "recorded_by", "recorded_by_name", "created_at", "updated_at"]
+
+    def get_recorded_by_name(self, obj):
+        user = obj.recorded_by
+        if not user:
+            return ""
+        return user.get_full_name() or user.organization_name or user.email or user.username
 
 
 class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
@@ -72,6 +84,36 @@ class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = ["amount", "payment_date", "payment_mode", "reference_number", "notes"]
+
+
+class InvoiceCancelSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3, max_length=500)
+
+
+class InvoiceEventSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = InvoiceEvent
+        fields = [
+            "id",
+            "invoice",
+            "event_type",
+            "actor",
+            "actor_name",
+            "from_status",
+            "to_status",
+            "message",
+            "metadata",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_actor_name(self, obj):
+        user = obj.actor
+        if not user:
+            return ""
+        return user.get_full_name() or user.organization_name or user.email or user.username
 
 
 class CampaignInvoicePreviewLineSerializer(serializers.Serializer):
@@ -237,6 +279,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     pdf_file = serializers.SerializerMethodField()
     lines = InvoiceLineSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
+    events = InvoiceEventSerializer(many=True, read_only=True)
     invoice_total = serializers.SerializerMethodField()
     amount_paid = serializers.SerializerMethodField()
     balance_due = serializers.SerializerMethodField()
@@ -283,3 +326,20 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "grand_total",
             "pdf_file",
         ]
+
+
+class ClientStatementSerializer(serializers.Serializer):
+    client_id = serializers.SerializerMethodField()
+    client_name = serializers.SerializerMethodField()
+    total_billed = serializers.DecimalField(max_digits=14, decimal_places=2)
+    total_paid = serializers.DecimalField(max_digits=14, decimal_places=2)
+    outstanding_balance = serializers.DecimalField(max_digits=14, decimal_places=2)
+    unpaid_invoices = InvoiceSerializer(many=True)
+    payments = PaymentSerializer(many=True)
+
+    def get_client_id(self, obj):
+        return obj["client"].id
+
+    def get_client_name(self, obj):
+        client = obj["client"]
+        return client.organization_name or client.get_full_name() or client.email or client.username

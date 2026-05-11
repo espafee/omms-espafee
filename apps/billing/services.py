@@ -17,7 +17,7 @@ from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import RateCard
 
-from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import (
     build_invoice_pdf_storage_name,
     build_safe_invoice_pdf_name,
@@ -28,6 +28,7 @@ from .pdf import (
 from .repositories import (
     CampaignEstimateLineRepository,
     CampaignEstimateRepository,
+    InvoiceEventRepository,
     InvoiceLineRepository,
     InvoiceRepository,
     PaymentRepository,
@@ -53,6 +54,40 @@ def get_booking_media_cost(booking: Booking) -> Decimal:
 
 def get_default_supplier_profile() -> SupplierProfile | None:
     return SupplierProfile.objects.filter(is_active=True).order_by("id").first()
+
+
+def log_invoice_event(
+    invoice: Invoice,
+    event_type: str,
+    *,
+    actor=None,
+    from_status: str = "",
+    to_status: str = "",
+    message: str = "",
+    metadata: dict | None = None,
+) -> InvoiceEvent:
+    return InvoiceEvent.objects.create(
+        invoice=invoice,
+        event_type=event_type,
+        actor=actor if getattr(actor, "is_authenticated", False) else None,
+        from_status=from_status or "",
+        to_status=to_status or "",
+        message=message or "",
+        metadata=metadata or {},
+    )
+
+
+def log_invoice_status_change(invoice: Invoice, *, actor=None, from_status: str, to_status: str, message: str = ""):
+    if from_status == to_status:
+        return None
+    return log_invoice_event(
+        invoice,
+        InvoiceEvent.EventType.STATUS_CHANGED,
+        actor=actor,
+        from_status=from_status,
+        to_status=to_status,
+        message=message or f"Invoice status changed from {from_status} to {to_status}.",
+    )
 
 
 def get_company_profile():
@@ -488,6 +523,21 @@ def issue_invoice(invoice: Invoice, actor) -> Invoice:
     invoice.issued_at = timezone.now()
     invoice.issued_by = actor
     invoice.save()
+    log_invoice_event(
+        invoice,
+        InvoiceEvent.EventType.ISSUED,
+        actor=actor,
+        from_status=Invoice.Status.DRAFT,
+        to_status=Invoice.Status.ISSUED,
+        message="Invoice issued.",
+        metadata={"invoice_number": invoice.invoice_number},
+    )
+    try:
+        from apps.notifications.services import trigger_invoice_issued_notification
+
+        trigger_invoice_issued_notification(invoice, actor=actor)
+    except Exception:
+        pass
     return invoice
 
 
@@ -546,6 +596,13 @@ def generate_invoice_pdf(invoice: Invoice, actor=None) -> Invoice:
             "updated_at",
         ]
     )
+    log_invoice_event(
+        invoice,
+        InvoiceEvent.EventType.PDF_GENERATED,
+        actor=actor,
+        message="Official invoice PDF generated.",
+        metadata={"pdf_file": stored_name},
+    )
     return invoice
 
 
@@ -571,7 +628,15 @@ def render_invoice_pdf_download(invoice: Invoice, actor=None) -> tuple[bytes, st
         validate_invoice_for_pdf(invoice)
         calculate_invoice_totals(invoice)
         filename = build_safe_invoice_pdf_name(invoice.invoice_number or f"invoice_{invoice.pk}")
-        return render_invoice_pdf_safely(invoice), filename
+        pdf_bytes = render_invoice_pdf_safely(invoice)
+        log_invoice_event(
+            invoice,
+            InvoiceEvent.EventType.PDF_DOWNLOADED,
+            actor=actor,
+            message="Invoice PDF downloaded.",
+            metadata={"filename": filename},
+        )
+        return pdf_bytes, filename
     except ValidationError:
         raise
     except Exception:
@@ -656,8 +721,15 @@ def resolve_public_estimate(raw_token: str) -> CampaignEstimate:
 def refresh_invoice_payment_status(invoice: Invoice) -> Invoice:
     next_status = get_invoice_payment_status(invoice)
     if next_status != invoice.status:
+        previous_status = invoice.status
         invoice.status = next_status
         invoice.save(update_fields=["status", "updated_at"])
+        log_invoice_status_change(
+            invoice,
+            from_status=previous_status,
+            to_status=next_status,
+            message="Invoice payment status refreshed after payment activity.",
+        )
     return invoice
 
 
@@ -845,6 +917,12 @@ class InvoiceService(BaseService):
         Invoice.Status.OVERDUE,
     }
 
+    CANCELLABLE_STATUSES = {
+        Invoice.Status.DRAFT,
+        Invoice.Status.ISSUED,
+        Invoice.Status.OVERDUE,
+    }
+
     def get_summary(self, user=None):
         invoice_queryset = self.get_queryset(user=user)
         payment_queryset = Payment.objects.filter(invoice_id__in=invoice_queryset.values("id"))
@@ -858,10 +936,12 @@ class InvoiceService(BaseService):
         )
         summary.update(
             {
+                "draft_invoices": invoice_queryset.filter(status=Invoice.Status.DRAFT).count(),
                 "issued_invoices": 0,
                 "overdue_invoices": 0,
                 "paid_invoices": 0,
                 "partially_paid_invoices": 0,
+                "due_soon_invoices": 0,
                 "overdue_amount": ZERO,
             }
         )
@@ -879,6 +959,9 @@ class InvoiceService(BaseService):
             )
             if effective_status == Invoice.Status.ISSUED:
                 summary["issued_invoices"] += 1
+                due_date = invoice_row["due_date"]
+                if due_date and today <= due_date <= today + timedelta(days=7):
+                    summary["due_soon_invoices"] += 1
             elif effective_status == Invoice.Status.OVERDUE:
                 summary["overdue_invoices"] += 1
                 summary["overdue_amount"] += invoice_row["total_amount"] or ZERO
@@ -901,6 +984,10 @@ class InvoiceService(BaseService):
             total_paid=Coalesce(Sum("amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD),
         )
         summary.update(payment_summary)
+        month_start = today.replace(day=1)
+        summary["payments_received_this_month"] = payment_queryset.filter(payment_date__gte=month_start).aggregate(
+            total=Coalesce(Sum("amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD)
+        )["total"]
         summary["outstanding_amount"] = max(summary["total_invoiced"] - summary["total_paid"], Decimal("0.00"))
         summary["total_collected"] = summary["total_paid"]
         summary["outstanding_balance"] = summary["outstanding_amount"]
@@ -916,7 +1003,9 @@ class InvoiceService(BaseService):
             validated_data["issue_date"] = validated_data["invoice_date"]
         invoice = Invoice(**validated_data)
         validate_invoice_campaign_ready(invoice)
-        return super().create(actor=actor, **validated_data)
+        invoice = super().create(actor=actor, **validated_data)
+        log_invoice_event(invoice, InvoiceEvent.EventType.CREATED, actor=actor, message="Draft invoice created.")
+        return invoice
 
     @transaction.atomic
     def update(self, instance, actor=None, **validated_data):
@@ -941,6 +1030,66 @@ class InvoiceService(BaseService):
 
     def render_pdf_download(self, instance, actor=None):
         return render_invoice_pdf_download(instance, actor=actor)
+
+    @transaction.atomic
+    def cancel(self, instance, *, actor=None, reason: str = ""):
+        reason = (reason or "").strip()
+        if not reason:
+            raise ValidationError({"reason": ["Cancellation reason is required."]})
+        invoice = Invoice.objects.select_for_update().prefetch_related("payments").get(pk=instance.pk)
+        if invoice.status == Invoice.Status.CANCELLED:
+            raise ValidationError({"status": ["Invoice is already cancelled/void."]})
+        if invoice.status not in self.CANCELLABLE_STATUSES:
+            raise ValidationError({"status": ["Only draft, issued, or overdue invoices without payments can be cancelled."]})
+        if invoice.payments.exists():
+            raise ValidationError({"payments": ["Invoices with recorded payments need a credit/refund workflow before voiding."]})
+
+        previous_status = invoice.status
+        invoice.status = Invoice.Status.CANCELLED
+        invoice.cancelled_at = timezone.now()
+        invoice.cancelled_by = actor
+        invoice.cancellation_reason = reason
+        invoice.save(update_fields=["status", "cancelled_at", "cancelled_by", "cancellation_reason", "updated_at"])
+        log_invoice_event(
+            invoice,
+            InvoiceEvent.EventType.VOIDED,
+            actor=actor,
+            from_status=previous_status,
+            to_status=Invoice.Status.CANCELLED,
+            message=reason,
+        )
+        log_invoice_status_change(
+            invoice,
+            actor=actor,
+            from_status=previous_status,
+            to_status=Invoice.Status.CANCELLED,
+            message="Invoice cancelled/voided.",
+        )
+        return invoice
+
+    def get_client_statement(self, *, client, user=None):
+        invoice_queryset = self.get_queryset(user=user).filter(campaign__client=client).exclude(status=Invoice.Status.CANCELLED)
+        invoices = list(invoice_queryset.prefetch_related("payments__recorded_by").order_by("-invoice_date", "-created_at"))
+        payments = list(
+            Payment.objects.select_related("invoice", "recorded_by")
+            .filter(invoice__in=invoices)
+            .order_by("-payment_date", "-created_at")
+        )
+        total_billed = quantize_money(sum((invoice.grand_total or invoice.total_amount or ZERO for invoice in invoices), ZERO))
+        total_paid = quantize_money(sum((payment.amount for payment in payments), ZERO))
+        unpaid_invoices = [
+            invoice
+            for invoice in invoices
+            if get_invoice_balance_due(invoice) > ZERO and invoice.status != Invoice.Status.DRAFT
+        ]
+        return {
+            "client": client,
+            "total_billed": total_billed,
+            "total_paid": total_paid,
+            "outstanding_balance": max(total_billed - total_paid, ZERO),
+            "unpaid_invoices": unpaid_invoices,
+            "payments": payments,
+        }
 
     @transaction.atomic
     def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=None, sac_code=DEFAULT_SAC_CODE):
@@ -970,6 +1119,7 @@ class InvoiceService(BaseService):
             )
 
         invoice.save()
+        log_invoice_event(invoice, InvoiceEvent.EventType.CREATED, actor=actor, message="Draft invoice generated from confirmed bookings.")
         for index, booking in enumerate(confirmed_bookings, start=1):
             line_payload = build_booking_invoice_line_payload(booking, line_number=index)
             line_gst_rate = resolve_gst_rate_for_booking(booking, sac_code=sac_code, requested_gst_rate=gst_rate)
@@ -1079,7 +1229,27 @@ class PaymentService(BaseService):
     @transaction.atomic
     def create(self, actor=None, **validated_data):
         self._validate_payment(invoice=validated_data["invoice"], amount=validated_data["amount"])
+        if actor and not validated_data.get("recorded_by"):
+            validated_data["recorded_by"] = actor
         payment = super().create(actor=actor, **validated_data)
+        log_invoice_event(
+            payment.invoice,
+            InvoiceEvent.EventType.PAYMENT_RECORDED,
+            actor=actor,
+            message=f"Payment of {payment.amount} recorded.",
+            metadata={
+                "payment_id": payment.id,
+                "amount": str(payment.amount),
+                "method": payment.method,
+                "reference_number": payment.reference_number,
+            },
+        )
+        try:
+            from apps.notifications.services import trigger_payment_recorded_notification
+
+            trigger_payment_recorded_notification(payment, actor=actor)
+        except Exception:
+            pass
         self._update_invoice_status(payment.invoice)
         return payment
 

@@ -11,6 +11,10 @@ class EmailNotificationLog(TimeStampedModel):
     class NotificationType(models.TextChoices):
         CAMPAIGN_BOOKED = "campaign_booked", "Campaign Booked"
         POE_UPLOADED = "poe_uploaded", "POE Uploaded"
+        INVOICE_ISSUED = "invoice_issued", "Invoice Issued"
+        PAYMENT_RECORDED = "payment_recorded", "Payment Recorded"
+        SUSPICIOUS_POE = "suspicious_poe", "Suspicious POE"
+        ISSUE_REPORTED = "issue_reported", "Issue Reported"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

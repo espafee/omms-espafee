@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { PoeCreatePanel, type PoeFormState } from "@/components/poe-create-panel";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
-import { createPoeWorkflow, fetchPoeData, getPoeCreateError, type PoePayload } from "@/lib/poe";
+import { createPoeWorkflow, fetchPoeData, getPoeCreateError, quickApprovePoe, quickRejectPoe, type PoePayload, type PoeRecord } from "@/lib/poe";
 import type { Booking } from "@/lib/bookings";
 
 type StoredUser = {
@@ -63,6 +63,16 @@ export default function PoePage() {
   const [evidenceFiles, setEvidenceFiles] = useState<File[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reviewActionId, setReviewActionId] = useState<number | null>(null);
+  const [filters, setFilters] = useState({
+    campaign: "",
+    site: "",
+    fieldAgent: "",
+    status: "",
+    suspiciousOnly: false,
+    fromDate: "",
+    toDate: "",
+  });
 
   const canManagePoe = WRITE_ROLES.has(user?.role ?? "");
 
@@ -189,6 +199,59 @@ export default function PoePage() {
     }
   }
 
+  function updateFilter(field: keyof typeof filters, value: string | boolean) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function formatDistance(value: string | null | undefined) {
+    if (value === null || value === undefined || value === "") {
+      return "Not measured";
+    }
+    const distance = Number(value);
+    return Number.isFinite(distance) ? `${distance.toFixed(1)}m` : "Not measured";
+  }
+
+  async function handleQuickApprove(record: PoeRecord) {
+    if (reviewActionId) {
+      return;
+    }
+    setReviewActionId(record.id);
+    setFormError("");
+    setFormSuccess("");
+    try {
+      await quickApprovePoe(record.id);
+      setFormSuccess("POE approved from review queue.");
+      await loadPoe(user);
+    } catch (actionError) {
+      setFormError(actionError instanceof Error ? actionError.message : "Unable to approve POE.");
+    } finally {
+      setReviewActionId(null);
+    }
+  }
+
+  async function handleQuickReject(record: PoeRecord) {
+    if (reviewActionId) {
+      return;
+    }
+    const reason = window.prompt("Enter rejection reason for this POE:");
+    if (!reason?.trim()) {
+      setFormError("Rejection reason is required.");
+      return;
+    }
+    setReviewActionId(record.id);
+    setFormError("");
+    setFormSuccess("");
+    try {
+      await quickRejectPoe(record.id, reason.trim());
+      setFormSuccess("POE rejected from review queue.");
+      await loadPoe(user);
+    } catch (actionError) {
+      setFormError(actionError instanceof Error ? actionError.message : "Unable to reject POE.");
+    } finally {
+      setReviewActionId(null);
+    }
+  }
+
   const bookingMap = useMemo(() => {
     const map = new Map<number, Booking>();
     for (const booking of poeData?.bookings ?? []) {
@@ -229,8 +292,41 @@ export default function PoePage() {
     return map;
   }, [poeData]);
 
+  const filteredRecords = useMemo(() => {
+    return (poeData?.records ?? []).filter((record) => {
+      const booking = bookingMap.get(record.booking);
+      const unit = booking ? unitMap.get(booking.media_unit) : null;
+      const site = unit ? siteMap.get(unit.siteId) : null;
+      const mediaCapturedBy = record.media_items.map((item) => String(item.captured_by ?? "")).join(" ");
+      const executedOn = new Date(record.executed_on).getTime();
+
+      if (filters.campaign && String(booking?.campaign ?? "") !== filters.campaign) {
+        return false;
+      }
+      if (filters.site && String(unit?.siteId ?? "") !== filters.site) {
+        return false;
+      }
+      if (filters.status && record.verification_status !== filters.status) {
+        return false;
+      }
+      if (filters.suspiciousOnly && record.location_confidence?.location_confidence_status !== "suspicious" && record.verification_status !== "suspicious" && record.verification_status !== "rejected") {
+        return false;
+      }
+      if (filters.fieldAgent && !mediaCapturedBy.includes(filters.fieldAgent.trim())) {
+        return false;
+      }
+      if (filters.fromDate && executedOn < new Date(filters.fromDate).getTime()) {
+        return false;
+      }
+      if (filters.toDate && executedOn > new Date(filters.toDate).getTime()) {
+        return false;
+      }
+      return Boolean(site || !filters.site);
+    });
+  }, [bookingMap, filters, poeData, siteMap, unitMap]);
+
   const quickStats = useMemo(() => {
-    const records = poeData?.records ?? [];
+    const records = filteredRecords;
     return [
       { label: "POE records", value: String(records.length) },
       {
@@ -246,10 +342,10 @@ export default function PoePage() {
         value: String(records.reduce((count, record) => count + record.media_items.length, 0)),
       },
     ];
-  }, [poeData]);
+  }, [filteredRecords]);
 
   const recentMedia = useMemo(() => {
-    return (poeData?.records ?? [])
+    return filteredRecords
       .flatMap((record) =>
         record.media_items.map((media) => ({
           ...media,
@@ -260,7 +356,7 @@ export default function PoePage() {
       )
       .sort((left, right) => right.captured_at.localeCompare(left.captured_at))
       .slice(0, 6);
-  }, [poeData]);
+  }, [filteredRecords]);
 
   return (
     <AppShell
@@ -394,7 +490,53 @@ export default function PoePage() {
         <article className="module-card module-card-wide">
           <div className="module-head">
             <h2>Execution log</h2>
-            <span>{poeData?.records.length ?? 0} items</span>
+            <span>{filteredRecords.length} items</span>
+          </div>
+          <div className="campaign-form-grid">
+            <div className="field">
+              <label htmlFor="poe-filter-campaign">Campaign</label>
+              <select id="poe-filter-campaign" value={filters.campaign} onChange={(event) => updateFilter("campaign", event.target.value)}>
+                <option value="">All campaigns</option>
+                {(poeData?.campaigns ?? []).map((campaign) => (
+                  <option key={campaign.id} value={campaign.id}>{campaign.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="poe-filter-site">Site</label>
+              <select id="poe-filter-site" value={filters.site} onChange={(event) => updateFilter("site", event.target.value)}>
+                <option value="">All sites</option>
+                {(poeData?.sites ?? []).map((site) => (
+                  <option key={site.id} value={site.id}>{site.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="poe-filter-agent">Field agent ID</label>
+              <input id="poe-filter-agent" value={filters.fieldAgent} onChange={(event) => updateFilter("fieldAgent", event.target.value)} placeholder="Captured by user ID" />
+            </div>
+            <div className="field">
+              <label htmlFor="poe-filter-status">POE status</label>
+              <select id="poe-filter-status" value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+                <option value="">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="verified">Verified</option>
+                <option value="suspicious">Suspicious</option>
+                <option value="rejected">Rejected</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="poe-filter-from">From</label>
+              <input id="poe-filter-from" type="date" value={filters.fromDate} onChange={(event) => updateFilter("fromDate", event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="poe-filter-to">To</label>
+              <input id="poe-filter-to" type="date" value={filters.toDate} onChange={(event) => updateFilter("toDate", event.target.value)} />
+            </div>
+            <label className="field field-full">
+              <span>Suspicious only</span>
+              <input type="checkbox" checked={filters.suspiciousOnly} onChange={(event) => updateFilter("suspiciousOnly", event.target.checked)} />
+            </label>
           </div>
           <div className="inventory-table-wrap">
             <table className="inventory-table">
@@ -404,15 +546,18 @@ export default function PoePage() {
                   <th>Unit</th>
                   <th>Executed on</th>
                   <th>Status</th>
+                  <th>GPS confidence</th>
                   <th>Media</th>
                   <th>Notes</th>
+                  {canManagePoe ? <th>Review</th> : null}
                 </tr>
               </thead>
               <tbody>
-                {(poeData?.records ?? []).map((record) => {
+                {filteredRecords.map((record) => {
                   const booking = bookingMap.get(record.booking);
                   const campaign = booking ? campaignMap.get(booking.campaign) : null;
                   const unit = booking ? unitMap.get(booking.media_unit) : null;
+                  const confidence = record.location_confidence;
 
                   return (
                     <tr key={record.id}>
@@ -434,15 +579,34 @@ export default function PoePage() {
                           {record.verification_status}
                         </span>
                       </td>
+                      <td>
+                        <div className="table-primary">
+                          <strong>{confidence?.location_confidence_status?.replaceAll("_", " ") ?? "Not checked"}</strong>
+                          <span>{formatDistance(confidence?.distance_meters)} / {formatDistance(confidence?.threshold_meters)}</span>
+                          <span>{confidence?.captured_latitude ?? "-"}, {confidence?.captured_longitude ?? "-"}</span>
+                        </div>
+                      </td>
                       <td>{record.media_items.length}</td>
                       <td className="table-wrap">{record.notes || "No field notes recorded."}</td>
+                      {canManagePoe ? (
+                        <td>
+                          <div className="form-actions">
+                            <button className="ghost table-action" type="button" disabled={reviewActionId === record.id} onClick={() => void handleQuickApprove(record)}>
+                              Approve
+                            </button>
+                            <button className="ghost table-action" type="button" disabled={reviewActionId === record.id} onClick={() => void handleQuickReject(record)}>
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-          {!isLoading && (poeData?.records.length ?? 0) === 0 ? (
+          {!isLoading && filteredRecords.length === 0 ? (
             <p className="empty-state">No proof-of-execution records are visible for the current account.</p>
           ) : null}
         </article>

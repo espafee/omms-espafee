@@ -1,5 +1,6 @@
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -10,6 +11,7 @@ from core.viewsets import ServiceModelViewSet
 from .exceptions import DuplicateProofOfExecutionError
 from .serializers import (
     ProofOfExecutionMediaSerializer,
+    ProofOfExecutionRejectRequestSerializer,
     ProofOfExecutionSerializer,
     ProofOfExecutionVerifyRequestSerializer,
     ProofOfExecutionVerifyResponseSerializer,
@@ -36,6 +38,24 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
             return super().create(request, *args, **kwargs)
         except DuplicateProofOfExecutionError as exc:
             return Response(exc.data, status=exc.status_code)
+
+    @action(detail=True, methods=["post"], url_path="quick-approve")
+    def quick_approve(self, request, pk=None):
+        poe_record = self.get_object()
+        updated = self.get_service().approve_record(poe_record, actor=request.user)
+        return Response(self.get_serializer(updated).data)
+
+    @action(detail=True, methods=["post"], url_path="quick-reject")
+    def quick_reject(self, request, pk=None):
+        poe_record = self.get_object()
+        serializer = ProofOfExecutionRejectRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = self.get_service().reject_record(
+            poe_record,
+            actor=request.user,
+            reason=serializer.validated_data.get("reason", ""),
+        )
+        return Response(self.get_serializer(updated).data)
 
 
 class ProofOfExecutionMediaViewSet(ServiceModelViewSet):

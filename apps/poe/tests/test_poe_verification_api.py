@@ -134,6 +134,39 @@ class PoeVerificationAPITests(TestCase):
         self.assertEqual(poe.verification_status, ProofOfExecution.VerificationStatus.VERIFIED)
         self.assertEqual(ProofOfExecutionVerificationLog.objects.filter(poe_record=poe).count(), 1)
 
+    def test_poe_detail_exposes_location_confidence(self):
+        poe = self._create_poe("19.076500", "72.878000")
+        ProofOfExecutionService().verify_record(poe, actor=self.operations)
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.get(reverse("poe-detail", args=[poe.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        confidence = response.data["location_confidence"]
+        self.assertEqual(confidence["location_confidence_status"], "within_radius")
+        self.assertTrue(confidence["within_allowed_radius"])
+        self.assertIsNotNone(confidence["distance_meters"])
+
+    def test_quick_review_actions_allow_operations_to_approve_or_reject(self):
+        approve_poe = self._create_poe("19.076500", "72.878000")
+        reject_poe = self._create_poe("19.078700", "72.877700")
+        self.client.force_authenticate(user=self.operations)
+
+        approve_response = self.client.post(reverse("poe-quick-approve", args=[approve_poe.id]), {}, format="json")
+        reject_response = self.client.post(
+            reverse("poe-quick-reject", args=[reject_poe.id]),
+            {"reason": "Location evidence is unclear."},
+            format="json",
+        )
+
+        self.assertEqual(approve_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(reject_response.status_code, status.HTTP_200_OK)
+        approve_poe.refresh_from_db()
+        reject_poe.refresh_from_db()
+        self.assertEqual(approve_poe.verification_status, ProofOfExecution.VerificationStatus.VERIFIED)
+        self.assertEqual(reject_poe.verification_status, ProofOfExecution.VerificationStatus.REJECTED)
+        self.assertEqual(reject_poe.verification_notes, "Location evidence is unclear.")
+
     def test_first_poe_captures_provisional_location_for_unmapped_site(self):
         self.site.latitude = None
         self.site.longitude = None

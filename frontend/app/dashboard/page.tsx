@@ -174,6 +174,20 @@ export default function DashboardPage() {
                   {isLoading ? "..." : formatCurrency(dashboard?.billing.overdue_amount ?? "0.00")}
                 </p>
               </div>
+              <div className="module-stat">
+                <p className="stat-label">Due soon</p>
+                <p className="stat-value">{isLoading ? "..." : dashboard?.billing.due_soon_invoices ?? 0}</p>
+              </div>
+              <div className="module-stat">
+                <p className="stat-label">This month</p>
+                <p className="stat-value">
+                  {isLoading ? "..." : formatCurrency(dashboard?.billing.payments_received_this_month ?? "0.00")}
+                </p>
+              </div>
+              <div className="module-stat">
+                <p className="stat-label">Draft invoices</p>
+                <p className="stat-value">{isLoading ? "..." : dashboard?.billing.draft_invoices ?? 0}</p>
+              </div>
             </div>
           </article>
         </section>

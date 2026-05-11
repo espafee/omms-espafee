@@ -3,6 +3,7 @@ from rest_framework import serializers
 from core.images import build_public_media_url
 
 from .models import ProofOfExecution, ProofOfExecutionMedia, ProofOfExecutionVerificationLog
+from .services import build_location_confidence
 
 
 class AbsoluteMediaUrlMixin:
@@ -66,6 +67,7 @@ class ProofOfExecutionVerificationLogSerializer(serializers.ModelSerializer):
 class ProofOfExecutionSerializer(serializers.ModelSerializer):
     media_items = ProofOfExecutionMediaSerializer(many=True, read_only=True)
     verification_logs = ProofOfExecutionVerificationLogSerializer(many=True, read_only=True)
+    location_confidence = serializers.SerializerMethodField()
 
     class Meta:
         model = ProofOfExecution
@@ -81,6 +83,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "verification_score",
             "verification_notes",
             "notes",
+            "location_confidence",
             "media_items",
             "verification_logs",
             "created_at",
@@ -90,11 +93,15 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "id",
             "verification_score",
             "verification_notes",
+            "location_confidence",
             "media_items",
             "verification_logs",
             "created_at",
             "updated_at",
         ]
+
+    def get_location_confidence(self, obj):
+        return build_location_confidence(obj)
 
 
 class ProofOfExecutionVerifyRequestSerializer(serializers.Serializer):
@@ -106,6 +113,10 @@ class ProofOfExecutionVerifyRequestSerializer(serializers.Serializer):
         default="250.00",
         min_value=0,
     )
+
+
+class ProofOfExecutionRejectRequestSerializer(serializers.Serializer):
+    reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class ProofOfExecutionVerifyResponseSerializer(serializers.Serializer):

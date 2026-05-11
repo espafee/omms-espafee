@@ -84,13 +84,21 @@ class Issue(TimeStampedModel):
     def save(self, *args, **kwargs):
         from .services import prepare_issue_for_save
 
+        is_create = self._state.adding
         if self.status == self.Status.RESOLVED and not self.resolved_at:
             self.resolved_at = timezone.now()
         if self.status != self.Status.RESOLVED:
             self.resolved_at = None
-        prepare_issue_for_save(self, is_create=self._state.adding)
+        prepare_issue_for_save(self, is_create=is_create)
         compress_field_image(self.image)
         super().save(*args, **kwargs)
+        if is_create:
+            try:
+                from apps.notifications.services import trigger_issue_reported_notification
+
+                trigger_issue_reported_notification(self, actor=self.reported_by)
+            except Exception:
+                pass
 
     def __str__(self) -> str:
         return f"{self.get_issue_type_display()} issue for booking {self.booking_id}"

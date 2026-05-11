@@ -9,6 +9,9 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking
 from apps.campaigns.services import CampaignAccessTokenService
+from apps.billing.models import Invoice, Payment
+from apps.issues.models import Issue
+from apps.poe.models import ProofOfExecution
 from apps.poe.models import ProofOfExecutionMedia
 
 from .models import EmailNotificationLog
@@ -190,6 +193,60 @@ class NotificationService:
             return result
         return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body=body)
 
+    def log_invoice_issued(self, invoice: Invoice, *, actor=None) -> NotificationResult:
+        campaign = invoice.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        return self._get_or_create_log(
+            event_key=f"invoice_issued:{invoice.id}",
+            notification_type=EmailNotificationLog.NotificationType.INVOICE_ISSUED,
+            campaign=campaign,
+            booking=None,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=f"Invoice issued: {invoice.invoice_number or invoice.pk}",
+        )
+
+    def log_payment_recorded(self, payment: Payment, *, actor=None) -> NotificationResult:
+        invoice = payment.invoice
+        campaign = invoice.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        return self._get_or_create_log(
+            event_key=f"payment_recorded:{payment.id}",
+            notification_type=EmailNotificationLog.NotificationType.PAYMENT_RECORDED,
+            campaign=campaign,
+            booking=None,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=f"Payment recorded: {invoice.invoice_number or invoice.pk}",
+        )
+
+    def log_suspicious_poe(self, poe_record: ProofOfExecution, *, actor=None) -> NotificationResult:
+        campaign = poe_record.booking.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        return self._get_or_create_log(
+            event_key=f"suspicious_poe:{poe_record.id}:{poe_record.verification_status}",
+            notification_type=EmailNotificationLog.NotificationType.SUSPICIOUS_POE,
+            campaign=campaign,
+            booking=poe_record.booking,
+            poe_record=poe_record,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=f"Suspicious POE detected: {campaign.name}",
+        )
+
+    def log_issue_reported(self, issue: Issue, *, actor=None) -> NotificationResult:
+        campaign = issue.booking.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        return self._get_or_create_log(
+            event_key=f"issue_reported:{issue.id}",
+            notification_type=EmailNotificationLog.NotificationType.ISSUE_REPORTED,
+            campaign=campaign,
+            booking=issue.booking,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=f"Issue reported: {campaign.name}",
+        )
+
 
 def trigger_campaign_booked_notification(booking: Booking, *, actor=None) -> None:
     try:
@@ -204,4 +261,32 @@ def trigger_poe_uploaded_notification(media: ProofOfExecutionMedia, *, actor=Non
         NotificationService().send_poe_uploaded_notification(media, actor=actor)
     except Exception:
         # Notification failures must never block POE media creation.
+        pass
+
+
+def trigger_invoice_issued_notification(invoice: Invoice, *, actor=None) -> None:
+    try:
+        NotificationService().log_invoice_issued(invoice, actor=actor)
+    except Exception:
+        pass
+
+
+def trigger_payment_recorded_notification(payment: Payment, *, actor=None) -> None:
+    try:
+        NotificationService().log_payment_recorded(payment, actor=actor)
+    except Exception:
+        pass
+
+
+def trigger_suspicious_poe_notification(poe_record: ProofOfExecution, *, actor=None) -> None:
+    try:
+        NotificationService().log_suspicious_poe(poe_record, actor=actor)
+    except Exception:
+        pass
+
+
+def trigger_issue_reported_notification(issue: Issue, *, actor=None) -> None:
+    try:
+        NotificationService().log_issue_reported(issue, actor=actor)
+    except Exception:
         pass

@@ -10,7 +10,7 @@ from pypdf import PdfReader
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.billing.models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from apps.billing.models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from apps.billing.services import CampaignEstimateService, generate_invoice_pdf, get_indian_financial_year, issue_invoice
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
@@ -667,6 +667,70 @@ class BillingApiTests(APITestCase):
         self.assertEqual(invoice.payments.count(), 1)
         payment = invoice.payments.get()
         self.assertEqual(payment.notes, "First installment")
+        self.assertEqual(payment.recorded_by, self.finance)
+        self.assertTrue(invoice.events.filter(event_type=InvoiceEvent.EventType.PAYMENT_RECORDED).exists())
+        self.assertTrue(invoice.events.filter(event_type=InvoiceEvent.EventType.STATUS_CHANGED).exists())
+
+    def test_invoice_cancel_endpoint_requires_reason_and_records_audit_event(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        self.client.force_authenticate(user=self.finance)
+
+        missing_reason = self.client.post(reverse("billing-invoices-cancel", args=[invoice.id]), {}, format="json")
+        response = self.client.post(
+            reverse("billing-invoices-cancel", args=[invoice.id]),
+            {"reason": "Client cancelled before publication."},
+            format="json",
+        )
+
+        self.assertEqual(missing_reason.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.CANCELLED)
+        self.assertEqual(invoice.cancelled_by, self.finance)
+        self.assertEqual(invoice.cancellation_reason, "Client cancelled before publication.")
+        self.assertTrue(invoice.events.filter(event_type=InvoiceEvent.EventType.VOIDED).exists())
+
+    def test_invoice_cancel_endpoint_blocks_invoice_with_payments(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("10.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            recorded_by=self.finance,
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(
+            reverse("billing-invoices-cancel", args=[invoice.id]),
+            {"reason": "Attempt to void paid invoice."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("payments", response.data)
+
+    def test_client_statement_endpoint_returns_unpaid_invoices_and_payment_history(self):
+        unpaid = issue_invoice(self._create_draft_invoice(), self.finance)
+        paid = issue_invoice(self._create_draft_invoice(), self.finance)
+        Payment.objects.create(
+            invoice=paid,
+            payment_date=date.today(),
+            amount=Decimal("118.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            recorded_by=self.finance,
+        )
+        paid.status = Invoice.Status.PAID
+        paid.save(update_fields=["status", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.get(reverse("billing-invoices-client-statement"), {"client": self.client_user.id})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["client_id"], self.client_user.id)
+        self.assertEqual(len(response.data["payments"]), 1)
+        self.assertEqual(response.data["payments"][0]["recorded_by_name"], self.finance.email)
+        self.assertIn(unpaid.id, [item["id"] for item in response.data["unpaid_invoices"]])
 
     def test_invoice_payment_endpoint_prevents_overpayment(self):
         invoice = issue_invoice(self._create_draft_invoice(), self.finance)

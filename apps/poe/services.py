@@ -15,6 +15,7 @@ from .repositories import (
     ProofOfExecutionVerificationLogRepository,
 )
 from .verification import DEFAULT_DISTANCE_THRESHOLD_METERS, ProofOfExecutionVerificationEngine
+from .verification import haversine_distance_meters
 
 
 class ProofOfExecutionService(BaseService):
@@ -59,6 +60,34 @@ class ProofOfExecutionService(BaseService):
             verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
         )
 
+    def approve_record(self, instance, actor=None):
+        updated = self.update(
+            instance,
+            checked_by=actor if actor else instance.checked_by,
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+            verification_score=Decimal("100.00"),
+            verification_notes="Manually approved by operations review.",
+        )
+        self.lock_site_location_from_verified_poe(updated, actor=actor)
+        return updated
+
+    def reject_record(self, instance, actor=None, reason: str = ""):
+        reason = (reason or "").strip() or "Manually rejected by operations review."
+        updated = self.update(
+            instance,
+            checked_by=actor if actor else instance.checked_by,
+            verification_status=ProofOfExecution.VerificationStatus.REJECTED,
+            verification_notes=reason,
+        )
+        self.mark_site_location_suspicious(updated)
+        try:
+            from apps.notifications.services import trigger_suspicious_poe_notification
+
+            trigger_suspicious_poe_notification(updated, actor=actor)
+        except Exception:
+            pass
+        return updated
+
     def verify_record(self, instance, actor=None, distance_threshold_meters=DEFAULT_DISTANCE_THRESHOLD_METERS):
         engine = ProofOfExecutionVerificationEngine()
         outcome = engine.verify(instance, distance_threshold_meters=distance_threshold_meters)
@@ -78,6 +107,12 @@ class ProofOfExecutionService(BaseService):
             ProofOfExecution.VerificationStatus.REJECTED,
         }:
             self.mark_site_location_suspicious(updated_instance)
+            try:
+                from apps.notifications.services import trigger_suspicious_poe_notification
+
+                trigger_suspicious_poe_notification(updated_instance, actor=actor)
+            except Exception:
+                pass
 
         ProofOfExecutionVerificationLogService().create(
             actor=actor,
@@ -166,6 +201,50 @@ class ProofOfExecutionService(BaseService):
             and site.latitude is not None
             and site.longitude is not None
         )
+
+
+def build_location_confidence(poe_record: ProofOfExecution, *, threshold_meters=DEFAULT_DISTANCE_THRESHOLD_METERS) -> dict:
+    site = getattr(getattr(getattr(poe_record, "booking", None), "media_unit", None), "site", None)
+    threshold = Decimal(threshold_meters)
+    distance = None
+    within_radius = None
+    status = "missing_gps"
+
+    poe_has_coordinates = poe_record.latitude is not None and poe_record.longitude is not None
+    site_has_coordinates = bool(site and site.latitude is not None and site.longitude is not None)
+
+    if poe_has_coordinates and site_has_coordinates:
+        distance = haversine_distance_meters(
+            poe_record.latitude,
+            poe_record.longitude,
+            site.latitude,
+            site.longitude,
+        )
+        within_radius = distance <= threshold
+        status = "within_radius" if within_radius else "suspicious"
+    elif site and site.location_status == MediaSite.LocationStatus.UNVERIFIED:
+        status = "site_unverified"
+    elif not poe_has_coordinates:
+        status = "poe_gps_missing"
+    elif not site_has_coordinates:
+        status = "site_gps_missing"
+
+    latest_log = poe_record.verification_logs.order_by("-created_at").first() if poe_record.pk else None
+    if latest_log and latest_log.distance_meters is not None:
+        distance = latest_log.distance_meters
+        threshold = latest_log.threshold_meters
+        within_radius = distance <= threshold
+        status = "within_radius" if within_radius else "suspicious"
+
+    return {
+        "captured_latitude": poe_record.latitude,
+        "captured_longitude": poe_record.longitude,
+        "distance_meters": distance,
+        "threshold_meters": threshold,
+        "within_allowed_radius": within_radius,
+        "location_confidence_status": status,
+        "site_location_status": getattr(site, "location_status", ""),
+    }
 
 
 class ProofOfExecutionMediaService(BaseService):

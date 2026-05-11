@@ -34,6 +34,22 @@ export type Payment = {
   payment_mode: string;
   reference_number: string;
   notes: string;
+  recorded_by: number | null;
+  recorded_by_name: string;
+  created_at: string;
+};
+
+export type InvoiceEvent = {
+  id: number;
+  invoice: number;
+  event_type: string;
+  actor: number | null;
+  actor_name: string;
+  from_status: string;
+  to_status: string;
+  message: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
 };
 
 export type Invoice = {
@@ -46,12 +62,24 @@ export type Invoice = {
   tax_amount: string;
   total_amount: string;
   status: string;
+  cancellation_reason?: string;
   invoice_total: string;
   amount_paid: string;
   balance_due: string;
   payment_status: string;
   pdf_file?: string | null;
   lines: InvoiceLine[];
+  payments: Payment[];
+  events: InvoiceEvent[];
+};
+
+export type ClientStatement = {
+  client_id: number;
+  client_name: string;
+  total_billed: string;
+  total_paid: string;
+  outstanding_balance: string;
+  unpaid_invoices: Invoice[];
   payments: Payment[];
 };
 
@@ -224,6 +252,17 @@ export async function createInvoicePayment(invoiceId: number, payload: InvoicePa
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export async function cancelInvoice(invoiceId: number, reason: string) {
+  return apiFetch<Invoice>(`billing/invoices/${invoiceId}/cancel/`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
+export async function fetchClientStatement(clientId: number) {
+  return apiFetch<ClientStatement>(`billing/invoices/client-statement/?client=${clientId}`);
 }
 
 export async function generateInvoicePdf(invoiceId: number) {

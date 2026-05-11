@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.http import HttpResponse
 from drf_spectacular.utils import extend_schema
 from rest_framework.decorators import action
@@ -7,13 +8,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, FINANCE
+from core.roles import ALL_ROLES, ADMIN, CLIENT, FINANCE
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
     CampaignEstimateLineSerializer,
     CampaignEstimateSerializer,
+    ClientStatementSerializer,
     GenerateInvoiceFromBookingsSerializer,
+    InvoiceCancelSerializer,
     InvoiceLineSerializer,
     InvoiceSerializer,
     InvoicePaymentCreateSerializer,
@@ -33,6 +36,8 @@ from .services import (
     PublicEstimateAccessError,
     SupplierProfileService,
 )
+
+User = get_user_model()
 
 
 class SupplierProfileViewSet(ServiceModelViewSet):
@@ -103,7 +108,13 @@ class InvoiceViewSet(ServiceModelViewSet):
     service_class = InvoiceService
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, FINANCE)
-    write_roles_by_action = {"issue": (ADMIN, FINANCE), "generate_pdf": (ADMIN, FINANCE), "generate_from_bookings": (ADMIN, FINANCE)}
+    write_roles_by_action = {
+        "issue": (ADMIN, FINANCE),
+        "cancel": (ADMIN, FINANCE),
+        "generate_pdf": (ADMIN, FINANCE),
+        "generate_from_bookings": (ADMIN, FINANCE),
+        "payments": (ADMIN, FINANCE),
+    }
     filterset_fields = ["campaign", "status", "issue_date", "invoice_date", "due_date", "financial_year"]
     search_fields = ["invoice_number", "campaign__name", "campaign__code", "client_legal_name", "supplier_legal_name"]
     ordering_fields = ["issue_date", "invoice_date", "due_date", "total_amount", "grand_total", "created_at"]
@@ -129,6 +140,34 @@ class InvoiceViewSet(ServiceModelViewSet):
         issued_invoice = self.get_service().issue(invoice, actor=request.user)
         serializer = self.get_serializer(instance=issued_invoice)
         return Response(serializer.data)
+
+    @extend_schema(request=InvoiceCancelSerializer, responses=InvoiceSerializer)
+    @action(detail=True, methods=["post"], url_path="cancel")
+    def cancel(self, request, pk=None):
+        invoice = self.get_object()
+        serializer = InvoiceCancelSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        cancelled_invoice = self.get_service().cancel(
+            invoice,
+            actor=request.user,
+            reason=serializer.validated_data["reason"],
+        )
+        return Response(self.get_serializer(instance=cancelled_invoice).data)
+
+    @extend_schema(responses=ClientStatementSerializer)
+    @action(detail=False, methods=["get"], url_path="client-statement")
+    def client_statement(self, request):
+        client_id = request.query_params.get("client")
+        if not client_id:
+            return Response({"client": ["Client query parameter is required."]}, status=400)
+        try:
+            client = User.objects.get(pk=client_id)
+        except User.DoesNotExist:
+            return Response({"client": ["Client does not exist."]}, status=404)
+        if getattr(request.user, "role", None) == CLIENT and client.pk != request.user.pk:
+            return Response({"detail": "You can only access your own client statement."}, status=403)
+        statement = self.get_service().get_client_statement(client=client, user=request.user)
+        return Response(ClientStatementSerializer(instance=statement).data)
 
     @extend_schema(request=None, responses=InvoiceSerializer)
     @action(detail=True, methods=["post"], url_path="generate-pdf")

@@ -33,6 +33,15 @@ export type PoeRecord = {
   verification_status: string;
   verification_score: string | null;
   verification_notes: string;
+  location_confidence?: {
+    captured_latitude: string | null;
+    captured_longitude: string | null;
+    distance_meters: string | null;
+    threshold_meters: string;
+    within_allowed_radius: boolean | null;
+    location_confidence_status: string;
+    site_location_status: string;
+  };
   notes: string;
   media_items: PoeMedia[];
   created_at: string;
@@ -133,4 +142,17 @@ export async function createPoeWorkflow(payload: PoeWorkflowInput): Promise<PoeW
   }
 
   return { record, evidence };
+}
+
+export async function quickApprovePoe(recordId: number) {
+  return apiFetch<PoeRecord>(`poe/${recordId}/quick-approve/`, {
+    method: "POST",
+  });
+}
+
+export async function quickRejectPoe(recordId: number, reason: string) {
+  return apiFetch<PoeRecord>(`poe/${recordId}/quick-reject/`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
 }

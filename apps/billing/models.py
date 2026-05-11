@@ -319,7 +319,49 @@ class Payment(TimeStampedModel):
     method = models.CharField(max_length=30, choices=Method.choices)
     reference_number = models.CharField(max_length=100, blank=True)
     notes = models.TextField(blank=True)
+    recorded_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="recorded_invoice_payments",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
 
     def __str__(self) -> str:
         invoice_label = self.invoice.invoice_number or f"Draft #{self.invoice_id}"
         return f"{invoice_label} - {self.amount}"
+
+
+class InvoiceEvent(TimeStampedModel):
+    class EventType(models.TextChoices):
+        CREATED = "created", "Created"
+        ISSUED = "issued", "Issued"
+        PDF_GENERATED = "pdf_generated", "PDF Generated"
+        PDF_DOWNLOADED = "pdf_downloaded", "PDF Downloaded"
+        PAYMENT_RECORDED = "payment_recorded", "Payment Recorded"
+        STATUS_CHANGED = "status_changed", "Status Changed"
+        VOIDED = "voided", "Voided"
+
+    invoice = models.ForeignKey(Invoice, related_name="events", on_delete=models.CASCADE)
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="invoice_events",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+    from_status = models.CharField(max_length=20, blank=True)
+    to_status = models.CharField(max_length=20, blank=True)
+    message = models.CharField(max_length=255, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["invoice", "event_type"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.invoice_id} - {self.event_type}"

@@ -6,18 +6,21 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
+  cancelInvoice,
   createInvoicePayment,
   createCampaignEstimate,
   createCampaignEstimateLine,
   downloadInvoicePdf,
   fetchBillingData,
   fetchCampaignInvoicePreview,
+  fetchClientStatement,
   generateCampaignInvoice,
   getInvoiceActionError,
   shareCampaignEstimate,
   type BillingPayload,
   type CampaignEstimate,
   type CampaignInvoicePreview,
+  type ClientStatement,
   type Invoice,
   type InvoicePaymentCreateInput,
 } from "@/lib/billing";
@@ -68,6 +71,16 @@ function formatDate(dateValue: string) {
   }).format(new Date(dateValue));
 }
 
+function formatDateTime(dateValue: string) {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(dateValue));
+}
+
 function getTodayLocalIsoDate() {
   const now = new Date();
   const timezoneOffsetMs = now.getTimezoneOffset() * 60 * 1000;
@@ -111,10 +124,14 @@ export default function BillingPage() {
   const [estimateError, setEstimateError] = useState("");
   const [paymentMessage, setPaymentMessage] = useState("");
   const [paymentError, setPaymentError] = useState("");
+  const [statementMessage, setStatementMessage] = useState("");
+  const [statementError, setStatementError] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<number>(0);
   const [invoicePreview, setInvoicePreview] = useState<CampaignInvoicePreview | null>(null);
   const [estimateActionId, setEstimateActionId] = useState<number | null>(null);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<number>(0);
+  const [selectedStatementClientId, setSelectedStatementClientId] = useState<number>(0);
+  const [clientStatement, setClientStatement] = useState<ClientStatement | null>(null);
   const [estimateForm, setEstimateForm] = useState<EstimateFormState>({
     client: 0,
     campaign: null,
@@ -137,7 +154,9 @@ export default function BillingPage() {
   const [isGeneratingInvoice, setIsGeneratingInvoice] = useState(false);
   const [isSavingEstimate, setIsSavingEstimate] = useState(false);
   const [isSavingPayment, setIsSavingPayment] = useState(false);
+  const [isLoadingStatement, setIsLoadingStatement] = useState(false);
   const [invoicePdfActionId, setInvoicePdfActionId] = useState<number | null>(null);
+  const [invoiceCancelActionId, setInvoiceCancelActionId] = useState<number | null>(null);
 
   const canManageBilling = WRITE_ROLES.has(user?.role ?? "");
 
@@ -162,6 +181,7 @@ export default function BillingPage() {
       setInventoryUnits(inventoryPayload.units);
       setSelectedCampaignId((current) => current || payload.campaigns[0]?.id || 0);
       setSelectedInvoiceId((current) => current || payload.invoices[0]?.id || 0);
+      setSelectedStatementClientId((current) => current || clientDirectory[0]?.id || 0);
     } catch (loadError) {
       const message = loadError instanceof Error ? loadError.message : "Unable to load billing data.";
       setError(message);
@@ -681,10 +701,59 @@ export default function BillingPage() {
         notes: "",
       });
       await loadBilling();
+      if (selectedStatementClientId) {
+        void handleLoadClientStatement(selectedStatementClientId);
+      }
     } catch (saveError) {
       setPaymentError(getInvoiceActionError(saveError));
     } finally {
       setIsSavingPayment(false);
+    }
+  }
+
+  async function handleCancelInvoice(invoice: Invoice) {
+    if (invoiceCancelActionId || !canManageBilling) {
+      return;
+    }
+    const reason = window.prompt("Enter the cancellation/void reason for this invoice:");
+    if (!reason?.trim()) {
+      setInvoiceError("Cancellation reason is required.");
+      return;
+    }
+
+    setInvoiceError("");
+    setInvoiceMessage("");
+    setInvoiceCancelActionId(invoice.id);
+    try {
+      await cancelInvoice(invoice.id, reason.trim());
+      setInvoiceMessage("Invoice cancelled/voided successfully.");
+      await loadBilling();
+      if (selectedStatementClientId) {
+        void handleLoadClientStatement(selectedStatementClientId);
+      }
+    } catch (cancelError) {
+      setInvoiceError(getInvoiceActionError(cancelError));
+    } finally {
+      setInvoiceCancelActionId(null);
+    }
+  }
+
+  async function handleLoadClientStatement(clientId = selectedStatementClientId) {
+    if (!clientId || isLoadingStatement) {
+      return;
+    }
+    setStatementError("");
+    setStatementMessage("");
+    setIsLoadingStatement(true);
+    try {
+      const statement = await fetchClientStatement(clientId);
+      setClientStatement(statement);
+      setStatementMessage(`Statement loaded for ${statement.client_name}.`);
+    } catch (statementLoadError) {
+      setClientStatement(null);
+      setStatementError(getInvoiceActionError(statementLoadError));
+    } finally {
+      setIsLoadingStatement(false);
     }
   }
 
@@ -1048,6 +1117,107 @@ export default function BillingPage() {
         ))}
       </section>
 
+      {canManageBilling ? (
+        <section className="module-card module-card-wide">
+          <div className="module-head">
+            <div>
+              <h2>Client statement</h2>
+              <p className="section-copy">Finance follow-up view for billed, collected, outstanding, unpaid invoices, and payment history.</p>
+            </div>
+            <span>Statement</span>
+          </div>
+          {statementError ? <p className="error">{statementError}</p> : null}
+          {statementMessage ? <p className="success">{statementMessage}</p> : null}
+          <div className="campaign-share-actions">
+            <select
+              className="table-select billing-campaign-select"
+              value={selectedStatementClientId || ""}
+              onChange={(event) => {
+                const clientId = Number(event.target.value);
+                setSelectedStatementClientId(clientId);
+                setClientStatement(null);
+                setStatementMessage("");
+                setStatementError("");
+              }}
+            >
+              <option value="" disabled>
+                Select client
+              </option>
+              {clients.map((client) => (
+                <option key={client.id} value={client.id}>
+                  {client.organization_name || client.email}
+                </option>
+              ))}
+            </select>
+            <button className="ghost" type="button" disabled={!selectedStatementClientId || isLoadingStatement} onClick={() => void handleLoadClientStatement()}>
+              {isLoadingStatement ? "Loading statement..." : "Load statement"}
+            </button>
+          </div>
+          {clientStatement ? (
+            <>
+              <div className="module-stats">
+                <div className="module-stat">
+                  <p className="stat-label">Total billed</p>
+                  <p className="field-summary-value">{formatCurrency(clientStatement.total_billed)}</p>
+                </div>
+                <div className="module-stat">
+                  <p className="stat-label">Total paid</p>
+                  <p className="field-summary-value">{formatCurrency(clientStatement.total_paid)}</p>
+                </div>
+                <div className="module-stat">
+                  <p className="stat-label">Outstanding</p>
+                  <p className="field-summary-value">{formatCurrency(clientStatement.outstanding_balance)}</p>
+                </div>
+              </div>
+              <div className="inventory-table-wrap">
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Unpaid invoice</th>
+                      <th>Due date</th>
+                      <th>Status</th>
+                      <th>Total</th>
+                      <th>Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {clientStatement.unpaid_invoices.map((invoice) => (
+                      <tr key={invoice.id}>
+                        <td>{invoice.invoice_number ?? `Draft #${invoice.id}`}</td>
+                        <td>{invoice.due_date ? formatDate(invoice.due_date) : "Not set"}</td>
+                        <td><span className={`status-pill status-${invoice.payment_status}`}>{invoice.payment_status.replaceAll("_", " ")}</span></td>
+                        <td>{formatCurrency(invoice.invoice_total)}</td>
+                        <td>{formatCurrency(invoice.balance_due)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {clientStatement.unpaid_invoices.length === 0 ? <p className="empty-state">No unpaid invoices for this client.</p> : null}
+              <div className="module-head">
+                <h2>Statement payment history</h2>
+                <span>{clientStatement.payments.length} payment(s)</span>
+              </div>
+              <div className="asset-list">
+                {clientStatement.payments.slice(0, 8).map((payment) => (
+                  <article className="asset-card" key={payment.id}>
+                    <div className="asset-head">
+                      <div>
+                        <p className="site-code">{formatDate(payment.payment_date)}</p>
+                        <h3>{formatCurrency(payment.amount)}</h3>
+                      </div>
+                      <span className="status-pill status-paid">{payment.method.replaceAll("_", " ")}</span>
+                    </div>
+                    <p className="site-copy">{payment.reference_number || "No reference recorded."}</p>
+                    <p className="site-copy">{payment.recorded_by_name ? `Recorded by ${payment.recorded_by_name}` : "Recorded by system"}</p>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </section>
+      ) : null}
+
       <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
@@ -1277,6 +1447,21 @@ export default function BillingPage() {
                                 ? "Issue & Download PDF"
                                 : "Download PDF"}
                           </button>
+                          <button
+                            className="ghost table-action"
+                            type="button"
+                            disabled={
+                              !canManageBilling ||
+                              invoiceCancelActionId === invoice.id ||
+                              invoice.status === "cancelled" ||
+                              invoice.payment_status === "paid" ||
+                              parseMoney(invoice.amount_paid) > 0
+                            }
+                            title="Void/cancel invoices before payments are recorded."
+                            onClick={() => void handleCancelInvoice(invoice)}
+                          >
+                            {invoiceCancelActionId === invoice.id ? "Voiding..." : "Void"}
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1397,6 +1582,63 @@ export default function BillingPage() {
                     {isSavingPayment ? "Saving..." : "Record Payment"}
                   </button>
                 </div>
+              </div>
+              <div className="module-head">
+                <h2>Payment history</h2>
+                <span>{selectedInvoice.payments.length} payment(s)</span>
+              </div>
+              <div className="inventory-table-wrap">
+                <table className="inventory-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Method</th>
+                      <th>Reference</th>
+                      <th>Recorded by</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selectedInvoice.payments.map((payment) => (
+                      <tr key={payment.id}>
+                        <td>{formatDate(payment.payment_date)}</td>
+                        <td>{formatCurrency(payment.amount)}</td>
+                        <td>{payment.method.replaceAll("_", " ")}</td>
+                        <td>{payment.reference_number || "No reference"}</td>
+                        <td>{payment.recorded_by_name || "System"}</td>
+                        <td className="table-wrap">{payment.notes || "No notes"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {selectedInvoice.payments.length === 0 ? (
+                <p className="empty-state">No payments recorded for this invoice yet. Partial payments will appear here.</p>
+              ) : null}
+              <div className="module-head">
+                <h2>Invoice audit trail</h2>
+                <span>{selectedInvoice.events?.length ?? 0} event(s)</span>
+              </div>
+              <div className="asset-list">
+                {(selectedInvoice.events ?? []).slice(0, 8).map((event) => (
+                  <article className="asset-card" key={event.id}>
+                    <div className="asset-head">
+                      <div>
+                        <p className="site-code">{event.event_type.replaceAll("_", " ")}</p>
+                        <h3>{formatDateTime(event.created_at)}</h3>
+                      </div>
+                      <span className={`status-pill status-${event.to_status || selectedInvoice.status}`}>
+                        {event.to_status || selectedInvoice.status}
+                      </span>
+                    </div>
+                    <p className="site-copy">{event.message || "Invoice event recorded."}</p>
+                    <p className="site-copy">{event.actor_name ? `By ${event.actor_name}` : "System event"}</p>
+                  </article>
+                ))}
+                {!isLoading && (selectedInvoice.events?.length ?? 0) === 0 ? (
+                  <p className="empty-state">No invoice audit events have been recorded yet.</p>
+                ) : null}
               </div>
             </>
           ) : (

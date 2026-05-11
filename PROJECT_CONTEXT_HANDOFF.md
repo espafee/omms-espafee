@@ -589,6 +589,27 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - first POE GPS capture and lock
   - near/far future POE validation against locked coordinates
 
+### Finance Audit + POE Review Readiness Sprint
+- Latest operational-readiness sprint added finance auditability and POE review polish.
+- Billing/finance additions:
+  - selected invoice payment history now shows all recorded payments with date, amount, method, reference, notes, and recorded-by user
+  - invoice lifecycle has guarded transitions for draft, issued, partially paid, paid, overdue, and cancelled/void states
+  - invoice cancellation/void endpoint requires a reason and blocks invoices that already have payments
+  - invoice audit events track created, issued, PDF generated/downloaded, payment recorded, status changed, and voided events
+  - client statement endpoint/UI summarizes total billed, total paid, outstanding balance, unpaid invoices, and payment history
+  - dashboard finance widgets now include due-soon invoices, overdue invoices, payments received this month, and draft invoice count
+- POE review additions:
+  - POE API exposes location confidence with captured GPS, distance, threshold, radius result, and site location status
+  - web POE review queue now supports campaign, site, field agent ID, status, suspicious-only, and date range filters
+  - operations/admin users can quick approve or reject POE records when safe
+- Notification hooks now create internal event-ready logs for:
+  - invoice issued
+  - payment recorded
+  - suspicious POE detected
+  - client/field issue reported
+- QA documentation:
+  - `QA_SMOKE_TEST_CHECKLIST.md` documents manual smoke steps and expected results for login, setup, inventory, campaign, booking, estimate, invoice, payment, PDF, POE, issue reporting, and public links.
+
 ## NEXT SYSTEM ENHANCEMENTS
 
 - SLA breach escalation
