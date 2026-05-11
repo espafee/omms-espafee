@@ -80,6 +80,7 @@ class SetupUnlockRequestOtpView(APIView):
     permission_classes = [RoleBasedPermission]
     allowed_roles = (ADMIN,)
     write_roles = (ADMIN,)
+    throttle_scope = "setup_otp"
 
     def post(self, request, *args, **kwargs):
         return Response(SetupService.request_unlock_otp(actor=request.user), status=status.HTTP_200_OK)
@@ -89,6 +90,7 @@ class SetupUnlockVerifyOtpView(APIView):
     permission_classes = [RoleBasedPermission]
     allowed_roles = (ADMIN,)
     write_roles = (ADMIN,)
+    throttle_scope = "setup_otp"
 
     def post(self, request, *args, **kwargs):
         serializer = SetupUnlockVerifySerializer(data=request.data)

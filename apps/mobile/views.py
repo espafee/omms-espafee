@@ -35,6 +35,7 @@ class AssignedWorkView(APIView):
 class MobilePoeSubmitView(APIView):
     permission_classes = [IsAuthenticated]
     parser_classes = [MultiPartParser, FormParser]
+    throttle_scope = "uploads"
 
     def post(self, request, *args, **kwargs):
         serializer = MobilePoeSubmitSerializer(data=request.data)

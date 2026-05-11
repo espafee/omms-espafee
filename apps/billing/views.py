@@ -212,6 +212,7 @@ class BillingSummaryView(APIView):
 
 class PublicEstimateDetailView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_estimate"
 
     @extend_schema(responses=PublicCampaignEstimateSerializer)
     def get(self, request, token, *args, **kwargs):
@@ -224,6 +225,7 @@ class PublicEstimateDetailView(APIView):
 
 class PublicEstimateApproveView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_estimate_action"
 
     @extend_schema(request=PublicEstimateDecisionSerializer, responses=PublicCampaignEstimateSerializer)
     def post(self, request, token, *args, **kwargs):
@@ -239,6 +241,7 @@ class PublicEstimateApproveView(APIView):
 
 class PublicEstimateRejectView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_estimate_action"
 
     @extend_schema(request=PublicEstimateDecisionSerializer, responses=PublicCampaignEstimateSerializer)
     def post(self, request, token, *args, **kwargs):

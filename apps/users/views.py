@@ -1,8 +1,9 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenVerifyView
 
 from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FIELD_ASSIGNABLE_ROLES, SALES
@@ -58,6 +59,17 @@ class FieldStaffDirectoryView(generics.ListAPIView):
 class RegisterView(generics.CreateAPIView):
     serializer_class = UserRegistrationSerializer
     permission_classes = [AllowAny]
+    throttle_scope = "registration"
+
+    def create(self, request, *args, **kwargs):
+        if not settings.OMMS_PUBLIC_REGISTRATION_ENABLED:
+            return Response(
+                {
+                    "detail": "Public registration is disabled. Ask an OMMS administrator to create or invite this user."
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
 
 
 class CurrentUserView(generics.RetrieveAPIView):
@@ -70,6 +82,15 @@ class CurrentUserView(generics.RetrieveAPIView):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+    throttle_scope = "auth_token"
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    throttle_scope = "auth_token"
+
+
+class CustomTokenVerifyView(TokenVerifyView):
+    throttle_scope = "auth_token"
 
 
 class AuthHealthView(generics.GenericAPIView):

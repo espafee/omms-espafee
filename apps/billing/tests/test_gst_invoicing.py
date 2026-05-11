@@ -520,7 +520,7 @@ class BillingApiTests(APITestCase):
         self.assertEqual(Decimal(response.data["total_paid"]), Decimal("59.00"))
         self.assertEqual(Decimal(response.data["total_estimated"]), estimate.total_amount)
 
-    def test_invoice_list_refreshes_overdue_and_partial_statuses(self):
+    def test_invoice_list_exposes_effective_payment_status_without_writing(self):
         overdue_invoice = issue_invoice(self._create_draft_invoice(), self.finance)
         overdue_invoice.due_date = date.today() - timedelta(days=2)
         overdue_invoice.save(update_fields=["due_date", "updated_at"])
@@ -543,8 +543,15 @@ class BillingApiTests(APITestCase):
         payload = response.data["results"]
         overdue_payload = next(item for item in payload if item["id"] == overdue_invoice.id)
         partial_payload = next(item for item in payload if item["id"] == partial_invoice.id)
-        self.assertEqual(overdue_payload["status"], Invoice.Status.OVERDUE)
-        self.assertEqual(partial_payload["status"], Invoice.Status.PARTIALLY_PAID)
+        self.assertEqual(overdue_payload["status"], Invoice.Status.ISSUED)
+        self.assertEqual(overdue_payload["payment_status"], Invoice.Status.OVERDUE)
+        self.assertEqual(partial_payload["status"], Invoice.Status.ISSUED)
+        self.assertEqual(partial_payload["payment_status"], Invoice.Status.PARTIALLY_PAID)
+
+        overdue_invoice.refresh_from_db()
+        partial_invoice.refresh_from_db()
+        self.assertEqual(overdue_invoice.status, Invoice.Status.ISSUED)
+        self.assertEqual(partial_invoice.status, Invoice.Status.ISSUED)
 
     def test_public_estimate_endpoint_returns_sent_estimate(self):
         estimate = self._create_estimate()

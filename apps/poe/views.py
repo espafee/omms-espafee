@@ -26,6 +26,11 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
     filterset_fields = ["booking", "verification_status", "checked_by"]
     ordering_fields = ["executed_on", "captured_at", "created_at"]
 
+    def get_throttles(self):
+        if getattr(self, "action", None) == "create":
+            self.throttle_scope = "uploads"
+        return super().get_throttles()
+
     def create(self, request, *args, **kwargs):
         try:
             return super().create(request, *args, **kwargs)
@@ -42,6 +47,11 @@ class ProofOfExecutionMediaViewSet(ServiceModelViewSet):
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filterset_fields = ["poe_record", "media_type"]
     ordering_fields = ["captured_at", "created_at"]
+
+    def get_throttles(self):
+        if getattr(self, "action", None) in {"create", "update", "partial_update"}:
+            self.throttle_scope = "uploads"
+        return super().get_throttles()
 
 
 class ProofOfExecutionVerifyView(APIView):

@@ -18,12 +18,30 @@ from .verification import DEFAULT_DISTANCE_THRESHOLD_METERS, ProofOfExecutionVer
 
 class ProofOfExecutionService(BaseService):
     repository_class = ProofOfExecutionRepository
+    REPLACEMENT_ALLOWED_STATUSES = {
+        ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        ProofOfExecution.VerificationStatus.REJECTED,
+    }
+
+    def _booking_has_new_open_issue(self, booking, existing_poe: ProofOfExecution) -> bool:
+        from apps.issues.models import Issue
+
+        return (
+            Issue.objects.filter(booking=booking, created_at__gt=existing_poe.created_at)
+            .exclude(status=Issue.Status.RESOLVED)
+            .exists()
+        )
+
+    def _should_block_duplicate(self, booking, existing_poe: ProofOfExecution) -> bool:
+        if existing_poe.verification_status in self.REPLACEMENT_ALLOWED_STATUSES:
+            return False
+        return not self._booking_has_new_open_issue(booking, existing_poe)
 
     def create(self, actor=None, **validated_data):
         booking = validated_data.get("booking")
         if booking:
             existing_poe = ProofOfExecution.objects.filter(booking=booking).order_by("-created_at", "-id").first()
-            if existing_poe:
+            if existing_poe and self._should_block_duplicate(booking, existing_poe):
                 raise DuplicateProofOfExecutionError(existing_poe)
 
         if "captured_at" not in validated_data:

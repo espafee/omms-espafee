@@ -35,7 +35,7 @@ The platform supports:
 
 ### Backend
 
-- Python
+- Python 3.11.9
 - Django
 - Django REST Framework
 - Simple JWT authentication
@@ -336,7 +336,7 @@ NEXT_PUBLIC_AUTH_LOGIN_PATH=/auth/login/
 
 ## Local Backend Setup
 
-Install Python dependencies:
+Install Python 3.11.9 dependencies:
 
 ```bash
 pip install -r requirements.txt

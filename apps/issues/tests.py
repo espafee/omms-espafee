@@ -413,3 +413,33 @@ class IssueApiTests(TestCase):
         issue.refresh_from_db()
         self.assertEqual(ProofOfExecution.objects.count(), 1)
         self.assertEqual(issue.status, Issue.Status.RESOLVED)
+
+    def test_replacement_poe_after_new_issue_auto_resolves_open_issue(self):
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+        )
+        issue = Issue.objects.create(
+            booking=self.booking,
+            assignment=self.assignment,
+            reported_by=self.field_staff,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.DAMAGE,
+            description="Creative was damaged after the original POE.",
+        )
+
+        replacement_poe = ProofOfExecutionService().create(
+            actor=self.field_staff,
+            booking=self.booking,
+            executed_on=timezone.localdate(),
+            captured_at=timezone.now(),
+            latitude="34.083700",
+            longitude="74.797300",
+        )
+
+        issue.refresh_from_db()
+        self.assertEqual(ProofOfExecution.objects.filter(booking=self.booking).count(), 2)
+        self.assertEqual(replacement_poe.booking, self.booking)
+        self.assertEqual(issue.status, Issue.Status.RESOLVED)

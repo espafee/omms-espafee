@@ -220,6 +220,7 @@ EMAIL_USE_SSL = get_bool("EMAIL_USE_SSL", False)
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 BILLING_DEFAULT_GST_RATE = get_env("BILLING_DEFAULT_GST_RATE", "")
 BILLING_GST_RATE_BY_SAC = get_env("BILLING_GST_RATE_BY_SAC", "")
+OMMS_PUBLIC_REGISTRATION_ENABLED = get_bool("OMMS_PUBLIC_REGISTRATION_ENABLED", False)
 AUTH_USER_MODEL = "users.User"
 
 REST_FRAMEWORK = {
@@ -227,6 +228,23 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": get_env("DRF_ANON_THROTTLE_RATE", "300/hour"),
+        "user": get_env("DRF_USER_THROTTLE_RATE", "3000/hour"),
+        "auth_token": get_env("DRF_AUTH_TOKEN_THROTTLE_RATE", "30/minute"),
+        "registration": get_env("DRF_REGISTRATION_THROTTLE_RATE", "20/hour"),
+        "setup_otp": get_env("DRF_SETUP_OTP_THROTTLE_RATE", "30/hour"),
+        "public_estimate": get_env("DRF_PUBLIC_ESTIMATE_THROTTLE_RATE", "120/hour"),
+        "public_estimate_action": get_env("DRF_PUBLIC_ESTIMATE_ACTION_THROTTLE_RATE", "20/hour"),
+        "public_campaign": get_env("DRF_PUBLIC_CAMPAIGN_THROTTLE_RATE", "240/hour"),
+        "public_issue_report": get_env("DRF_PUBLIC_ISSUE_REPORT_THROTTLE_RATE", "60/hour"),
+        "uploads": get_env("DRF_UPLOAD_THROTTLE_RATE", "120/hour"),
+    },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_FILTER_BACKENDS": [
         "django_filters.rest_framework.DjangoFilterBackend",

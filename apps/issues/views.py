@@ -54,6 +54,11 @@ class IssueViewSet(ModelViewSet):
     search_fields = ["description", "booking__campaign__name", "booking__media_unit__site__name"]
     ordering_fields = ["created_at", "priority", "status", "resolved_at"]
 
+    def get_throttles(self):
+        if getattr(self, "action", None) == "create":
+            self.throttle_scope = "uploads"
+        return super().get_throttles()
+
     def get_queryset(self):
         queryset = Issue.objects.select_related(
             "booking",
@@ -176,6 +181,7 @@ class IssueTaskViewSet(ModelViewSet):
 class PublicIssueReportView(APIView):
     permission_classes = [AllowAny]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
+    throttle_scope = "public_issue_report"
 
     def _get_token(self, token):
         token_record = get_object_or_404(

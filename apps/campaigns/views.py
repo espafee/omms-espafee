@@ -96,6 +96,7 @@ class CampaignAccessTokenViewSet(ServiceModelViewSet):
 
 class PublicCampaignAccessView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "public_campaign"
 
     @extend_schema(responses=PublicCampaignAccessSerializer)
     def get(self, request, token, *args, **kwargs):

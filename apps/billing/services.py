@@ -4,7 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.files.base import ContentFile
-from django.db import models, transaction
+from django.db import transaction
 from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -651,29 +651,79 @@ def resolve_public_estimate(raw_token: str) -> CampaignEstimate:
 
 
 def refresh_invoice_payment_status(invoice: Invoice) -> Invoice:
-    if invoice.status == Invoice.Status.CANCELLED:
-        return invoice
-    if invoice.status == Invoice.Status.DRAFT:
-        return invoice
-
-    total_paid = invoice.payments.aggregate(total=models.Sum("amount")).get("total") or Decimal("0.00")
-    payable_total = invoice.grand_total or invoice.total_amount
-    next_status = invoice.status
-    today = timezone.localdate()
-
-    if payable_total > 0 and total_paid >= payable_total:
-        next_status = Invoice.Status.PAID
-    elif invoice.due_date and invoice.due_date < today:
-        next_status = Invoice.Status.OVERDUE
-    elif total_paid > 0:
-        next_status = Invoice.Status.PARTIALLY_PAID
-    else:
-        next_status = Invoice.Status.ISSUED
-
+    next_status = get_invoice_payment_status(invoice)
     if next_status != invoice.status:
         invoice.status = next_status
         invoice.save(update_fields=["status", "updated_at"])
     return invoice
+
+
+def get_invoice_payment_status(
+    invoice: Invoice,
+    *,
+    total_paid: Decimal | None = None,
+    today: date | None = None,
+) -> str:
+    if invoice.status in {Invoice.Status.CANCELLED, Invoice.Status.DRAFT}:
+        return invoice.status
+
+    if total_paid is None:
+        total_paid = invoice.payments.aggregate(total=Sum("amount")).get("total") or ZERO
+    payable_total = invoice.grand_total or invoice.total_amount or ZERO
+    return resolve_invoice_payment_status(
+        status=invoice.status,
+        due_date=invoice.due_date,
+        payable_total=payable_total,
+        total_paid=total_paid,
+        today=today,
+    )
+
+
+def resolve_invoice_payment_status(
+    *,
+    status: str,
+    due_date: date | None,
+    payable_total: Decimal,
+    total_paid: Decimal,
+    today: date | None = None,
+) -> str:
+    if status in {Invoice.Status.CANCELLED, Invoice.Status.DRAFT}:
+        return status
+
+    today = today or timezone.localdate()
+    payable_total = quantize_money(payable_total or ZERO)
+    total_paid = quantize_money(total_paid or ZERO)
+    balance_due = max(payable_total - total_paid, ZERO)
+
+    if payable_total > ZERO and total_paid >= payable_total:
+        return Invoice.Status.PAID
+    if due_date and due_date < today and balance_due > ZERO:
+        return Invoice.Status.OVERDUE
+    if total_paid > ZERO:
+        return Invoice.Status.PARTIALLY_PAID
+    return Invoice.Status.ISSUED
+
+
+def refresh_invoice_payment_statuses(queryset=None) -> int:
+    queryset = queryset or Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED])
+    today = timezone.localdate()
+    now = timezone.now()
+    updates = []
+
+    annotated_queryset = queryset.annotate(
+        _amount_paid=Coalesce(Sum("payments__amount"), ZERO, output_field=SUMMARY_DECIMAL_FIELD)
+    )
+    for invoice in annotated_queryset:
+        next_status = get_invoice_payment_status(invoice, total_paid=invoice._amount_paid, today=today)
+        if next_status == invoice.status:
+            continue
+        invoice.status = next_status
+        invoice.updated_at = now
+        updates.append(invoice)
+
+    if updates:
+        Invoice.objects.bulk_update(updates, ["status", "updated_at"])
+    return len(updates)
 
 
 class CampaignEstimateService(BaseService):
@@ -781,24 +831,45 @@ class InvoiceService(BaseService):
 
     def get_summary(self, user=None):
         invoice_queryset = self.get_queryset(user=user)
-        payment_queryset = Payment.objects.filter(invoice__in=invoice_queryset)
+        payment_queryset = Payment.objects.filter(invoice_id__in=invoice_queryset.values("id"))
         estimate_queryset = CampaignEstimate.objects.all()
         if user and getattr(user, "role", None) == "client":
             estimate_queryset = estimate_queryset.filter(client=user)
 
         summary = invoice_queryset.aggregate(
             total_invoices=Count("id"),
-            issued_invoices=Count("id", filter=Q(status=Invoice.Status.ISSUED)),
-            overdue_invoices=Count("id", filter=Q(status=Invoice.Status.OVERDUE)),
-            paid_invoices=Count("id", filter=Q(status=Invoice.Status.PAID)),
-            partially_paid_invoices=Count("id", filter=Q(status=Invoice.Status.PARTIALLY_PAID)),
             total_invoiced=Coalesce(Sum("total_amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD),
-            overdue_amount=Coalesce(
-                Sum("total_amount", filter=Q(status=Invoice.Status.OVERDUE)),
-                Decimal("0.00"),
-                output_field=SUMMARY_DECIMAL_FIELD,
-            ),
         )
+        summary.update(
+            {
+                "issued_invoices": 0,
+                "overdue_invoices": 0,
+                "paid_invoices": 0,
+                "partially_paid_invoices": 0,
+                "overdue_amount": ZERO,
+            }
+        )
+        invoice_rows = invoice_queryset.annotate(
+            _amount_paid=Coalesce(Sum("payments__amount"), ZERO, output_field=SUMMARY_DECIMAL_FIELD)
+        ).values("status", "due_date", "total_amount", "grand_total", "_amount_paid")
+        today = timezone.localdate()
+        for invoice_row in invoice_rows:
+            effective_status = resolve_invoice_payment_status(
+                status=invoice_row["status"],
+                due_date=invoice_row["due_date"],
+                payable_total=invoice_row["grand_total"] or invoice_row["total_amount"] or ZERO,
+                total_paid=invoice_row["_amount_paid"] or ZERO,
+                today=today,
+            )
+            if effective_status == Invoice.Status.ISSUED:
+                summary["issued_invoices"] += 1
+            elif effective_status == Invoice.Status.OVERDUE:
+                summary["overdue_invoices"] += 1
+                summary["overdue_amount"] += invoice_row["total_amount"] or ZERO
+            elif effective_status == Invoice.Status.PAID:
+                summary["paid_invoices"] += 1
+            elif effective_status == Invoice.Status.PARTIALLY_PAID:
+                summary["partially_paid_invoices"] += 1
         summary["total_estimated"] = estimate_queryset.aggregate(
             total_estimated=Coalesce(Sum("total_amount"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD)
         )["total_estimated"]
@@ -818,12 +889,6 @@ class InvoiceService(BaseService):
         summary["total_collected"] = summary["total_paid"]
         summary["outstanding_balance"] = summary["outstanding_amount"]
         return summary
-
-    def get_queryset(self, user=None):
-        queryset = super().get_queryset(user=user)
-        for invoice in queryset.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]):
-            refresh_invoice_payment_status(invoice)
-        return queryset
 
     @transaction.atomic
     def create(self, actor=None, **validated_data):

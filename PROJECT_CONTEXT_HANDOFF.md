@@ -538,6 +538,24 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - earlier invoice-generation decisions
 - Newer sections above should be treated as the authoritative description of present system scope and workflow.
 
+### Production Hardening Milestone
+- A full production-readiness hardening pass was started after the quality/endurance audit.
+- Highest-priority changes covered:
+  - frontend Next.js security patch within the 14.x line
+  - DRF throttling for login/token, OTP, public token links, public issue reporting, and upload surfaces
+  - public self-registration disabled by default with explicit environment opt-in
+  - invoice listing/summary made side-effect-free while preserving explicit payment-status refresh after payments and scheduled jobs
+  - POE duplicate protection refined to allow controlled replacement after rejected/suspicious POE or a newer open issue
+  - public issue token APIs changed to unauthenticated frontend fetches so stale JWTs cannot break public links
+  - mobile app cleanup for invalid Android config, release console logs, role routing, and access-token refresh
+  - Python runtime standardized around `python-3.11.9`
+- Operational configuration now documents:
+  - `OMMS_PUBLIC_REGISTRATION_ENABLED`
+  - DRF throttle-rate environment variables
+  - `BILLING_DEFAULT_GST_RATE`
+  - `BILLING_GST_RATE_BY_SAC`
+  - production security reminders for HTTPS, cookies, CSRF/CORS, and HSTS
+
 ## NEXT SYSTEM ENHANCEMENTS
 
 - SLA breach escalation

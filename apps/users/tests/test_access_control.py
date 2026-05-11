@@ -2,6 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
@@ -420,3 +421,36 @@ class AccessControlAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["user"]["email"], superuser.email)
         self.assertTrue(response.data["user"]["is_superuser"])
+
+    def test_public_registration_is_disabled_by_default(self):
+        response = self.client.post(
+            reverse("users-register"),
+            {
+                "email": "new-client@example.com",
+                "username": "new_client",
+                "first_name": "New",
+                "last_name": "Client",
+                "password": self.password,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Public registration is disabled", response.data["detail"])
+
+    @override_settings(OMMS_PUBLIC_REGISTRATION_ENABLED=True)
+    def test_public_registration_can_be_enabled_explicitly(self):
+        response = self.client.post(
+            reverse("users-register"),
+            {
+                "email": "enabled-client@example.com",
+                "username": "enabled_client",
+                "first_name": "Enabled",
+                "last_name": "Client",
+                "password": self.password,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(User.objects.filter(email="enabled-client@example.com").exists())

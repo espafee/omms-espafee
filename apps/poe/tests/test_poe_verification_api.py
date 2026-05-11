@@ -159,6 +159,29 @@ class PoeVerificationAPITests(TestCase):
         self.assertEqual(response.data["poe_id"], existing_poe.id)
         self.assertEqual(response.data["status"], ProofOfExecution.VerificationStatus.PENDING)
 
+    def test_poe_create_endpoint_allows_replacement_after_rejected_poe(self):
+        existing_poe = self._create_poe("19.090000", "72.910000")
+        existing_poe.verification_status = ProofOfExecution.VerificationStatus.REJECTED
+        existing_poe.save(update_fields=["verification_status", "updated_at"])
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("poe-list"),
+            {
+                "booking": self.booking.id,
+                "executed_on": str(date.today()),
+                "captured_at": timezone.now().isoformat(),
+                "latitude": "19.076500",
+                "longitude": "72.878000",
+                "notes": "Replacement after rejected POE.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(ProofOfExecution.objects.filter(booking=self.booking).count(), 2)
+        self.assertNotEqual(response.data["id"], existing_poe.id)
+
     def test_verify_response_exposes_future_ai_placeholder_structure(self):
         poe = self._create_poe("19.076500", "72.878000")
         self.client.force_authenticate(user=self.operations)

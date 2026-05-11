@@ -5,6 +5,7 @@ from rest_framework import serializers
 from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from .services import get_invoice_payment_status
 
 
 class InvoiceSummarySerializer(serializers.Serializer):
@@ -256,7 +257,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         return max(invoice_total - amount_paid, Decimal("0.00"))
 
     def get_payment_status(self, obj):
-        return obj.status
+        return get_invoice_payment_status(obj, total_paid=self.get_amount_paid(obj))
 
     class Meta:
         model = Invoice
