@@ -16,11 +16,9 @@ from .models import Invoice
 
 MONEY = Decimal("0.01")
 ZERO = Decimal("0.00")
-NOT_PROVIDED = "Not Provided"
-
 PAGE_WIDTH, PAGE_HEIGHT = A4
-MARGIN_X = 14 * mm
-MARGIN_TOP = 13 * mm
+MARGIN_X = 13 * mm
+MARGIN_TOP = 9 * mm
 MARGIN_BOTTOM = 15 * mm
 TABLE_WIDTH = PAGE_WIDTH - (MARGIN_X * 2)
 CONTENT_BOTTOM = MARGIN_BOTTOM + 8 * mm
@@ -69,6 +67,28 @@ class UncompressedCanvas(Canvas):
         super().__init__(*args, **kwargs)
 
 
+class InvoiceCanvas(UncompressedCanvas):
+    """Stores pages so the footer can render Page X of Y without a second PDF pass."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._saved_page_states = []
+
+    def showPage(self):
+        state = dict(self.__dict__)
+        state["_saved_page_states"] = []
+        self._saved_page_states.append(state)
+        self._startPage()
+
+    def save(self):
+        page_count = len(self._saved_page_states)
+        for state in self._saved_page_states:
+            self.__dict__.update(state)
+            _draw_footer(self, self._pageNumber, page_count)
+            Canvas.showPage(self)
+        Canvas.save(self)
+
+
 def render_invoice_pdf(invoice: Invoice) -> bytes:
     return _render_standard_invoice(invoice)
 
@@ -99,7 +119,7 @@ def render_invoice_pdf_last_resort(*, invoice_id=None, invoice_number=None) -> b
 
 def _render_standard_invoice(invoice: Invoice) -> bytes:
     buffer = io.BytesIO()
-    canvas = UncompressedCanvas(buffer, pagesize=A4)
+    canvas = InvoiceCanvas(buffer, pagesize=A4)
     page_number = 1
 
     y = _draw_page_header(canvas, invoice, page_number)
@@ -118,14 +138,12 @@ def _render_standard_invoice(invoice: Invoice) -> bytes:
         y, page_number = _new_page(canvas, invoice, page_number)
 
     _draw_payment_terms_and_signature(canvas, invoice, y)
-    _draw_footer(canvas, page_number)
     canvas.showPage()
     canvas.save()
     return buffer.getvalue()
 
 
 def _new_page(canvas: Canvas, invoice: Invoice, page_number: int, *, continued: bool = False) -> tuple[float, int]:
-    _draw_footer(canvas, page_number)
     canvas.showPage()
     page_number += 1
     return _draw_page_header(canvas, invoice, page_number, continued=continued), page_number
@@ -133,7 +151,7 @@ def _new_page(canvas: Canvas, invoice: Invoice, page_number: int, *, continued: 
 
 def _draw_page_top_accent(canvas: Canvas) -> None:
     canvas.setFillColor(FOREST)
-    canvas.rect(0, PAGE_HEIGHT - 5 * mm, PAGE_WIDTH, 5 * mm, stroke=0, fill=1)
+    canvas.rect(0, PAGE_HEIGHT - 3.2 * mm, PAGE_WIDTH, 3.2 * mm, stroke=0, fill=1)
 
 
 def _draw_page_header(canvas: Canvas, invoice: Invoice, page_number: int, *, continued: bool = False) -> float:
@@ -141,44 +159,34 @@ def _draw_page_header(canvas: Canvas, invoice: Invoice, page_number: int, *, con
     profile = _get_company_profile()
     top = PAGE_HEIGHT - MARGIN_TOP
 
-    _draw_company_identity(canvas, invoice, profile, MARGIN_X, top, TABLE_WIDTH * 0.58)
+    _draw_company_identity(canvas, invoice, profile, MARGIN_X, top, TABLE_WIDTH * 0.62)
 
     right_x = PAGE_WIDTH - MARGIN_X
-    _draw_text(canvas, "Tax Invoice", right_x, top - 2 * mm, font="Helvetica-Bold", size=22, color=FOREST_DARK, align="right")
-    _draw_text(canvas, "Original for Recipient", right_x, top - 10 * mm, size=7.5, color=MUTED, align="right")
-    _draw_text(
-        canvas,
-        f"Invoice No. {_required(invoice.invoice_number or f'Draft #{invoice.pk}')}",
-        right_x,
-        top - 17 * mm,
-        font="Helvetica-Bold",
-        size=8.6,
-        color=TEXT,
-        align="right",
-    )
+    _draw_text(canvas, "Tax Invoice", right_x, top - 1 * mm, font="Helvetica-Bold", size=21, color=FOREST_DARK, align="right")
+    _draw_text(canvas, "Original for Recipient", right_x, top - 8.5 * mm, size=7.3, color=MUTED, align="right")
     if continued:
-        _draw_text(canvas, "Invoice items continued", right_x, top - 24 * mm, size=7.5, color=MUTED, align="right")
+        _draw_text(canvas, "Invoice items continued", right_x, top - 15 * mm, size=7.3, color=MUTED, align="right")
 
-    y = top - 24 * mm
+    y = top - 19 * mm
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.8)
     canvas.line(MARGIN_X, y, PAGE_WIDTH - MARGIN_X, y)
-    return y - 4 * mm
+    return y - 3.5 * mm
 
 
 def _draw_company_identity(canvas: Canvas, invoice: Invoice, profile, x: float, top: float, width: float) -> None:
     company_name = _company_display_name(invoice, profile)
-    logo_drawn = _draw_company_logo(canvas, profile, x, top, 22 * mm, 18 * mm)
-    text_x = x + (26 * mm if logo_drawn else 0)
-    text_width = width - (26 * mm if logo_drawn else 0)
+    logo_drawn = _draw_company_logo(canvas, profile, x, top, 20 * mm, 15 * mm)
+    text_x = x + (24 * mm if logo_drawn else 0)
+    text_width = width - (24 * mm if logo_drawn else 0)
 
-    _draw_wrapped_text(canvas, company_name, text_x, top - 1 * mm, text_width, font="Helvetica-Bold", size=13, leading=14, color=FOREST_DARK, max_lines=2)
+    _draw_wrapped_text(canvas, company_name, text_x, top - 0.5 * mm, text_width, font="Helvetica-Bold", size=12.4, leading=13.2, color=FOREST_DARK, max_lines=2)
 
-    y = top - 13 * mm
+    y = top - 11.5 * mm
     legal_name = invoice.supplier_legal_name if invoice.supplier_trade_name and invoice.supplier_legal_name != invoice.supplier_trade_name else ""
     if legal_name:
-        used = _draw_wrapped_text(canvas, legal_name, text_x, y, text_width, size=7.6, leading=8.2, color=MUTED, max_lines=1)
-        y -= max(used, 1) * 4 * mm
+        used = _draw_wrapped_text(canvas, legal_name, text_x, y, text_width, size=7.3, leading=7.8, color=MUTED, max_lines=1)
+        y -= max(used, 1) * 3.5 * mm
 
     contact = _join(
         f"Email: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
@@ -186,7 +194,7 @@ def _draw_company_identity(canvas: Canvas, invoice: Invoice, profile, x: float, 
         sep="  |  ",
     )
     if contact:
-        _draw_wrapped_text(canvas, contact, text_x, y, text_width, size=7.2, leading=8, color=MUTED, max_lines=2)
+        _draw_wrapped_text(canvas, contact, text_x, y, text_width, size=6.9, leading=7.5, color=MUTED, max_lines=2)
 
 
 def _draw_company_logo(canvas: Canvas, profile, x: float, top: float, max_width: float, max_height: float) -> bool:
@@ -213,23 +221,18 @@ def _draw_company_logo(canvas: Canvas, profile, x: float, top: float, max_width:
 
 
 def _draw_invoice_meta(canvas: Canvas, invoice: Invoice, y: float) -> float:
-    height = 22 * mm
+    rows = _invoice_meta_rows(invoice)
+    columns = 4 if len(rows) >= 4 else max(len(rows), 1)
+    row_count = ((len(rows) - 1) // columns) + 1
+    height = 8 * mm + (row_count * 8 * mm)
     _draw_card(canvas, MARGIN_X, y, TABLE_WIDTH, height, "Invoice Details")
 
-    rows = [
-        ("Invoice Number", _required(invoice.invoice_number or f"Draft #{invoice.pk}")),
-        ("Invoice Date", _date(invoice.invoice_date, required=True)),
-        ("Due Date", _date(invoice.due_date, required=True)),
-        ("Financial Year", _required(invoice.financial_year)),
-        ("Reverse Charge", "Yes" if invoice.reverse_charge else "No"),
-        ("Place of Supply", _required(_join_state(invoice.place_of_supply_state, invoice.place_of_supply_state_code))),
-    ]
     grid_top = y - 8 * mm
-    cell_width = TABLE_WIDTH / 3
-    cell_height = 7 * mm
+    cell_width = TABLE_WIDTH / columns
+    cell_height = 8 * mm
     for index, (label, value) in enumerate(rows):
-        col = index % 3
-        row = index // 3
+        col = index % columns
+        row = index // columns
         x = MARGIN_X + (col * cell_width)
         cell_top = grid_top - (row * cell_height)
         if col:
@@ -242,10 +245,25 @@ def _draw_invoice_meta(canvas: Canvas, invoice: Invoice, y: float) -> float:
     return y - height - 3 * mm
 
 
+def _invoice_meta_rows(invoice: Invoice) -> list[tuple[str, str]]:
+    rows = [
+        ("Invoice Number", _clean(invoice.invoice_number or f"Draft #{invoice.pk}")),
+        ("Invoice Date", _date(invoice.invoice_date)),
+        ("Due Date", _date(invoice.due_date)),
+        ("Reverse Charge", "Yes" if invoice.reverse_charge else "No"),
+    ]
+    if _clean(invoice.financial_year):
+        rows.append(("Financial Year", _clean(invoice.financial_year)))
+    place_of_supply = _join_state(invoice.place_of_supply_state, invoice.place_of_supply_state_code)
+    if place_of_supply:
+        rows.append(("Place of Supply", place_of_supply))
+    return [(label, value) for label, value in rows if value]
+
+
 def _draw_party_cards(canvas: Canvas, invoice: Invoice, y: float) -> float:
     gap = 5 * mm
     width = (TABLE_WIDTH - gap) / 2
-    height = 37 * mm
+    height = 35 * mm
 
     _draw_party_card(canvas, MARGIN_X, y, width, height, "Supplier Details", _supplier_card(invoice))
     _draw_party_card(canvas, MARGIN_X + width + gap, y, width, height, "Bill To", _client_card(invoice))
@@ -265,32 +283,60 @@ def _draw_party_card(canvas: Canvas, x: float, y: float, width: float, height: f
 
 
 def _draw_service_summary(canvas: Canvas, invoice: Invoice, y: float) -> float:
-    height = 20 * mm
+    items = _service_summary_items(invoice)
+    height = _service_summary_height(items)
     _draw_card(canvas, MARGIN_X, y, TABLE_WIDTH, height, "Service / Campaign Summary", fill=MINT)
-
-    items = [
-        ("Campaign", _required(_campaign_label(invoice))),
-        ("Campaign Duration", _required(_build_campaign_period(invoice))),
-        ("Service Location", _required(_build_service_location(invoice))),
-        ("Service", _required(_build_campaign_description(invoice))),
-        ("Payment Terms", invoice.payment_terms or ""),
-    ]
 
     x = MARGIN_X + 4 * mm
     content_y = y - 10 * mm
     available = TABLE_WIDTH - 8 * mm
-    col_width = available / 3
+    col_width = available / 2
+    row_heights = _service_summary_row_heights(items, col_width)
+    row_offsets = []
+    offset = 0
+    for row_height in row_heights:
+        row_offsets.append(offset)
+        offset += row_height
+
     for index, (label, value) in enumerate(items):
-        col = index % 3
-        row = index // 3
+        col = index % 2
+        row = index // 2
         item_x = x + (col * col_width)
-        item_y = content_y - (row * 7 * mm)
-        if not value:
-            continue
+        item_y = content_y - row_offsets[row]
         _draw_text(canvas, label.upper(), item_x, item_y, font="Helvetica-Bold", size=5.8, color=MUTED)
-        _draw_wrapped_text(canvas, value, item_x, item_y - 3.2 * mm, col_width - 4 * mm, font="Helvetica-Bold", size=7.2, leading=7.6, color=TEXT, max_lines=2)
+        _draw_wrapped_text(canvas, value, item_x, item_y - 3.2 * mm, col_width - 5 * mm, font="Helvetica-Bold", size=7.2, leading=7.6, color=TEXT)
 
     return y - height - 4 * mm
+
+
+def _service_summary_items(invoice: Invoice) -> list[tuple[str, str]]:
+    items = [
+        ("Campaign", _campaign_label(invoice)),
+        ("Duration", _build_campaign_period(invoice)),
+        ("Service Location", _build_service_location(invoice)),
+        ("Service", _build_campaign_description(invoice)),
+        ("Payment Terms", invoice.payment_terms or ""),
+    ]
+    return [(label, _clean(value)) for label, value in items if _clean(value)]
+
+
+def _service_summary_row_heights(items: list[tuple[str, str]], col_width: float) -> list[float]:
+    row_heights = []
+    for row_index in range((len(items) + 1) // 2):
+        row_items = items[row_index * 2 : (row_index * 2) + 2]
+        max_lines = max(
+            len(_wrap_text(value, col_width - 5 * mm, font="Helvetica-Bold", size=7.2))
+            for _, value in row_items
+        )
+        row_heights.append(max(8 * mm, 4.5 * mm + (max_lines * 7.6)))
+    return row_heights
+
+
+def _service_summary_height(items: list[tuple[str, str]]) -> float:
+    if not items:
+        return 14 * mm
+    col_width = (TABLE_WIDTH - 8 * mm) / 2
+    return 11 * mm + sum(_service_summary_row_heights(items, col_width)) + 2 * mm
 
 
 def _draw_line_items_table(canvas: Canvas, invoice: Invoice, y: float, page_number: int) -> tuple[float, int]:
@@ -319,14 +365,14 @@ def _draw_line_items_table(canvas: Canvas, invoice: Invoice, y: float, page_numb
 
 def _line_table_columns() -> list[tuple[str, float]]:
     fixed = [
-        ("#", 17),
-        ("Description", 176),
-        ("Period", 58),
-        ("HSN/SAC", 41),
-        ("Qty", 28),
-        ("Rate", 50),
-        ("Taxable", 56),
-        ("GST %", 34),
+        ("#", 16),
+        ("Description", 190),
+        ("Period", 54),
+        ("HSN/SAC", 42),
+        ("Qty", 25),
+        ("Rate", 48),
+        ("Taxable", 52),
+        ("GST %", 33),
     ]
     fixed_width = sum(width for _, width in fixed)
     return [*fixed, ("Total", TABLE_WIDTH - fixed_width)]
@@ -399,7 +445,7 @@ def _line_row_height(row: dict, columns: list[tuple[str, float]]) -> float:
         line_count = max(1, len(_wrap_text(value, width - (CELL_PAD_X * 2), font="Helvetica", size=6.8)))
         value_heights.append(CELL_PAD_Y + (line_count * 7.4) + CELL_PAD_Y)
 
-    return max(13 * mm, desc_height, *(value_heights or [0]))
+    return max(15 * mm, desc_height + 2, *(value_heights or [0]))
 
 
 def _line_row(line, invoice: Invoice, index: int) -> dict:
@@ -413,8 +459,8 @@ def _line_row(line, invoice: Invoice, index: int) -> dict:
         "description": _line_description(line),
         "values": {
             "#": str(index),
-            "Period": _required(_line_period(line, invoice)),
-            "HSN/SAC": _required(line.hsn_code or line.sac_code),
+            "Period": _line_period(line, invoice),
+            "HSN/SAC": _clean(line.hsn_code or line.sac_code),
             "Qty": _decimal_label(line.quantity),
             "Rate": format_money(line.unit_price),
             "Taxable": format_money(line.taxable_value),
@@ -436,28 +482,33 @@ def _draw_financial_summary(canvas: Canvas, invoice: Invoice, y: float) -> float
     tax_width = TABLE_WIDTH * 0.64
     totals_width = TABLE_WIDTH - tax_width - gap
     tax_height = max(35 * mm, 15 * mm + (len(tax_rows) * 7 * mm))
-    totals_height = 35 * mm
+    totals_height = 39 * mm
     section_height = max(tax_height, totals_height)
 
     _draw_tax_summary(canvas, MARGIN_X, y, tax_width, tax_height, tax_rows)
     _draw_totals_card(canvas, MARGIN_X + tax_width + gap, y, totals_width, totals_height, invoice)
 
-    y -= section_height + 5 * mm
-    amount_height = 11 * mm
-    _draw_card(canvas, MARGIN_X, y, TABLE_WIDTH, amount_height, "Amount in Words", fill=MINT)
+    y -= section_height + 4 * mm
+    amount_height = 10 * mm
+    _draw_amount_words_strip(canvas, invoice, y, amount_height)
+    return y - amount_height - 4 * mm
+
+
+def _draw_amount_words_strip(canvas: Canvas, invoice: Invoice, y: float, height: float) -> None:
+    _draw_card(canvas, MARGIN_X, y, TABLE_WIDTH, height, "", fill=FOREST_SOFT)
+    _draw_text(canvas, "Amount in Words", MARGIN_X + 4 * mm, y - 6.3 * mm, font="Helvetica-Bold", size=6.8, color=FOREST_DARK)
     _draw_wrapped_text(
         canvas,
         amount_to_words(invoice.grand_total),
-        MARGIN_X + 4 * mm,
-        y - 8 * mm,
-        TABLE_WIDTH - 8 * mm,
+        MARGIN_X + 38 * mm,
+        y - 6.3 * mm,
+        TABLE_WIDTH - 42 * mm,
         font="Helvetica-Bold",
-        size=8,
-        leading=8.5,
+        size=7.4,
+        leading=8,
         color=FOREST_DARK,
         max_lines=2,
     )
-    return y - amount_height - 4 * mm
 
 
 def _draw_tax_summary(canvas: Canvas, x: float, y: float, width: float, height: float, tax_rows: list[dict[str, Decimal | str]]) -> None:
@@ -474,7 +525,7 @@ def _draw_tax_summary(canvas: Canvas, x: float, y: float, width: float, height: 
     row_y = _draw_compact_table_header(canvas, x + 4, row_y, columns)
     for tax_row in tax_rows:
         row_values = [
-            f"{tax_row['rate']}%" if tax_row["rate"] != "" else NOT_PROVIDED,
+            f"{tax_row['rate']}%" if tax_row["rate"] != "" else "0%",
             format_money(tax_row["taxable"]),
             format_money(tax_row["cgst"]),
             format_money(tax_row["sgst"]),
@@ -494,43 +545,57 @@ def _draw_totals_card(canvas: Canvas, x: float, y: float, width: float, height: 
         ("SGST", invoice.sgst_total),
         ("IGST", invoice.igst_total),
     ]
-    row_y = y - 10 * mm
+    row_y = y - 10.5 * mm
     for label, value in rows:
-        _draw_text(canvas, label, x + 4 * mm, row_y, size=6.6, color=MUTED)
-        _draw_text(canvas, format_money(value), x + width - 4 * mm, row_y, size=6.6, color=TEXT, align="right")
-        row_y -= 3.6 * mm
+        _draw_text(canvas, label, x + 4.5 * mm, row_y, size=6.7, color=MUTED)
+        _draw_text(canvas, format_money(value), x + width - 4.5 * mm, row_y, size=6.7, color=TEXT, align="right")
+        row_y -= 4 * mm
 
-    grand_top = y - height + 10 * mm
+    grand_top = y - height + 12 * mm
     canvas.setFillColor(FOREST_SOFT)
     canvas.setStrokeColor(FOREST)
     canvas.setLineWidth(0.8)
-    canvas.roundRect(x + 3 * mm, grand_top - 10 * mm, width - 6 * mm, 10 * mm, 3, stroke=1, fill=1)
-    _draw_text(canvas, "Grand Total", x + 5 * mm, grand_top - 6.4 * mm, font="Helvetica-Bold", size=8.4, color=FOREST_DARK)
-    _draw_text(canvas, format_money(invoice.grand_total), x + width - 5 * mm, grand_top - 6.4 * mm, font="Helvetica-Bold", size=9.2, color=FOREST_DARK, align="right")
+    canvas.roundRect(x + 3.2 * mm, grand_top - 11 * mm, width - 6.4 * mm, 11 * mm, 3, stroke=1, fill=1)
+    _draw_text(canvas, "Grand Total", x + 5.5 * mm, grand_top - 7 * mm, font="Helvetica-Bold", size=8.8, color=FOREST_DARK)
+    _draw_text(canvas, format_money(invoice.grand_total), x + width - 5.5 * mm, grand_top - 7 * mm, font="Helvetica-Bold", size=9.8, color=FOREST_DARK, align="right")
 
 
 def _draw_payment_terms_and_signature(canvas: Canvas, invoice: Invoice, y: float) -> None:
     gap = 5 * mm
     width = (TABLE_WIDTH - gap) / 2
-    height = 30 * mm
-    payment_lines = _split_lines(_build_account_details(invoice))
+    height = 32 * mm
+    payment_rows = _build_bank_detail_rows(invoice)
     terms = [
         "E. & O.E.",
         "Subject to local jurisdiction.",
         "Interest may apply on overdue balances.",
         "This invoice is generated from confirmed OMMS bookings.",
     ]
-    _draw_text_card(canvas, MARGIN_X, y, width, height, "Bank / Payment Details", payment_lines)
+    _draw_bank_details_card(canvas, MARGIN_X, y, width, height, payment_rows)
     _draw_text_card(canvas, MARGIN_X + width + gap, y, width, height, "Terms & Conditions", terms)
 
-    profile = _get_company_profile()
-    signatory = getattr(profile, "authorised_signatory", "") or "Authorised Signatory"
-    sign_y = y - height - 6 * mm
+    sign_y = y - height - 6.5 * mm
     sign_x = PAGE_WIDTH - MARGIN_X
     canvas.setStrokeColor(BORDER_DARK)
     canvas.setLineWidth(0.7)
-    canvas.line(sign_x - 54 * mm, sign_y, sign_x, sign_y)
-    _draw_text(canvas, f"For {signatory}", sign_x, sign_y - 5 * mm, font="Helvetica-Bold", size=8, color=FOREST_DARK, align="right")
+    canvas.line(sign_x - 56 * mm, sign_y, sign_x, sign_y)
+    _draw_text(canvas, "Authorised Signatory", sign_x, sign_y - 4.5 * mm, font="Helvetica-Bold", size=7.8, color=FOREST_DARK, align="right")
+    _draw_text(canvas, f"For {_company_display_name(invoice, _get_company_profile())}", sign_x, sign_y - 8.5 * mm, size=7.2, color=MUTED, align="right")
+
+
+def _draw_bank_details_card(canvas: Canvas, x: float, y: float, width: float, height: float, rows: list[tuple[str, str]]) -> None:
+    _draw_card(canvas, x, y, width, height, "Bank / Payment Details")
+    content_y = y - 11 * mm
+    if not rows:
+        _draw_wrapped_text(canvas, "Bank details will be shared separately.", x + 4 * mm, content_y, width - 8 * mm, size=7.2, leading=7.8, color=TEXT)
+        return
+    label_width = 31 * mm
+    for label, value in rows:
+        _draw_text(canvas, label, x + 4 * mm, content_y, font="Helvetica-Bold", size=6.7, color=MUTED)
+        used = _draw_wrapped_text(canvas, value, x + 4 * mm + label_width, content_y, width - 8 * mm - label_width, size=7, leading=7.6, color=TEXT, max_lines=2)
+        content_y -= max(used, 1) * 3.9 * mm
+        if content_y < y - height + 5 * mm:
+            break
 
 
 def _draw_text_card(canvas: Canvas, x: float, y: float, width: float, height: float, title: str, lines: list[str]) -> None:
@@ -539,8 +604,8 @@ def _draw_text_card(canvas: Canvas, x: float, y: float, width: float, height: fl
     if not lines:
         lines = ["Details will be shared separately."]
     for line in lines:
-        used = _draw_wrapped_text(canvas, line, x + 4 * mm, content_y, width - 8 * mm, size=7.2, leading=7.8, color=TEXT, max_lines=2)
-        content_y -= max(used, 1) * 4 * mm
+        used = _draw_wrapped_text(canvas, line, x + 4 * mm, content_y, width - 8 * mm, size=7, leading=7.6, color=TEXT, max_lines=2)
+        content_y -= max(used, 1) * 3.8 * mm
         if content_y < y - height + 5 * mm:
             break
 
@@ -707,13 +772,13 @@ def _truncate_to_width(text: str, width: float, font: str, size: float) -> str:
     return value
 
 
-def _draw_footer(canvas: Canvas, page_number: int) -> None:
+def _draw_footer(canvas: Canvas, page_number: int, total_pages: int | None = None) -> None:
     y = 8 * mm
     canvas.setStrokeColor(BORDER)
     canvas.setLineWidth(0.6)
     canvas.line(MARGIN_X, y + 4 * mm, PAGE_WIDTH - MARGIN_X, y + 4 * mm)
-    _draw_text(canvas, "Generated by OMMS", MARGIN_X, y, size=6.8, color=MUTED)
-    _draw_text(canvas, f"Page {page_number}", PAGE_WIDTH - MARGIN_X, y, size=6.8, color=MUTED, align="right")
+    page_label = f"Page {page_number} of {total_pages}" if total_pages else f"Page {page_number}"
+    _draw_text(canvas, f"Generated by OMMS | {page_label}", MARGIN_X, y, size=6.7, color=MUTED)
 
 
 def _supplier_card(invoice: Invoice) -> dict[str, list[str] | str]:
@@ -732,16 +797,14 @@ def _supplier_card(invoice: Invoice) -> dict[str, list[str] | str]:
         f"Phone: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
         sep="  |  ",
     )
-    return {
-        "name": name,
-        "lines": [
-            legal_name,
-            f"Address: {address or NOT_PROVIDED}",
-            f"GSTIN: {_required(invoice.supplier_gstin)}",
-            f"State Code: {_required(invoice.supplier_state_code)}",
-            contact,
-        ],
-    }
+    lines = [
+        legal_name,
+        f"Address: {address}" if address else "",
+        f"GSTIN: {invoice.supplier_gstin}" if invoice.supplier_gstin else "",
+        f"State Code: {invoice.supplier_state_code}" if invoice.supplier_state_code else "",
+        contact,
+    ]
+    return {"name": name, "lines": [line for line in lines if _clean(line)]}
 
 
 def _client_card(invoice: Invoice) -> dict[str, list[str] | str]:
@@ -753,14 +816,12 @@ def _client_card(invoice: Invoice) -> dict[str, list[str] | str]:
         invoice.client_billing_postal_code,
         invoice.client_billing_country,
     )
-    return {
-        "name": invoice.client_legal_name or "Client",
-        "lines": [
-            f"Address: {address or NOT_PROVIDED}",
-            f"GSTIN: {_required(invoice.client_gstin)}",
-            f"State Code: {_required(invoice.client_billing_state_code)}",
-        ],
-    }
+    lines = [
+        f"Address: {address}" if address else "",
+        f"GSTIN: {invoice.client_gstin}" if invoice.client_gstin else "",
+        f"State Code: {invoice.client_billing_state_code}" if invoice.client_billing_state_code else "",
+    ]
+    return {"name": invoice.client_legal_name or "Client", "lines": [line for line in lines if _clean(line)]}
 
 
 def _line_description(line) -> dict[str, list[str] | str]:
@@ -857,6 +918,43 @@ def _build_account_details(invoice: Invoice) -> str:
     if profile and profile.bank_details:
         return profile.bank_details.strip()
     return "Bank details will be shared separately."
+
+
+def _build_bank_detail_rows(invoice: Invoice) -> list[tuple[str, str]]:
+    raw_details = _build_account_details(invoice)
+    if raw_details == "Bank details will be shared separately.":
+        return []
+
+    rows = []
+    for line in _split_lines(raw_details):
+        label, separator, value = line.partition(":")
+        if not separator and " - " in line:
+            label, separator, value = line.partition(" - ")
+        if not separator:
+            rows.append(("Details", line))
+            continue
+        normalized_label = _normalize_bank_label(label)
+        normalized_value = _clean(value)
+        if normalized_value:
+            rows.append((normalized_label, normalized_value))
+    return rows
+
+
+def _normalize_bank_label(label: str) -> str:
+    value = _clean(label).lower()
+    if "holder" in value:
+        return "Account Holder"
+    if value in {"a/c", "ac"}:
+        return "Account Holder"
+    if "ifsc" in value:
+        return "IFSC"
+    if "account" in value or "a/c" in value or "a/c no" in value:
+        return "Account Number"
+    if "branch" in value:
+        return "Branch"
+    if "bank" in value:
+        return "Bank"
+    return _clean(label).title()
 
 
 def amount_to_words(value: Decimal | int | str | None) -> str:
@@ -964,7 +1062,7 @@ def _split_lines(value: str) -> list[str]:
 
 def _date(value, *, required: bool = False) -> str:
     if not value:
-        return NOT_PROVIDED if required else ""
+        return ""
     return value.strftime("%d-%m-%Y")
 
 
@@ -977,7 +1075,7 @@ def _decimal_label(value) -> str:
 
 
 def _required(value) -> str:
-    return _clean(value) or NOT_PROVIDED
+    return _clean(value)
 
 
 def _clean(value, default: str = "") -> str:
