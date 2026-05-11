@@ -469,6 +469,32 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - no merged taxable/GST value pattern
   - bank details and signature block extracted cleanly
 
+### Invoice GST Calculation Fix
+- Critical GST issue fixed after invoice PDFs showed `GST %` as `0.00%`.
+- Root cause:
+  - campaign-level invoice generation explicitly passed `gst_rate=0.00`
+  - this bypassed configured tax/rate-card data and produced misleading zero-tax invoices
+- Corrected GST rate resolution now checks:
+  - explicit invoice/API GST rate if provided
+  - media unit `RateCard.tax_percentage` for the booking window
+  - optional billing settings such as `BILLING_DEFAULT_GST_RATE` / `BILLING_GST_RATE_BY_SAC`
+- GST-registered suppliers now require a configured GST rate before taxable invoice lines can be issued.
+- Campaign-generated invoices now auto-use the active supplier profile where available.
+- Tax split logic now supports:
+  - CGST + SGST for same supplier/place-of-supply state
+  - IGST for different states
+  - state-name fallback when state codes are unavailable
+- PDF behavior updated:
+  - GST invoices show correct GST %, CGST/SGST/IGST, tax summary, and GST-inclusive Grand Total
+  - non-GST invoices hide GST-specific line columns and show a non-GST tax status note
+- Acceptance verification performed:
+  - taxable amount `50000.00`
+  - configured GST `18.00%`
+  - CGST `4500.00`
+  - SGST `4500.00`
+  - total GST `9000.00`
+  - grand total `59000.00`
+
 ### Admin Mobile APIs
 - Admin mobile backend endpoints now include:
   - `/api/v1/mobile/admin/overview/`

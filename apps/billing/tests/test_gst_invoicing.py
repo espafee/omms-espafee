@@ -14,7 +14,7 @@ from apps.billing.models import CampaignEstimate, CampaignEstimateLine, Invoice,
 from apps.billing.services import CampaignEstimateService, generate_invoice_pdf, get_indian_financial_year, issue_invoice
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
-from apps.inventory.models import MediaSite, MediaUnit
+from apps.inventory.models import MediaSite, MediaUnit, RateCard
 
 from .storage_backends import MemoryPrivateDocumentStorage
 
@@ -67,6 +67,13 @@ class BillingServiceTests(TestCase):
             end_date=date(2025, 4, 30),
             booked_rate=Decimal("50000.00"),
             status=Booking.Status.CONFIRMED,
+        )
+        self.rate_card = RateCard.objects.create(
+            unit=self.unit,
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            base_rate=Decimal("50000.00"),
+            tax_percentage=Decimal("18.00"),
         )
         self.supplier = SupplierProfile.objects.create(
             legal_name="OMMS Media Private Limited",
@@ -372,6 +379,13 @@ class BillingApiTests(APITestCase):
             end_date=date(2025, 4, 30),
             booked_rate=Decimal("50000.00"),
             status=Booking.Status.CONFIRMED,
+        )
+        self.rate_card = RateCard.objects.create(
+            unit=self.unit,
+            start_date=date(2025, 1, 1),
+            end_date=date(2025, 12, 31),
+            base_rate=Decimal("50000.00"),
+            tax_percentage=Decimal("18.00"),
         )
         self.supplier = SupplierProfile.objects.create(
             legal_name="OMMS Media Private Limited",
@@ -694,7 +708,11 @@ class BillingApiTests(APITestCase):
         invoice = Invoice.objects.get(id=response.data["id"])
         self.assertEqual(invoice.campaign, self.campaign)
         self.assertEqual(invoice.status, Invoice.Status.DRAFT)
-        self.assertEqual(invoice.total_amount, Decimal("63000.00"))
+        self.assertEqual(invoice.taxable_value_total, Decimal("63000.00"))
+        self.assertEqual(invoice.cgst_total, Decimal("5670.00"))
+        self.assertEqual(invoice.sgst_total, Decimal("5670.00"))
+        self.assertEqual(invoice.igst_total, Decimal("0.00"))
+        self.assertEqual(invoice.total_amount, Decimal("74340.00"))
         line = invoice.lines.get()
         self.assertEqual(line.booking, self.booking)
         self.assertEqual(line.site_name, self.site.name)
@@ -703,7 +721,58 @@ class BillingApiTests(APITestCase):
         self.assertEqual(line.flex_cost, Decimal("8000.00"))
         self.assertEqual(line.installation_cost, Decimal("3500.00"))
         self.assertEqual(line.other_cost, Decimal("1500.00"))
-        self.assertEqual(line.line_total, Decimal("63000.00"))
+        self.assertEqual(line.gst_rate, Decimal("18.00"))
+        self.assertEqual(line.taxable_value, Decimal("63000.00"))
+        self.assertEqual(line.line_total, Decimal("74340.00"))
+
+    def test_campaign_generate_invoice_uses_configured_gst_rate_for_intrastate_supply(self):
+        self.booking.agreed_media_cost = Decimal("50000.00")
+        self.booking.save(update_fields=["agreed_media_cost", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invoice = Invoice.objects.get(id=response.data["id"])
+        line = invoice.lines.get()
+        self.assertEqual(line.gst_rate, Decimal("18.00"))
+        self.assertEqual(invoice.taxable_value_total, Decimal("50000.00"))
+        self.assertEqual(invoice.cgst_total, Decimal("4500.00"))
+        self.assertEqual(invoice.sgst_total, Decimal("4500.00"))
+        self.assertEqual(invoice.igst_total, Decimal("0.00"))
+        self.assertEqual(invoice.total_tax, Decimal("9000.00"))
+        self.assertEqual(invoice.grand_total, Decimal("59000.00"))
+
+    def test_campaign_generate_invoice_uses_igst_for_interstate_supply(self):
+        self.site.state = "Punjab"
+        self.site.save(update_fields=["state", "updated_at"])
+        self.booking.agreed_media_cost = Decimal("50000.00")
+        self.booking.save(update_fields=["agreed_media_cost", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        invoice = Invoice.objects.get(id=response.data["id"])
+        line = invoice.lines.get()
+        self.assertEqual(line.gst_rate, Decimal("18.00"))
+        self.assertEqual(invoice.taxable_value_total, Decimal("50000.00"))
+        self.assertEqual(invoice.cgst_total, Decimal("0.00"))
+        self.assertEqual(invoice.sgst_total, Decimal("0.00"))
+        self.assertEqual(invoice.igst_total, Decimal("9000.00"))
+        self.assertEqual(invoice.total_tax, Decimal("9000.00"))
+        self.assertEqual(invoice.grand_total, Decimal("59000.00"))
+
+    def test_campaign_generate_invoice_rejects_registered_supplier_without_configured_gst_rate(self):
+        self.rate_card.tax_percentage = Decimal("0.00")
+        self.rate_card.save(update_fields=["tax_percentage", "updated_at"])
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(f"/api/v1/campaigns/{self.campaign.id}/generate-invoice/", format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("gst_rate", response.data)
+        self.assertIn("GST rate is required", response.data["gst_rate"][0])
 
     def test_campaign_generated_draft_can_be_issued_without_full_snapshot_fields(self):
         self.client.force_authenticate(user=self.finance)
@@ -712,7 +781,7 @@ class BillingApiTests(APITestCase):
         self.assertEqual(created.status_code, status.HTTP_201_CREATED)
         invoice = Invoice.objects.get(id=created.data["id"])
         self.assertEqual(invoice.status, Invoice.Status.DRAFT)
-        self.assertIsNone(invoice.supplier_profile)
+        self.assertEqual(invoice.supplier_profile, self.supplier)
         self.assertEqual(invoice.client_legal_name, self.client_user.email)
 
         issued = self.client.post(reverse("billing-invoices-issue", args=[invoice.id]), format="json")

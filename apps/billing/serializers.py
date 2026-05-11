@@ -228,7 +228,7 @@ class GenerateInvoiceFromBookingsSerializer(serializers.Serializer):
     invoice_date = serializers.DateField(required=False)
     due_date = serializers.DateField()
     payment_terms = serializers.CharField(required=False, allow_blank=True)
-    gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, default="18.00")
+    gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     sac_code = serializers.CharField(required=False, allow_blank=True, default="998361")
 
 

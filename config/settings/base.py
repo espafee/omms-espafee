@@ -218,6 +218,8 @@ EMAIL_USE_TLS = get_bool("EMAIL_USE_TLS", False)
 EMAIL_USE_SSL = get_bool("EMAIL_USE_SSL", False)
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+BILLING_DEFAULT_GST_RATE = get_env("BILLING_DEFAULT_GST_RATE", "")
+BILLING_GST_RATE_BY_SAC = get_env("BILLING_GST_RATE_BY_SAC", "")
 AUTH_USER_MODEL = "users.User"
 
 REST_FRAMEWORK = {

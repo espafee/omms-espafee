@@ -2,6 +2,7 @@ import logging
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.db import models, transaction
 from django.db.models import Count, DecimalField, Q, Sum
@@ -14,6 +15,7 @@ from core.storage_backends import PrivateDocumentStorage, build_private_document
 
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
+from apps.inventory.models import RateCard
 
 from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import (
@@ -37,6 +39,8 @@ MONEY = Decimal("0.01")
 ZERO = Decimal("0.00")
 logger = logging.getLogger(__name__)
 
+DEFAULT_SAC_CODE = "998361"
+
 
 def quantize_money(value: Decimal | int | str) -> Decimal:
     return Decimal(value).quantize(MONEY, rounding=ROUND_HALF_UP)
@@ -45,6 +49,136 @@ def quantize_money(value: Decimal | int | str) -> Decimal:
 def get_booking_media_cost(booking: Booking) -> Decimal:
     media_cost = booking.agreed_media_cost or ZERO
     return quantize_money(media_cost if media_cost > ZERO else booking.booked_rate)
+
+
+def get_default_supplier_profile() -> SupplierProfile | None:
+    return SupplierProfile.objects.filter(is_active=True).order_by("id").first()
+
+
+def get_company_profile():
+    try:
+        from apps.setup.models import CompanyProfile
+
+        return CompanyProfile.objects.filter(singleton_key=1).first()
+    except Exception:
+        return None
+
+
+def parse_configured_decimal(value) -> Decimal | None:
+    if value in ("", None):
+        return None
+    try:
+        amount = Decimal(str(value)).quantize(MONEY, rounding=ROUND_HALF_UP)
+    except Exception:
+        return None
+    return amount if amount > ZERO else None
+
+
+def get_settings_gst_rate(*, sac_code: str = "") -> Decimal | None:
+    mapping = getattr(settings, "BILLING_GST_RATE_BY_SAC", {}) or {}
+    if isinstance(mapping, str):
+        parsed = {}
+        for pair in mapping.split(","):
+            code, separator, rate = pair.partition(":")
+            if separator and code.strip():
+                parsed[code.strip()] = rate.strip()
+        mapping = parsed
+
+    if sac_code and isinstance(mapping, dict):
+        mapped_rate = parse_configured_decimal(mapping.get(sac_code))
+        if mapped_rate is not None:
+            return mapped_rate
+    return parse_configured_decimal(getattr(settings, "BILLING_DEFAULT_GST_RATE", ""))
+
+
+def get_booking_rate_card_gst_rate(booking: Booking) -> Decimal | None:
+    rate_card = (
+        RateCard.objects.filter(
+            unit=booking.media_unit,
+            start_date__lte=booking.end_date,
+            end_date__gte=booking.start_date,
+            tax_percentage__gt=ZERO,
+        )
+        .order_by("-start_date", "-id")
+        .first()
+    )
+    if not rate_card:
+        return None
+    return parse_configured_decimal(rate_card.tax_percentage)
+
+
+def is_gst_registered_invoice(invoice: Invoice) -> bool:
+    if invoice.supplier_gstin or getattr(invoice.supplier_profile, "gstin", ""):
+        return True
+    profile = get_company_profile()
+    return bool(getattr(profile, "gstin", ""))
+
+
+def populate_supplier_snapshot_from_company_profile(invoice: Invoice) -> None:
+    profile = get_company_profile()
+    if not profile:
+        return
+    invoice.supplier_legal_name = invoice.supplier_legal_name or profile.legal_name or profile.company_name
+    invoice.supplier_trade_name = invoice.supplier_trade_name or profile.company_name
+    invoice.supplier_gstin = invoice.supplier_gstin or profile.gstin
+    invoice.supplier_state_code = invoice.supplier_state_code or profile.state_code
+    if profile.address and not invoice.supplier_address_line_1:
+        invoice.supplier_address_line_1 = profile.address
+    invoice.supplier_contact_email = invoice.supplier_contact_email or profile.communication_email
+    invoice.supplier_contact_phone = invoice.supplier_contact_phone or profile.phone
+
+
+def populate_place_of_supply_from_bookings(invoice: Invoice) -> None:
+    if invoice.place_of_supply_state or invoice.place_of_supply_state_code:
+        return
+    if invoice.client_billing_state or invoice.client_billing_state_code:
+        invoice.place_of_supply_state = invoice.client_billing_state
+        invoice.place_of_supply_state_code = invoice.client_billing_state_code
+        return
+    first_line = next(iter(invoice.lines.all().order_by("line_number", "id")), None)
+    booking = getattr(first_line, "booking", None)
+    site = getattr(getattr(booking, "media_unit", None), "site", None)
+    if site and site.state:
+        invoice.place_of_supply_state = site.state
+
+
+def states_match(*, supplier_state_code: str = "", supplier_state: str = "", place_state_code: str = "", place_state: str = "") -> bool:
+    supplier_state_code = (supplier_state_code or "").strip().upper()
+    place_state_code = (place_state_code or "").strip().upper()
+    if supplier_state_code and place_state_code:
+        return supplier_state_code == place_state_code
+
+    supplier_state = (supplier_state or "").strip().casefold()
+    place_state = (place_state or "").strip().casefold()
+    return bool(supplier_state and place_state and supplier_state == place_state)
+
+
+def resolve_gst_rate_for_booking(booking: Booking, *, sac_code: str = "", requested_gst_rate: Decimal | None = None) -> Decimal | None:
+    requested_rate = parse_configured_decimal(requested_gst_rate)
+    if requested_rate is not None:
+        return requested_rate
+
+    rate_card_rate = get_booking_rate_card_gst_rate(booking)
+    if rate_card_rate is not None:
+        return rate_card_rate
+
+    return get_settings_gst_rate(sac_code=sac_code)
+
+
+def validate_gst_rate_available(invoice: Invoice, *, taxable_value: Decimal, gst_rate: Decimal, line) -> None:
+    if taxable_value <= ZERO or not is_gst_registered_invoice(invoice):
+        return
+    if gst_rate > ZERO:
+        return
+    line_label = getattr(line, "line_number", "") or getattr(line, "pk", "")
+    raise ValidationError(
+        {
+            "gst_rate": [
+                f"GST rate is required for taxable invoice line {line_label}. Configure a rate card tax percentage, "
+                "billing GST setting, or invoice line GST rate before issuing the invoice."
+            ]
+        }
+    )
 
 
 def build_booking_invoice_line_payload(booking: Booking, *, line_number: int) -> dict:
@@ -147,10 +281,18 @@ def allocate_invoice_number(document_type: str, financial_year: str) -> str:
 def calculate_invoice_totals(invoice: Invoice) -> Invoice:
     if invoice.supplier_profile:
         populate_supplier_snapshot(invoice, invoice.supplier_profile)
+    else:
+        populate_supplier_snapshot_from_company_profile(invoice)
+    populate_place_of_supply_from_bookings(invoice)
 
     supplier_state_code = (invoice.supplier_state_code or "").strip().upper()
     place_of_supply_state_code = (invoice.place_of_supply_state_code or "").strip().upper()
-    is_intra_state = bool(supplier_state_code and supplier_state_code == place_of_supply_state_code)
+    is_intra_state = states_match(
+        supplier_state_code=supplier_state_code,
+        supplier_state=invoice.supplier_state,
+        place_state_code=place_of_supply_state_code,
+        place_state=invoice.place_of_supply_state,
+    )
 
     taxable_total = ZERO
     discount_total = ZERO
@@ -170,6 +312,11 @@ def calculate_invoice_totals(invoice: Invoice) -> Invoice:
             taxable_value = ZERO
 
         gst_rate = quantize_money(line.gst_rate or ZERO)
+        if gst_rate <= ZERO and getattr(line, "booking_id", None):
+            resolved_rate = resolve_gst_rate_for_booking(line.booking, sac_code=line.sac_code or line.hsn_code)
+            if resolved_rate is not None:
+                gst_rate = resolved_rate
+        validate_gst_rate_available(invoice, taxable_value=taxable_value, gst_rate=gst_rate, line=line)
         cess_rate = quantize_money(line.cess_rate or ZERO)
 
         cgst_rate = ZERO
@@ -715,12 +862,14 @@ class InvoiceService(BaseService):
         return render_invoice_pdf_download(instance, actor=actor)
 
     @transaction.atomic
-    def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=Decimal("18.00"), sac_code="998361"):
+    def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=None, sac_code=DEFAULT_SAC_CODE):
         invoice_date = invoice_date or timezone.localdate()
         due_date = due_date or invoice_date + timedelta(days=15)
         existing_invoice = campaign.invoices.exclude(status=Invoice.Status.CANCELLED).order_by("-created_at").first()
         if existing_invoice:
             raise ValidationError({"campaign": ["An invoice already exists for this campaign."]})
+
+        supplier_profile = supplier_profile or get_default_supplier_profile()
 
         invoice = Invoice(
             campaign=campaign,
@@ -742,6 +891,16 @@ class InvoiceService(BaseService):
         invoice.save()
         for index, booking in enumerate(confirmed_bookings, start=1):
             line_payload = build_booking_invoice_line_payload(booking, line_number=index)
+            line_gst_rate = resolve_gst_rate_for_booking(booking, sac_code=sac_code, requested_gst_rate=gst_rate)
+            if is_gst_registered_invoice(invoice) and line_gst_rate is None:
+                raise ValidationError(
+                    {
+                        "gst_rate": [
+                            "GST rate is required for taxable booking invoice lines. Configure a media rate card tax "
+                            "percentage, billing GST setting, or pass an invoice GST rate."
+                        ]
+                    }
+                )
             InvoiceLine.objects.create(
                 invoice=invoice,
                 booking=booking,
@@ -761,7 +920,7 @@ class InvoiceService(BaseService):
                 quantity=Decimal("1.00"),
                 unit_of_measure="booking",
                 unit_price=line_payload["line_total"],
-                gst_rate=gst_rate,
+                gst_rate=line_gst_rate or ZERO,
             )
         calculate_invoice_totals(invoice)
         invoice.save()
@@ -778,7 +937,6 @@ class InvoiceService(BaseService):
             invoice_date=timezone.localdate(),
             due_date=timezone.localdate() + timedelta(days=15),
             payment_terms="Net 15",
-            gst_rate=Decimal("0.00"),
         )
 
 

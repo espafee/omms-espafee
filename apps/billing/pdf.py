@@ -340,7 +340,8 @@ def _service_summary_height(items: list[tuple[str, str]]) -> float:
 
 
 def _draw_line_items_table(canvas: Canvas, invoice: Invoice, y: float, page_number: int) -> tuple[float, int]:
-    columns = _line_table_columns()
+    include_gst = _invoice_has_gst(invoice)
+    columns = _line_table_columns(include_gst=include_gst)
     rows = list(invoice.lines.all().order_by("line_number", "id")) or [None]
 
     _draw_text(canvas, "Invoice Items", MARGIN_X, y, font="Helvetica-Bold", size=11, color=FOREST_DARK)
@@ -349,7 +350,7 @@ def _draw_line_items_table(canvas: Canvas, invoice: Invoice, y: float, page_numb
     y = _draw_line_table_header(canvas, y, columns)
 
     for index, line in enumerate(rows, start=1):
-        row = _line_row(line, invoice, index)
+        row = _line_row(line, invoice, index, include_gst=include_gst)
         row_height = _line_row_height(row, columns)
         if y - row_height < CONTENT_BOTTOM + 8 * mm:
             y, page_number = _new_page(canvas, invoice, page_number, continued=True)
@@ -363,17 +364,18 @@ def _draw_line_items_table(canvas: Canvas, invoice: Invoice, y: float, page_numb
     return y - 5 * mm, page_number
 
 
-def _line_table_columns() -> list[tuple[str, float]]:
+def _line_table_columns(*, include_gst: bool) -> list[tuple[str, float]]:
     fixed = [
         ("#", 16),
-        ("Description", 190),
+        ("Description", 190 if include_gst else 216),
         ("Period", 54),
         ("HSN/SAC", 42),
         ("Qty", 25),
         ("Rate", 48),
         ("Taxable", 52),
-        ("GST %", 33),
     ]
+    if include_gst:
+        fixed.append(("GST %", 33))
     fixed_width = sum(width for _, width in fixed)
     return [*fixed, ("Total", TABLE_WIDTH - fixed_width)]
 
@@ -448,45 +450,56 @@ def _line_row_height(row: dict, columns: list[tuple[str, float]]) -> float:
     return max(15 * mm, desc_height + 2, *(value_heights or [0]))
 
 
-def _line_row(line, invoice: Invoice, index: int) -> dict:
+def _line_row(line, invoice: Invoice, index: int, *, include_gst: bool) -> dict:
     if line is None:
+        values = {"#": str(index), "Period": "", "HSN/SAC": "", "Qty": "", "Rate": "", "Taxable": "", "Total": ""}
+        if include_gst:
+            values["GST %"] = ""
         return {
             "description": {"title": "No line items available", "details": []},
-            "values": {"#": str(index), "Period": "", "HSN/SAC": "", "Qty": "", "Rate": "", "Taxable": "", "GST %": "", "Total": ""},
+            "values": values,
         }
 
+    values = {
+        "#": str(index),
+        "Period": _line_period(line, invoice),
+        "HSN/SAC": _clean(line.hsn_code or line.sac_code),
+        "Qty": _decimal_label(line.quantity),
+        "Rate": format_money(line.unit_price),
+        "Taxable": format_money(line.taxable_value),
+        "Total": format_money(line.line_total),
+    }
+    if include_gst:
+        values["GST %"] = _percent(line.gst_rate)
     return {
         "description": _line_description(line),
-        "values": {
-            "#": str(index),
-            "Period": _line_period(line, invoice),
-            "HSN/SAC": _clean(line.hsn_code or line.sac_code),
-            "Qty": _decimal_label(line.quantity),
-            "Rate": format_money(line.unit_price),
-            "Taxable": format_money(line.taxable_value),
-            "GST %": _percent(line.gst_rate),
-            "Total": format_money(line.line_total),
-        },
+        "values": values,
     }
 
 
 def _summary_section_height(invoice: Invoice) -> float:
+    if not _invoice_has_gst(invoice):
+        return 42 * mm
     tax_rows = _build_tax_summary(invoice)
     tax_height = 15 * mm + (len(tax_rows) * 7 * mm)
     return max(35 * mm, tax_height) + 14 * mm
 
 
 def _draw_financial_summary(canvas: Canvas, invoice: Invoice, y: float) -> float:
+    include_gst = _invoice_has_gst(invoice)
     tax_rows = _build_tax_summary(invoice)
     gap = 5 * mm
-    tax_width = TABLE_WIDTH * 0.64
+    tax_width = TABLE_WIDTH * 0.64 if include_gst else TABLE_WIDTH * 0.52
     totals_width = TABLE_WIDTH - tax_width - gap
-    tax_height = max(35 * mm, 15 * mm + (len(tax_rows) * 7 * mm))
+    tax_height = max(35 * mm, 15 * mm + (len(tax_rows) * 7 * mm)) if include_gst else 30 * mm
     totals_height = 39 * mm
     section_height = max(tax_height, totals_height)
 
-    _draw_tax_summary(canvas, MARGIN_X, y, tax_width, tax_height, tax_rows)
-    _draw_totals_card(canvas, MARGIN_X + tax_width + gap, y, totals_width, totals_height, invoice)
+    if include_gst:
+        _draw_tax_summary(canvas, MARGIN_X, y, tax_width, tax_height, tax_rows)
+    else:
+        _draw_non_gst_note(canvas, MARGIN_X, y, tax_width, tax_height)
+    _draw_totals_card(canvas, MARGIN_X + tax_width + gap, y, totals_width, totals_height, invoice, include_gst=include_gst)
 
     y -= section_height + 4 * mm
     amount_height = 10 * mm
@@ -536,15 +549,34 @@ def _draw_tax_summary(canvas: Canvas, x: float, y: float, width: float, height: 
         row_y -= 7 * mm
 
 
-def _draw_totals_card(canvas: Canvas, x: float, y: float, width: float, height: float, invoice: Invoice) -> None:
+def _draw_non_gst_note(canvas: Canvas, x: float, y: float, width: float, height: float) -> None:
+    _draw_card(canvas, x, y, width, height, "Tax Status")
+    _draw_wrapped_text(
+        canvas,
+        "Non-GST bill. Supplier GST registration is not configured, so GST is not applied.",
+        x + 4 * mm,
+        y - 12 * mm,
+        width - 8 * mm,
+        size=7.3,
+        leading=8,
+        color=MUTED,
+    )
+
+
+def _draw_totals_card(canvas: Canvas, x: float, y: float, width: float, height: float, invoice: Invoice, *, include_gst: bool) -> None:
     _draw_card(canvas, x, y, width, height, "Totals", fill=MINT)
     rows = [
         ("Subtotal", invoice.subtotal),
         ("Discount", invoice.discount_total),
-        ("CGST", invoice.cgst_total),
-        ("SGST", invoice.sgst_total),
-        ("IGST", invoice.igst_total),
     ]
+    if include_gst:
+        rows.extend(
+            [
+                ("CGST", invoice.cgst_total),
+                ("SGST", invoice.sgst_total),
+                ("IGST", invoice.igst_total),
+            ]
+        )
     row_y = y - 10.5 * mm
     for label, value in rows:
         _draw_text(canvas, label, x + 4.5 * mm, row_y, size=6.7, color=MUTED)
@@ -882,6 +914,12 @@ def _build_tax_summary(invoice: Invoice) -> list[dict[str, Decimal | str]]:
         total_tax = values["cgst"] + values["sgst"] + values["igst"]
         rows.append({"rate": rate, **values, "total_tax": total_tax})
     return rows or [{"rate": "", "taxable": ZERO, "cgst": ZERO, "sgst": ZERO, "igst": ZERO, "total_tax": ZERO}]
+
+
+def _invoice_has_gst(invoice: Invoice) -> bool:
+    if invoice.supplier_gstin or quantize_money(invoice.total_tax) > ZERO:
+        return True
+    return any(quantize_money(line.gst_rate) > ZERO for line in invoice.lines.all())
 
 
 def _build_service_location(invoice: Invoice) -> str:
