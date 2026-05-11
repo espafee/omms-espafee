@@ -10,8 +10,10 @@ from rest_framework.test import APIClient
 
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
+from apps.issues.models import Issue
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.poe.models import ProofOfExecution, ProofOfExecutionMedia, ProofOfExecutionVerificationLog
+from apps.poe.services import ProofOfExecutionService
 
 User = get_user_model()
 
@@ -92,6 +94,33 @@ class PoeVerificationAPITests(TestCase):
         )
         return poe
 
+    def _create_poe_through_service(self, latitude, longitude):
+        poe = ProofOfExecutionService().create(
+            actor=self.operations,
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now(),
+            latitude=Decimal(latitude),
+            longitude=Decimal(longitude),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+        ProofOfExecutionMedia.objects.create(
+            poe_record=poe,
+            media_url="https://example.com/proof.jpg",
+            media_type="image",
+            captured_by=self.operations,
+        )
+        return poe
+
+    def _open_issue_after_poe(self):
+        return Issue.objects.create(
+            booking=self.booking,
+            reported_by=self.operations,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.DAMAGE,
+            description="Replacement POE required after issue follow-up.",
+        )
+
     def test_verify_endpoint_marks_record_verified_when_location_matches(self):
         poe = self._create_poe("19.076500", "72.878000")
         self.client.force_authenticate(user=self.operations)
@@ -104,6 +133,75 @@ class PoeVerificationAPITests(TestCase):
         poe.refresh_from_db()
         self.assertEqual(poe.verification_status, ProofOfExecution.VerificationStatus.VERIFIED)
         self.assertEqual(ProofOfExecutionVerificationLog.objects.filter(poe_record=poe).count(), 1)
+
+    def test_first_poe_captures_provisional_location_for_unmapped_site(self):
+        self.site.latitude = None
+        self.site.longitude = None
+        self.site.location_status = MediaSite.LocationStatus.UNVERIFIED
+        self.site.location_source = ""
+        self.site.save(update_fields=["latitude", "longitude", "location_status", "location_source", "updated_at"])
+
+        self._create_poe_through_service("19.076500", "72.878000")
+
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.latitude, Decimal("19.076500"))
+        self.assertEqual(self.site.longitude, Decimal("72.878000"))
+        self.assertEqual(self.site.location_status, MediaSite.LocationStatus.PROVISIONAL)
+        self.assertEqual(self.site.location_source, MediaSite.LocationSource.FIRST_VERIFIED_POE)
+
+    def test_verified_first_poe_locks_unmapped_site_coordinates(self):
+        self.site.latitude = None
+        self.site.longitude = None
+        self.site.location_status = MediaSite.LocationStatus.UNVERIFIED
+        self.site.location_source = ""
+        self.site.save(update_fields=["latitude", "longitude", "location_status", "location_source", "updated_at"])
+        poe = self._create_poe_through_service("19.076500", "72.878000")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(reverse("poe-verify"), {"poe_record": poe.id}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["verification_status"], ProofOfExecution.VerificationStatus.VERIFIED)
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.location_status, MediaSite.LocationStatus.VERIFIED)
+        self.assertEqual(self.site.location_source, MediaSite.LocationSource.FIRST_VERIFIED_POE)
+        self.assertEqual(self.site.location_verified_by, self.operations)
+        self.assertIsNotNone(self.site.location_verified_at)
+
+    def test_future_poe_near_locked_site_passes_without_overwriting_coordinates(self):
+        first_poe = self._create_poe_through_service("19.076500", "72.878000")
+        ProofOfExecutionService().verify_record(first_poe, actor=self.operations)
+        self.site.refresh_from_db()
+        locked_latitude = self.site.latitude
+        locked_longitude = self.site.longitude
+        self._open_issue_after_poe()
+        second_poe = self._create_poe_through_service("19.076600", "72.878100")
+
+        result = ProofOfExecutionService().verify_record(second_poe, actor=self.operations)
+
+        self.assertEqual(result["verification_status"], ProofOfExecution.VerificationStatus.VERIFIED)
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.latitude, locked_latitude)
+        self.assertEqual(self.site.longitude, locked_longitude)
+        self.assertEqual(self.site.location_status, MediaSite.LocationStatus.VERIFIED)
+
+    def test_future_poe_far_from_locked_site_is_flagged_without_overwriting_coordinates(self):
+        first_poe = self._create_poe_through_service("19.076500", "72.878000")
+        ProofOfExecutionService().verify_record(first_poe, actor=self.operations)
+        self.site.refresh_from_db()
+        locked_latitude = self.site.latitude
+        locked_longitude = self.site.longitude
+        self._open_issue_after_poe()
+        second_poe = self._create_poe_through_service("19.079000", "72.878000")
+
+        result = ProofOfExecutionService().verify_record(second_poe, actor=self.operations)
+
+        self.assertEqual(result["verification_status"], ProofOfExecution.VerificationStatus.SUSPICIOUS)
+        self.assertTrue(result["suspicious"])
+        self.site.refresh_from_db()
+        self.assertEqual(self.site.latitude, locked_latitude)
+        self.assertEqual(self.site.longitude, locked_longitude)
+        self.assertEqual(self.site.location_status, MediaSite.LocationStatus.VERIFIED)
 
     def test_verify_endpoint_marks_record_suspicious_when_distance_exceeds_threshold(self):
         poe = self._create_poe("19.078700", "72.877700")

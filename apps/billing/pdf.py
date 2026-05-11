@@ -183,14 +183,16 @@ def _draw_company_identity(canvas: Canvas, invoice: Invoice, profile, x: float, 
     _draw_wrapped_text(canvas, company_name, text_x, top - 0.5 * mm, text_width, font="Helvetica-Bold", size=12.4, leading=13.2, color=FOREST_DARK, max_lines=2)
 
     y = top - 11.5 * mm
-    legal_name = invoice.supplier_legal_name if invoice.supplier_trade_name and invoice.supplier_legal_name != invoice.supplier_trade_name else ""
+    legal_name = _company_legal_name(invoice, profile)
+    if legal_name == company_name:
+        legal_name = ""
     if legal_name:
         used = _draw_wrapped_text(canvas, legal_name, text_x, y, text_width, size=7.3, leading=7.8, color=MUTED, max_lines=1)
         y -= max(used, 1) * 3.5 * mm
 
     contact = _join(
-        f"Email: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
-        f"Phone: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
+        f"Email: {_company_email(invoice, profile)}" if _company_email(invoice, profile) else "",
+        f"Phone: {_company_phone(invoice, profile)}" if _company_phone(invoice, profile) else "",
         sep="  |  ",
     )
     if contact:
@@ -814,26 +816,33 @@ def _draw_footer(canvas: Canvas, page_number: int, total_pages: int | None = Non
 
 
 def _supplier_card(invoice: Invoice) -> dict[str, list[str] | str]:
-    name = invoice.supplier_trade_name or invoice.supplier_legal_name or "Supplier"
-    legal_name = invoice.supplier_legal_name if invoice.supplier_trade_name and invoice.supplier_legal_name != invoice.supplier_trade_name else ""
-    address = _join(
+    profile = _get_company_profile()
+    name = _company_display_name(invoice, profile)
+    legal_name = _company_legal_name(invoice, profile)
+    if legal_name == name:
+        legal_name = ""
+    profile_address = _clean(getattr(profile, "address", ""))
+    address = profile_address or _join(
         invoice.supplier_address_line_1,
         invoice.supplier_address_line_2,
         invoice.supplier_city,
         invoice.supplier_state,
         invoice.supplier_postal_code,
-        invoice.supplier_country,
     )
+    gstin = _company_gstin(invoice, profile)
+    state_code = _company_state_code(invoice, profile)
+    email = _company_email(invoice, profile)
+    phone = _company_phone(invoice, profile)
     contact = _join(
-        f"Email: {invoice.supplier_contact_email}" if invoice.supplier_contact_email else "",
-        f"Phone: {invoice.supplier_contact_phone}" if invoice.supplier_contact_phone else "",
+        f"Email: {email}" if email else "",
+        f"Phone: {phone}" if phone else "",
         sep="  |  ",
     )
     lines = [
         legal_name,
         f"Address: {address}" if address else "",
-        f"GSTIN: {invoice.supplier_gstin}" if invoice.supplier_gstin else "",
-        f"State Code: {invoice.supplier_state_code}" if invoice.supplier_state_code else "",
+        f"GSTIN: {gstin}" if gstin else "",
+        f"State Code: {state_code}" if state_code else "",
         contact,
     ]
     return {"name": name, "lines": [line for line in lines if _clean(line)]}
@@ -846,7 +855,6 @@ def _client_card(invoice: Invoice) -> dict[str, list[str] | str]:
         invoice.client_billing_city,
         invoice.client_billing_state,
         invoice.client_billing_postal_code,
-        invoice.client_billing_country,
     )
     lines = [
         f"Address: {address}" if address else "",
@@ -950,11 +958,11 @@ def _build_campaign_period(invoice: Invoice) -> str:
 
 
 def _build_account_details(invoice: Invoice) -> str:
-    if invoice.supplier_profile and invoice.supplier_profile.bank_details:
-        return invoice.supplier_profile.bank_details.strip()
     profile = _get_company_profile()
     if profile and profile.bank_details:
         return profile.bank_details.strip()
+    if invoice.supplier_profile and invoice.supplier_profile.bank_details:
+        return invoice.supplier_profile.bank_details.strip()
     return "Bank details will be shared separately."
 
 
@@ -963,6 +971,7 @@ def _build_bank_detail_rows(invoice: Invoice) -> list[tuple[str, str]]:
     if raw_details == "Bank details will be shared separately.":
         return []
 
+    company_name = _company_display_name(invoice, _get_company_profile())
     rows = []
     for line in _split_lines(raw_details):
         label, separator, value = line.partition(":")
@@ -974,7 +983,11 @@ def _build_bank_detail_rows(invoice: Invoice) -> list[tuple[str, str]]:
         normalized_label = _normalize_bank_label(label)
         normalized_value = _clean(value)
         if normalized_value:
+            if normalized_label == "Account Holder" and company_name:
+                normalized_value = company_name
             rows.append((normalized_label, normalized_value))
+    if company_name and not any(label == "Account Holder" for label, _ in rows):
+        rows.insert(0, ("Account Holder", company_name))
     return rows
 
 
@@ -1066,12 +1079,32 @@ def _get_company_profile():
 
 def _company_display_name(invoice: Invoice, profile=None) -> str:
     return (
-        invoice.supplier_trade_name
-        or invoice.supplier_legal_name
+        getattr(profile, "legal_name", "")
         or getattr(profile, "company_name", "")
-        or getattr(profile, "legal_name", "")
+        or invoice.supplier_legal_name
+        or invoice.supplier_trade_name
         or "OMMS"
     )
+
+
+def _company_legal_name(invoice: Invoice, profile=None) -> str:
+    return _clean(getattr(profile, "legal_name", "")) or _clean(invoice.supplier_legal_name)
+
+
+def _company_gstin(invoice: Invoice, profile=None) -> str:
+    return _clean(getattr(profile, "gstin", "")) or _clean(invoice.supplier_gstin)
+
+
+def _company_state_code(invoice: Invoice, profile=None) -> str:
+    return _clean(getattr(profile, "state_code", "")) or _clean(invoice.supplier_state_code)
+
+
+def _company_email(invoice: Invoice, profile=None) -> str:
+    return _clean(getattr(profile, "communication_email", "")) or _clean(invoice.supplier_contact_email)
+
+
+def _company_phone(invoice: Invoice, profile=None) -> str:
+    return _clean(getattr(profile, "phone", "")) or _clean(invoice.supplier_contact_phone)
 
 
 def _campaign_label(invoice: Invoice) -> str:
@@ -1119,4 +1152,5 @@ def _required(value) -> str:
 def _clean(value, default: str = "") -> str:
     if value in ("", None):
         value = default
-    return re.sub(r"\s+", " ", str(value)).strip()
+    cleaned = re.sub(r"\s+", " ", str(value)).strip()
+    return default if cleaned.casefold() in {"-", "not provided", "none", "null"} else cleaned

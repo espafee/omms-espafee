@@ -556,6 +556,39 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - `BILLING_GST_RATE_BY_SAC`
   - production security reminders for HTTPS, cookies, CSRF/CORS, and HSTS
 
+### Billing Hardening + POE GPS Workflow Sprint
+- Latest production-readiness sprint tightened billing, invoice PDF, payment handling, and site GPS behavior.
+- Billing/payment changes:
+  - `Record Payment` action now moves the user directly to the selected invoice payment panel
+  - payment amount is prefilled from balance due
+  - frontend validates amount, date, payable invoice state, and overpayment before submit
+  - backend rejects draft/cancelled/paid invoice payments and prevents overpayment
+  - invoice payment status refresh remains explicit after payment writes, not on list/read paths
+- Invoice PDF corrections:
+  - PDF display now prefers configured company profile/setup data for header, supplier, bank account holder, and signature company
+  - optional missing placeholders such as `-` and `Not Provided` are suppressed
+  - bank labels normalize to `Account Holder`, `Account Number`, `IFSC`, and `Branch`
+  - GST calculation remains driven by configured invoice/rate-card/SAC/default tax source, with validation when a GST-registered invoice has no rate
+- Site GPS strategy:
+  - inventory site latitude/longitude remain optional at creation
+  - frontend helper text explains that coordinates are auto-captured during first verified POE
+  - site location lifecycle fields added:
+    - `location_status`: `unverified`, `provisional`, `verified`, `suspicious`
+    - `location_source`: `manual`, `first_verified_poe`, `admin_verified`
+    - `location_verified_at`
+    - `location_verified_by`
+  - first POE with GPS stores provisional coordinates if site has none
+  - verified first POE locks site coordinates with source `first_verified_poe`
+  - future POEs validate distance from locked coordinates without overwriting them
+  - admin coordinate updates are treated as admin-verified overrides
+- Targeted verification added for:
+  - payment overpayment/draft invoice rejection
+  - full payment status transition
+  - company-profile-driven PDF supplier/bank/signature display
+  - site creation without coordinates
+  - first POE GPS capture and lock
+  - near/far future POE validation against locked coordinates
+
 ## NEXT SYSTEM ENHANCEMENTS
 
 - SLA breach escalation

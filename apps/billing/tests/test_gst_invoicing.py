@@ -15,6 +15,7 @@ from apps.billing.services import CampaignEstimateService, generate_invoice_pdf,
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit, RateCard
+from apps.setup.models import CompanyProfile
 
 from .storage_backends import MemoryPrivateDocumentStorage
 
@@ -247,6 +248,38 @@ class BillingServiceTests(TestCase):
         self.assertNotIn("Not Provided", extracted_text)
         self.assertNotIn("Invoice No.", extracted_text)
         self.assertNotIn("ESPA FEE Pvt Ltd", extracted_text)
+
+    @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
+    def test_invoice_pdf_uses_company_profile_as_display_source_when_configured(self):
+        CompanyProfile.objects.update_or_create(
+            singleton_key=1,
+            defaults={
+                "company_name": "Vista Outdoor Agency",
+                "legal_name": "Vista Outdoor Agency Private Limited",
+                "communication_email": "billing@vista.test",
+                "phone": "8888888888",
+                "address": "Profile Tower, Residency Road",
+                "gstin": "01AAAAA0000A1Z5",
+                "state_code": "01",
+                "bank_details": "Account Number: 7777777777\nIFSC: TEST0001\nBranch: Residency Road",
+            },
+        )
+        issued = issue_invoice(self._build_invoice(place_of_supply_state_code="01"), self.finance)
+
+        generated = generate_invoice_pdf(issued, actor=self.finance)
+
+        pdf_bytes = MemoryPrivateDocumentStorage.saved_files[generated.pdf_file.name]
+        extracted_text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(pdf_bytes)).pages)
+        self.assertIn("Vista Outdoor Agency Private Limited", extracted_text)
+        self.assertIn("Profile Tower, Residency Road", extracted_text)
+        self.assertIn("01AAAAA0000A1Z5", extracted_text)
+        self.assertIn("Account Holder", extracted_text)
+        self.assertIn("Account Number", extracted_text)
+        self.assertIn("IFSC", extracted_text)
+        self.assertIn("Branch", extracted_text)
+        self.assertIn("For Vista Outdoor Agency Private Limited", extracted_text)
+        self.assertNotIn("Supplier\n", extracted_text)
+        self.assertNotIn("Not Provided", extracted_text)
 
     @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
     def test_invoice_pdf_uses_clean_wrapped_line_items_without_merged_values(self):
@@ -634,6 +667,70 @@ class BillingApiTests(APITestCase):
         self.assertEqual(invoice.payments.count(), 1)
         payment = invoice.payments.get()
         self.assertEqual(payment.notes, "First installment")
+
+    def test_invoice_payment_endpoint_prevents_overpayment(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "119.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("amount", response.data)
+        self.assertEqual(invoice.payments.count(), 0)
+
+    def test_invoice_payment_endpoint_marks_invoice_paid_after_full_balance(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        self.client.force_authenticate(user=self.finance)
+
+        partial_response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "40.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+            },
+            format="json",
+        )
+        full_response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "78.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+            },
+            format="json",
+        )
+
+        self.assertEqual(partial_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(full_response.status_code, status.HTTP_201_CREATED)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.PAID)
+        self.assertEqual(sum((payment.amount for payment in invoice.payments.all()), Decimal("0.00")), Decimal("118.00"))
+
+    def test_invoice_payment_endpoint_rejects_draft_invoice(self):
+        invoice = self._create_draft_invoice()
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "10.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("invoice", response.data)
 
     def test_billing_summary_endpoint_returns_financial_dashboard_payload(self):
         self._create_estimate(status=CampaignEstimate.Status.APPROVED)

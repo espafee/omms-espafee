@@ -118,14 +118,17 @@ def populate_supplier_snapshot_from_company_profile(invoice: Invoice) -> None:
     profile = get_company_profile()
     if not profile:
         return
-    invoice.supplier_legal_name = invoice.supplier_legal_name or profile.legal_name or profile.company_name
-    invoice.supplier_trade_name = invoice.supplier_trade_name or profile.company_name
-    invoice.supplier_gstin = invoice.supplier_gstin or profile.gstin
-    invoice.supplier_state_code = invoice.supplier_state_code or profile.state_code
-    if profile.address and not invoice.supplier_address_line_1:
+    invoice.supplier_legal_name = profile.legal_name or profile.company_name or invoice.supplier_legal_name
+    invoice.supplier_trade_name = profile.company_name or profile.legal_name or invoice.supplier_trade_name
+    invoice.supplier_gstin = profile.gstin or invoice.supplier_gstin
+    invoice.supplier_state_code = profile.state_code or invoice.supplier_state_code
+    if profile.address:
         invoice.supplier_address_line_1 = profile.address
-    invoice.supplier_contact_email = invoice.supplier_contact_email or profile.communication_email
-    invoice.supplier_contact_phone = invoice.supplier_contact_phone or profile.phone
+        invoice.supplier_address_line_2 = ""
+        invoice.supplier_city = ""
+        invoice.supplier_postal_code = ""
+    invoice.supplier_contact_email = profile.communication_email or invoice.supplier_contact_email
+    invoice.supplier_contact_phone = profile.phone or invoice.supplier_contact_phone
 
 
 def populate_place_of_supply_from_bookings(invoice: Invoice) -> None:
@@ -279,10 +282,9 @@ def allocate_invoice_number(document_type: str, financial_year: str) -> str:
 
 
 def calculate_invoice_totals(invoice: Invoice) -> Invoice:
+    populate_supplier_snapshot_from_company_profile(invoice)
     if invoice.supplier_profile:
         populate_supplier_snapshot(invoice, invoice.supplier_profile)
-    else:
-        populate_supplier_snapshot_from_company_profile(invoice)
     populate_place_of_supply_from_bookings(invoice)
 
     supplier_state_code = (invoice.supplier_state_code or "").strip().upper()
@@ -472,6 +474,7 @@ def issue_invoice(invoice: Invoice, actor) -> Invoice:
     if invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": ["Only draft invoices can be issued."]})
 
+    populate_supplier_snapshot_from_company_profile(invoice)
     if invoice.supplier_profile:
         populate_supplier_snapshot(invoice, invoice.supplier_profile)
     populate_invoice_issue_defaults(invoice)
@@ -677,6 +680,19 @@ def get_invoice_payment_status(
         total_paid=total_paid,
         today=today,
     )
+
+
+def get_invoice_amount_paid(invoice: Invoice) -> Decimal:
+    prefetched_payments = getattr(invoice, "_prefetched_objects_cache", {}).get("payments")
+    if prefetched_payments is not None:
+        return quantize_money(sum((payment.amount for payment in prefetched_payments), ZERO))
+    return quantize_money(invoice.payments.aggregate(total=Sum("amount")).get("total") or ZERO)
+
+
+def get_invoice_balance_due(invoice: Invoice, *, total_paid: Decimal | None = None) -> Decimal:
+    payable_total = quantize_money(invoice.grand_total or invoice.total_amount or ZERO)
+    total_paid = get_invoice_amount_paid(invoice) if total_paid is None else quantize_money(total_paid)
+    return max(payable_total - total_paid, ZERO)
 
 
 def resolve_invoice_payment_status(
@@ -1040,14 +1056,47 @@ class InvoiceLineService(BaseService):
 class PaymentService(BaseService):
     repository_class = PaymentRepository
 
+    PAYABLE_STATUSES = {
+        Invoice.Status.ISSUED,
+        Invoice.Status.PARTIALLY_PAID,
+        Invoice.Status.OVERDUE,
+    }
+
+    def _validate_payment(self, *, invoice: Invoice, amount: Decimal) -> None:
+        if invoice.status not in self.PAYABLE_STATUSES:
+            raise ValidationError(
+                {"invoice": ["Payments can be recorded only for issued invoices with an outstanding balance."]}
+            )
+
+        amount = quantize_money(amount or ZERO)
+        if amount <= ZERO:
+            raise ValidationError({"amount": ["Payment amount must be greater than zero."]})
+
+        balance_due = get_invoice_balance_due(invoice)
+        if amount > balance_due:
+            raise ValidationError({"amount": [f"Payment cannot exceed the current balance due of {balance_due}."]})
+
     @transaction.atomic
     def create(self, actor=None, **validated_data):
+        self._validate_payment(invoice=validated_data["invoice"], amount=validated_data["amount"])
         payment = super().create(actor=actor, **validated_data)
         self._update_invoice_status(payment.invoice)
         return payment
 
     @transaction.atomic
     def update(self, instance, actor=None, **validated_data):
+        amount = validated_data.get("amount", instance.amount)
+        invoice = validated_data.get("invoice", instance.invoice)
+        existing_paid = get_invoice_amount_paid(invoice) - instance.amount
+        if invoice.status not in self.PAYABLE_STATUSES and invoice.status != Invoice.Status.PAID:
+            raise ValidationError(
+                {"invoice": ["Payments can be updated only for payable invoices."]}
+            )
+        if quantize_money(amount or ZERO) <= ZERO:
+            raise ValidationError({"amount": ["Payment amount must be greater than zero."]})
+        payable_total = quantize_money(invoice.grand_total or invoice.total_amount or ZERO)
+        if quantize_money(amount) > max(payable_total - existing_paid, ZERO):
+            raise ValidationError({"amount": ["Payment cannot exceed the current balance due."]})
         payment = super().update(instance, actor=actor, **validated_data)
         self._update_invoice_status(payment.invoice)
         return payment

@@ -597,6 +597,7 @@ export default function InventoryPage() {
           </div>
           <p className="section-copy creation-copy">
             Add a new inventory site without leaving the dashboard. Deletion stays protected if the site is tied to active bookings.
+            Location coordinates are optional and will be auto-captured during the first verified POE upload.
           </p>
           {siteMutationError ? <p className="error">{siteMutationError}</p> : null}
           {siteMutationSuccess ? <p className="success">{siteMutationSuccess}</p> : null}
@@ -678,7 +679,11 @@ export default function InventoryPage() {
                 onChange={(event) => updateSiteForm("latitude", event.target.value)}
                 placeholder="18.520430"
               />
-              {siteFieldErrors.latitude?.length ? <p className="field-help field-help-error">{siteFieldErrors.latitude[0]}</p> : null}
+              {siteFieldErrors.latitude?.length ? (
+                <p className="field-help field-help-error">{siteFieldErrors.latitude[0]}</p>
+              ) : (
+                <p className="field-help">Auto-captured during first verified POE if left blank.</p>
+              )}
             </div>
             <div className="field">
               <label htmlFor="site-longitude">Longitude</label>
@@ -688,7 +693,11 @@ export default function InventoryPage() {
                 onChange={(event) => updateSiteForm("longitude", event.target.value)}
                 placeholder="73.856743"
               />
-              {siteFieldErrors.longitude?.length ? <p className="field-help field-help-error">{siteFieldErrors.longitude[0]}</p> : null}
+              {siteFieldErrors.longitude?.length ? (
+                <p className="field-help field-help-error">{siteFieldErrors.longitude[0]}</p>
+              ) : (
+                <p className="field-help">Coordinates lock after POE verification.</p>
+              )}
             </div>
             <div className="form-actions field-full">
               <button className="submit" type="submit" disabled={isSiteSubmitting || isLoading}>

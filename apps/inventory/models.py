@@ -21,6 +21,17 @@ class MediaSite(TimeStampedModel):
         STREET_FURNITURE = "street_furniture", "Street Furniture"
         DIGITAL = "digital", "Digital"
 
+    class LocationStatus(models.TextChoices):
+        UNVERIFIED = "unverified", "Unverified"
+        PROVISIONAL = "provisional", "Provisional"
+        VERIFIED = "verified", "Verified"
+        SUSPICIOUS = "suspicious", "Suspicious"
+
+    class LocationSource(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        FIRST_VERIFIED_POE = "first_verified_poe", "First verified POE"
+        ADMIN_VERIFIED = "admin_verified", "Admin verified"
+
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
     site_type = models.CharField(max_length=30, choices=SiteType.choices)
@@ -29,6 +40,24 @@ class MediaSite(TimeStampedModel):
     state = models.CharField(max_length=100)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    location_status = models.CharField(
+        max_length=20,
+        choices=LocationStatus.choices,
+        default=LocationStatus.UNVERIFIED,
+    )
+    location_source = models.CharField(
+        max_length=30,
+        choices=LocationSource.choices,
+        blank=True,
+    )
+    location_verified_at = models.DateTimeField(null=True, blank=True)
+    location_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="verified_site_locations",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="owned_sites",

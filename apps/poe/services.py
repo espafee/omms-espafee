@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.notifications.services import trigger_poe_uploaded_notification
 from apps.issues.services import resolve_open_issues_after_poe
+from apps.inventory.models import MediaSite
 from core.services import BaseService
 
 from .exceptions import DuplicateProofOfExecutionError
@@ -47,6 +48,7 @@ class ProofOfExecutionService(BaseService):
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
         poe_record = super().create(actor=actor, **validated_data)
+        self.capture_first_poe_location(poe_record)
         if booking:
             resolve_open_issues_after_poe(booking, poe_created_at=poe_record.created_at)
         return poe_record
@@ -69,6 +71,13 @@ class ProofOfExecutionService(BaseService):
             verification_score=outcome.score,
             verification_notes=outcome.verification_notes,
         )
+        if outcome.status == ProofOfExecution.VerificationStatus.VERIFIED:
+            self.lock_site_location_from_verified_poe(updated_instance, actor=actor)
+        elif outcome.status in {
+            ProofOfExecution.VerificationStatus.SUSPICIOUS,
+            ProofOfExecution.VerificationStatus.REJECTED,
+        }:
+            self.mark_site_location_suspicious(updated_instance)
 
         ProofOfExecutionVerificationLogService().create(
             actor=actor,
@@ -94,6 +103,69 @@ class ProofOfExecutionService(BaseService):
             "image_comparison": outcome.image_comparison,
             "content_validation": outcome.content_validation,
         }
+
+    def capture_first_poe_location(self, poe_record: ProofOfExecution):
+        site = self._get_site(poe_record)
+        if not site or not self._poe_has_coordinates(poe_record) or self._site_location_locked(site):
+            return
+
+        if site.latitude is None or site.longitude is None:
+            site.latitude = poe_record.latitude
+            site.longitude = poe_record.longitude
+            site.location_status = MediaSite.LocationStatus.PROVISIONAL
+            site.location_source = MediaSite.LocationSource.FIRST_VERIFIED_POE
+            site.save(
+                update_fields=[
+                    "latitude",
+                    "longitude",
+                    "location_status",
+                    "location_source",
+                    "updated_at",
+                ]
+            )
+
+    def lock_site_location_from_verified_poe(self, poe_record: ProofOfExecution, *, actor=None):
+        site = self._get_site(poe_record)
+        if not site or not self._poe_has_coordinates(poe_record) or self._site_location_locked(site):
+            return
+
+        site.latitude = poe_record.latitude
+        site.longitude = poe_record.longitude
+        site.location_status = MediaSite.LocationStatus.VERIFIED
+        site.location_source = MediaSite.LocationSource.FIRST_VERIFIED_POE
+        site.location_verified_at = timezone.now()
+        site.location_verified_by = actor
+        site.save(
+            update_fields=[
+                "latitude",
+                "longitude",
+                "location_status",
+                "location_source",
+                "location_verified_at",
+                "location_verified_by",
+                "updated_at",
+            ]
+        )
+
+    def mark_site_location_suspicious(self, poe_record: ProofOfExecution):
+        site = self._get_site(poe_record)
+        if not site or self._site_location_locked(site):
+            return
+        site.location_status = MediaSite.LocationStatus.SUSPICIOUS
+        site.save(update_fields=["location_status", "updated_at"])
+
+    def _get_site(self, poe_record: ProofOfExecution):
+        return getattr(getattr(getattr(poe_record, "booking", None), "media_unit", None), "site", None)
+
+    def _poe_has_coordinates(self, poe_record: ProofOfExecution) -> bool:
+        return poe_record.latitude is not None and poe_record.longitude is not None
+
+    def _site_location_locked(self, site: MediaSite) -> bool:
+        return (
+            site.location_status == MediaSite.LocationStatus.VERIFIED
+            and site.latitude is not None
+            and site.longitude is not None
+        )
 
 
 class ProofOfExecutionMediaService(BaseService):

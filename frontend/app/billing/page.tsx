@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -74,6 +74,15 @@ function getTodayLocalIsoDate() {
   return new Date(now.getTime() - timezoneOffsetMs).toISOString().slice(0, 10);
 }
 
+function parseMoney(value: string | number | null | undefined) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatMoneyInput(value: string | number | null | undefined) {
+  return Math.max(parseMoney(value), 0).toFixed(2);
+}
+
 function createEmptyLine(localId: number): EstimateLineDraft {
   return {
     localId,
@@ -89,6 +98,8 @@ function createEmptyLine(localId: number): EstimateLineDraft {
 
 export default function BillingPage() {
   const router = useRouter();
+  const paymentPanelRef = useRef<HTMLElement | null>(null);
+  const paymentAmountInputRef = useRef<HTMLInputElement | null>(null);
   const [user, setUser] = useState<StoredUser | null>(null);
   const [billingData, setBillingData] = useState<BillingPayload | null>(null);
   const [clients, setClients] = useState<ClientOption[]>([]);
@@ -591,13 +602,64 @@ export default function BillingPage() {
     }));
   }
 
+  function isInvoicePayable(invoice: Invoice) {
+    return canManageBilling && !["draft", "cancelled", "paid"].includes(invoice.payment_status) && parseMoney(invoice.balance_due) > 0;
+  }
+
+  function handleSelectInvoiceForPayment(invoice: Invoice) {
+    setSelectedInvoiceId(invoice.id);
+    setPaymentMessage("");
+    if (!canManageBilling) {
+      setPaymentError("You do not have permission to record invoice payments.");
+      return;
+    }
+
+    if (!isInvoicePayable(invoice)) {
+      setPaymentError("This invoice is not payable. Issue it first, or select an invoice with a balance due.");
+      return;
+    }
+
+    setPaymentError("");
+    setPaymentForm((current) => ({
+      ...current,
+      amount: formatMoneyInput(invoice.balance_due),
+      payment_date: current.payment_date || getTodayLocalIsoDate(),
+    }));
+
+    window.requestAnimationFrame(() => {
+      paymentPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      paymentAmountInputRef.current?.focus({ preventScroll: true });
+    });
+  }
+
   async function handleRecordPayment() {
     if (!selectedInvoiceId || isSavingPayment) {
       return;
     }
 
+    if (!selectedInvoice) {
+      setPaymentError("Select an invoice before recording payment.");
+      return;
+    }
+
+    if (!isInvoicePayable(selectedInvoice)) {
+      setPaymentError("This invoice is not payable. Issue it first, or select an invoice with a balance due.");
+      return;
+    }
+
     if (!paymentForm.amount || !paymentForm.payment_date) {
       setPaymentError("Enter the payment amount and payment date before recording payment.");
+      return;
+    }
+
+    const paymentAmount = parseMoney(paymentForm.amount);
+    const balanceDue = parseMoney(selectedInvoice.balance_due);
+    if (paymentAmount <= 0) {
+      setPaymentError("Payment amount must be greater than zero.");
+      return;
+    }
+    if (paymentAmount > balanceDue) {
+      setPaymentError(`Payment cannot exceed the current balance due of ${formatCurrency(selectedInvoice.balance_due)}.`);
       return;
     }
 
@@ -608,7 +670,7 @@ export default function BillingPage() {
     try {
       await createInvoicePayment(selectedInvoiceId, {
         ...paymentForm,
-        amount: Number(paymentForm.amount).toFixed(2),
+        amount: paymentAmount.toFixed(2),
       });
       setPaymentMessage("Payment recorded successfully.");
       setPaymentForm({
@@ -1188,7 +1250,19 @@ export default function BillingPage() {
                       <td>{formatCurrency(invoice.balance_due)}</td>
                       <td>
                         <div className="form-actions">
-                          <button className="ghost table-action" type="button" onClick={() => setSelectedInvoiceId(invoice.id)}>
+                          <button
+                            className="ghost table-action"
+                            type="button"
+                            disabled={!isInvoicePayable(invoice)}
+                            title={
+                              canManageBilling
+                                ? isInvoicePayable(invoice)
+                                  ? "Record a partial or full payment for this invoice."
+                                  : "Issue the invoice first, or select an invoice with a balance due."
+                                : "You do not have permission to record payments."
+                            }
+                            onClick={() => handleSelectInvoiceForPayment(invoice)}
+                          >
                             Record Payment
                           </button>
                           <button
@@ -1216,7 +1290,7 @@ export default function BillingPage() {
           ) : null}
         </article>
 
-        <article className="module-card">
+        <article className="module-card" ref={paymentPanelRef}>
           <div className="module-head">
             <h2>Record payment</h2>
             <span>Collections</span>
@@ -1262,12 +1336,15 @@ export default function BillingPage() {
                   <label htmlFor="payment-amount">Amount</label>
                   <input
                     id="payment-amount"
+                    ref={paymentAmountInputRef}
                     type="number"
                     min="0"
+                    max={selectedInvoice.balance_due}
                     step="0.01"
                     value={paymentForm.amount}
                     onChange={(event) => updatePaymentForm("amount", event.target.value)}
                   />
+                  <p className="field-help">Maximum available balance: {formatCurrency(selectedInvoice.balance_due)}</p>
                 </div>
                 <div className="field">
                   <label htmlFor="payment-date">Payment date</label>
@@ -1311,7 +1388,12 @@ export default function BillingPage() {
                   />
                 </div>
                 <div className="form-actions field-full">
-                  <button className="submit" type="button" disabled={isSavingPayment} onClick={() => void handleRecordPayment()}>
+                  <button
+                    className="submit"
+                    type="button"
+                    disabled={isSavingPayment || !isInvoicePayable(selectedInvoice)}
+                    onClick={() => void handleRecordPayment()}
+                  >
                     {isSavingPayment ? "Saving..." : "Record Payment"}
                   </button>
                 </div>

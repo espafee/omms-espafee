@@ -307,6 +307,30 @@ class InventoryImageAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data["code"], "SITE-NEW-001")
         self.assertEqual(response.data["owner"], self.admin.id)
+        self.assertEqual(response.data["location_status"], MediaSite.LocationStatus.VERIFIED)
+        self.assertEqual(response.data["location_source"], MediaSite.LocationSource.ADMIN_VERIFIED)
+
+    def test_admin_can_create_site_without_coordinates(self):
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            reverse("inventory-sites-list"),
+            {
+                "name": "POE Located Gantry",
+                "code": "SITE-POE-GPS-001",
+                "site_type": MediaSite.SiteType.BILLBOARD,
+                "address": "First POE capture road",
+                "city": "Bengaluru",
+                "state": "Karnataka",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["latitude"])
+        self.assertIsNone(response.data["longitude"])
+        self.assertEqual(response.data["location_status"], MediaSite.LocationStatus.UNVERIFIED)
+        self.assertEqual(response.data["location_source"], "")
 
     def test_operations_cannot_create_site(self):
         self.client.force_authenticate(user=self.operations)
