@@ -338,7 +338,8 @@ class AccessControlAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["total_invoices"], 1)
-        self.assertEqual(response.data["issued_invoices"], 1)
+        self.assertEqual(response.data["issued_invoices"], 0)
+        self.assertEqual(response.data["partially_paid_invoices"], 1)
         self.assertEqual(response.data["payment_count"], 1)
         self.assertEqual(response.data["total_invoiced"], "64900.00")
         self.assertEqual(response.data["total_paid"], "10000.00")
@@ -351,7 +352,8 @@ class AccessControlAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["total_invoices"], 2)
-        self.assertEqual(response.data["issued_invoices"], 2)
+        self.assertEqual(response.data["issued_invoices"], 0)
+        self.assertEqual(response.data["partially_paid_invoices"], 2)
         self.assertEqual(response.data["payment_count"], 2)
         self.assertEqual(response.data["total_invoiced"], "147500.00")
         self.assertEqual(response.data["total_paid"], "30000.00")

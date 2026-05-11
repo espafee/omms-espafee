@@ -46,7 +46,7 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
-    payment_mode = serializers.CharField(source="method")
+    payment_mode = serializers.CharField(source="method", required=False)
 
     class Meta:
         model = Payment
@@ -66,7 +66,7 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
-    payment_mode = serializers.CharField(source="method")
+    payment_mode = serializers.CharField(source="method", required=False)
 
     class Meta:
         model = Payment

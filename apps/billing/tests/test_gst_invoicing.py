@@ -227,9 +227,51 @@ class BillingServiceTests(TestCase):
         self.assertIn("Tax Summary", extracted_text)
         self.assertIn("Amount in Words", extracted_text)
         self.assertIn("For Authorised Signatory", extracted_text)
+        self.assertIn("GST %", extracted_text)
         self.assertIn("OMMS Media Private Limited", extracted_text)
         self.assertIn("01ABCDE1234F1Z5", extracted_text)
+        self.assertNotIn("Outdoor Media Operations & Execution Management System", extracted_text)
         self.assertNotIn("ESPA FEE Pvt Ltd", extracted_text)
+
+    @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
+    def test_invoice_pdf_uses_clean_wrapped_line_items_without_merged_values(self):
+        invoice = self._build_invoice(place_of_supply_state_code="01")
+        line = invoice.lines.get()
+        line.site_name = "SIDCO Chowk 4 No. Entry Premium Outdoor Corridor"
+        line.media_unit_label = "ESPA-001_1"
+        line.item_description = "Outdoor media display - SIDCO Chowk 4 No. Entry Premium Outdoor Corridor / ESPA-001_1"
+        line.description = line.item_description
+        line.quantity = Decimal("1.00")
+        line.unit_price = Decimal("25000.00")
+        line.discount_amount = Decimal("0.00")
+        line.save(
+            update_fields=[
+                "site_name",
+                "media_unit_label",
+                "item_description",
+                "description",
+                "quantity",
+                "unit_price",
+                "discount_amount",
+                "updated_at",
+            ]
+        )
+        issued = issue_invoice(invoice, self.finance)
+
+        generated = generate_invoice_pdf(issued, actor=self.finance)
+
+        pdf_bytes = MemoryPrivateDocumentStorage.saved_files[generated.pdf_file.name]
+        reader = PdfReader(BytesIO(pdf_bytes))
+        extracted_text = "\n".join(page.extract_text() or "" for page in reader.pages)
+        self.assertEqual(len(reader.pages), 1)
+        self.assertIn("Outdoor media display", extracted_text)
+        self.assertIn("Site: SIDCO Chowk 4 No. Entry Premium Outdoor", extracted_text)
+        self.assertIn("Corridor", extracted_text)
+        self.assertIn("Media Unit: ESPA-001_1", extracted_text)
+        self.assertIn("25,000.00", extracted_text)
+        self.assertIn("18.00%", extracted_text)
+        self.assertNotIn("25,000.000.00%", extracted_text)
+        self.assertNotIn("Outdoor media display - SIDCO", extracted_text)
 
     @patch("apps.billing.services.PrivateDocumentStorage", MemoryPrivateDocumentStorage)
     def test_generate_pdf_escapes_xml_sensitive_business_text(self):
