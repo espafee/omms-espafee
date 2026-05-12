@@ -18,6 +18,11 @@ class ProofOfExecution(TimeStampedModel):
         SUSPICIOUS = "suspicious", "Suspicious"
         REJECTED = "rejected", "Rejected"
 
+    class ReviewSlaStatus(models.TextChoices):
+        ON_TRACK = "on_track", "On Track"
+        OVERDUE = "overdue", "Overdue"
+        REVIEWED = "reviewed", "Reviewed"
+
     booking = models.ForeignKey(Booking, related_name="poe_records", on_delete=models.CASCADE)
     executed_on = models.DateField()
     captured_at = models.DateTimeField(default=timezone.now)
@@ -37,6 +42,14 @@ class ProofOfExecution(TimeStampedModel):
     )
     verification_score = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
     verification_notes = models.TextField(blank=True)
+    review_comment = models.TextField(blank=True)
+    review_due_at = models.DateTimeField(null=True, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    review_sla_status = models.CharField(
+        max_length=20,
+        choices=ReviewSlaStatus.choices,
+        default=ReviewSlaStatus.ON_TRACK,
+    )
     notes = models.TextField(blank=True)
 
     def __str__(self) -> str:

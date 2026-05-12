@@ -89,3 +89,47 @@ Use this checklist after every production deployment or major workflow change.
 ## 14. Finance Dashboard
 - Open Dashboard.
 - Expected: finance widgets show total outstanding, due soon invoices, overdue invoices, payments this month, and draft invoice count.
+- Click overdue, due soon, outstanding/unpaid, payments this month, and draft invoice widgets.
+- Expected: Billing opens with the matching invoice/payment drill-down filter.
+
+## 15. Invoice Detail And Audit
+- Open Billing.
+- Click `View Details` on an invoice.
+- Expected: invoice detail page shows metadata, line items, payment history, credit/refund history, and audit trail.
+- Use audit event type and search filters.
+- Expected: audit history filters without losing the invoice context.
+
+## 16. Paid Invoice Void / Credit Note
+- Record a partial payment against an issued invoice.
+- Open invoice detail and attempt to void it.
+- Enter void reason plus credit/refund amount, date, method, reference, and notes.
+- Expected: invoice status becomes cancelled/void.
+- Expected: original payment remains visible.
+- Expected: credit/refund record and audit event appear.
+
+## 17. Client Statement Export
+- Open Billing client statement section.
+- Select a client and load statement.
+- Click `Export CSV` and `Export PDF`.
+- Expected: CSV downloads with invoice/payment/balance rows.
+- Expected: PDF downloads with a clean client statement summary.
+
+## 18. POE Review SLA
+- Open POE as admin/operations.
+- Review pending POE rows.
+- Expected: review SLA badge shows on track, overdue, or reviewed.
+- Quick approve/reject with reviewer comment.
+- Expected: reviewer comment and reviewed status are visible after refresh.
+
+## 19. Issue Escalation
+- Create a high-priority or client/public issue.
+- Expected: high-priority issue is escalated and notification event is logged.
+- Manually escalate an issue as admin/operations with a reason.
+- Expected: issue escalation fields and issue audit event are updated.
+
+## 20. Playwright Smoke
+- From `frontend`, run `npx playwright test`.
+- Expected: smoke tests pass for public route responses, protected route shell responses, and invoice detail deep-link response.
+- Optional: set `PLAYWRIGHT_BASE_URL=https://omms.vercel.app` to run against hosted frontend instead of local dev server.
+- Playwright specs must remain under `frontend/e2e/smoke`; do not create repo-root `tests/` folders for frontend tests.
+- Backend discovery is documented in `TESTING.md` and defaults to the backend `apps` package.

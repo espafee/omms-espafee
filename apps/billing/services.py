@@ -1,4 +1,6 @@
 import logging
+import csv
+from io import BytesIO, StringIO
 from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
@@ -9,6 +11,10 @@ from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.pdfgen.canvas import Canvas
 
 from core.services import BaseService
 from core.storage_backends import PrivateDocumentStorage, build_private_document_signed_url
@@ -17,7 +23,7 @@ from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import RateCard
 
-from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import (
     build_invoice_pdf_storage_name,
     build_safe_invoice_pdf_name,
@@ -28,6 +34,7 @@ from .pdf import (
 from .repositories import (
     CampaignEstimateLineRepository,
     CampaignEstimateRepository,
+    CreditNoteRepository,
     InvoiceEventRepository,
     InvoiceLineRepository,
     InvoiceRepository,
@@ -906,6 +913,14 @@ class CampaignEstimateLineService(BaseService):
         calculate_estimate_totals(estimate)
 
 
+class CreditNoteService(BaseService):
+    repository_class = CreditNoteRepository
+
+
+class InvoiceEventService(BaseService):
+    repository_class = InvoiceEventRepository
+
+
 class InvoiceService(BaseService):
     repository_class = InvoiceRepository
 
@@ -920,6 +935,8 @@ class InvoiceService(BaseService):
     CANCELLABLE_STATUSES = {
         Invoice.Status.DRAFT,
         Invoice.Status.ISSUED,
+        Invoice.Status.PARTIALLY_PAID,
+        Invoice.Status.PAID,
         Invoice.Status.OVERDUE,
     }
 
@@ -1032,17 +1049,63 @@ class InvoiceService(BaseService):
         return render_invoice_pdf_download(instance, actor=actor)
 
     @transaction.atomic
-    def cancel(self, instance, *, actor=None, reason: str = ""):
+    def cancel(
+        self,
+        instance,
+        *,
+        actor=None,
+        reason: str = "",
+        credit_amount: Decimal | None = None,
+        credit_date: date | None = None,
+        credit_method: str = "",
+        credit_reference_number: str = "",
+        credit_notes: str = "",
+    ):
         reason = (reason or "").strip()
         if not reason:
             raise ValidationError({"reason": ["Cancellation reason is required."]})
-        invoice = Invoice.objects.select_for_update().prefetch_related("payments").get(pk=instance.pk)
+        invoice = Invoice.objects.select_for_update().prefetch_related("payments", "credit_notes").get(pk=instance.pk)
         if invoice.status == Invoice.Status.CANCELLED:
             raise ValidationError({"status": ["Invoice is already cancelled/void."]})
         if invoice.status not in self.CANCELLABLE_STATUSES:
-            raise ValidationError({"status": ["Only draft, issued, or overdue invoices without payments can be cancelled."]})
-        if invoice.payments.exists():
-            raise ValidationError({"payments": ["Invoices with recorded payments need a credit/refund workflow before voiding."]})
+            raise ValidationError({"status": ["Only draft, issued, partially paid, paid, or overdue invoices can be cancelled."]})
+
+        amount_paid = get_invoice_amount_paid(invoice)
+        credit_note = None
+        if amount_paid > ZERO:
+            if credit_amount is None or not credit_date or not credit_method:
+                raise ValidationError(
+                    {
+                        "credit_amount": ["Credit/refund amount, date, and method are required when voiding an invoice with payments."],
+                    }
+                )
+            credit_amount = quantize_money(credit_amount)
+            if credit_amount <= ZERO:
+                raise ValidationError({"credit_amount": ["Credit/refund amount must be greater than zero."]})
+            if credit_amount > amount_paid:
+                raise ValidationError({"credit_amount": [f"Credit/refund amount cannot exceed paid amount of {amount_paid}."]})
+            credit_note = CreditNote.objects.create(
+                invoice=invoice,
+                credit_date=credit_date,
+                amount=credit_amount,
+                method=credit_method,
+                reference_number=credit_reference_number,
+                reason=reason,
+                notes=credit_notes,
+                created_by=actor if getattr(actor, "is_authenticated", False) else None,
+            )
+            log_invoice_event(
+                invoice,
+                InvoiceEvent.EventType.CREDIT_NOTE_CREATED,
+                actor=actor,
+                message=f"Credit/refund recorded for {credit_note.amount}.",
+                metadata={
+                    "credit_note_id": credit_note.id,
+                    "amount": str(credit_note.amount),
+                    "method": credit_note.method,
+                    "reference_number": credit_note.reference_number,
+                },
+            )
 
         previous_status = invoice.status
         invoice.status = Invoice.Status.CANCELLED
@@ -1057,6 +1120,7 @@ class InvoiceService(BaseService):
             from_status=previous_status,
             to_status=Invoice.Status.CANCELLED,
             message=reason,
+            metadata={"credit_note_id": getattr(credit_note, "id", None), "paid_amount_preserved": str(amount_paid)},
         )
         log_invoice_status_change(
             invoice,
@@ -1068,22 +1132,35 @@ class InvoiceService(BaseService):
         return invoice
 
     def get_client_statement(self, *, client, user=None):
-        invoice_queryset = self.get_queryset(user=user).filter(campaign__client=client).exclude(status=Invoice.Status.CANCELLED)
-        invoices = list(invoice_queryset.prefetch_related("payments__recorded_by").order_by("-invoice_date", "-created_at"))
+        invoice_queryset = self.get_queryset(user=user).filter(campaign__client=client)
+        invoices = list(
+            invoice_queryset.prefetch_related("payments__recorded_by", "credit_notes__created_by")
+            .order_by("-invoice_date", "-created_at")
+        )
+        active_invoices = [invoice for invoice in invoices if invoice.status != Invoice.Status.CANCELLED]
         payments = list(
             Payment.objects.select_related("invoice", "recorded_by")
             .filter(invoice__in=invoices)
             .order_by("-payment_date", "-created_at")
         )
-        total_billed = quantize_money(sum((invoice.grand_total or invoice.total_amount or ZERO for invoice in invoices), ZERO))
-        total_paid = quantize_money(sum((payment.amount for payment in payments), ZERO))
+        credit_notes = list(
+            CreditNote.objects.select_related("invoice", "created_by")
+            .filter(invoice__in=invoices)
+            .order_by("-credit_date", "-created_at")
+        )
+        total_billed = quantize_money(sum((invoice.grand_total or invoice.total_amount or ZERO for invoice in active_invoices), ZERO))
+        total_paid = quantize_money(
+            sum((payment.amount for payment in payments if payment.invoice.status != Invoice.Status.CANCELLED), ZERO)
+        )
         unpaid_invoices = [
             invoice
-            for invoice in invoices
+            for invoice in active_invoices
             if get_invoice_balance_due(invoice) > ZERO and invoice.status != Invoice.Status.DRAFT
         ]
         return {
             "client": client,
+            "invoices": invoices,
+            "credit_notes": credit_notes,
             "total_billed": total_billed,
             "total_paid": total_paid,
             "outstanding_balance": max(total_billed - total_paid, ZERO),
@@ -1169,6 +1246,151 @@ class InvoiceService(BaseService):
             due_date=timezone.localdate() + timedelta(days=15),
             payment_terms="Net 15",
         )
+
+
+def build_client_statement_csv(statement: dict) -> bytes:
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Client", statement["client"].organization_name or statement["client"].email])
+    writer.writerow(["Total billed", statement["total_billed"]])
+    writer.writerow(["Total paid", statement["total_paid"]])
+    writer.writerow(["Outstanding balance", statement["outstanding_balance"]])
+    writer.writerow([])
+    writer.writerow(["Invoices"])
+    writer.writerow(["Invoice", "Status", "Invoice Date", "Due Date", "Total", "Paid", "Balance"])
+    for invoice in statement.get("invoices", []):
+        total_paid = get_invoice_amount_paid(invoice)
+        writer.writerow(
+            [
+                invoice.invoice_number or f"Draft #{invoice.pk}",
+                invoice.status,
+                invoice.invoice_date or invoice.issue_date or "",
+                invoice.due_date or "",
+                invoice.grand_total or invoice.total_amount or ZERO,
+                total_paid,
+                get_invoice_balance_due(invoice, total_paid=total_paid),
+            ]
+        )
+
+    writer.writerow([])
+    writer.writerow(["Payments"])
+    writer.writerow(["Invoice", "Date", "Amount", "Method", "Reference", "Recorded By", "Notes"])
+    for payment in statement.get("payments", []):
+        recorded_by = payment.recorded_by.get_full_name() or payment.recorded_by.email if payment.recorded_by else ""
+        writer.writerow(
+            [
+                payment.invoice.invoice_number or f"Invoice #{payment.invoice_id}",
+                payment.payment_date,
+                payment.amount,
+                payment.method,
+                payment.reference_number,
+                recorded_by,
+                payment.notes,
+            ]
+        )
+
+    writer.writerow([])
+    writer.writerow(["Credit Notes / Refunds"])
+    writer.writerow(["Invoice", "Date", "Amount", "Method", "Reference", "Reason", "Notes"])
+    for credit_note in statement.get("credit_notes", []):
+        writer.writerow(
+            [
+                credit_note.invoice.invoice_number or f"Invoice #{credit_note.invoice_id}",
+                credit_note.credit_date,
+                credit_note.amount,
+                credit_note.method,
+                credit_note.reference_number,
+                credit_note.reason,
+                credit_note.notes,
+            ]
+        )
+    return output.getvalue().encode("utf-8-sig")
+
+
+def render_client_statement_pdf(statement: dict) -> bytes:
+    buffer = BytesIO()
+    canvas = Canvas(buffer, pagesize=A4)
+    width, height = A4
+    margin = 16 * mm
+    y = height - margin
+    forest = colors.HexColor("#0f513d")
+    muted = colors.HexColor("#62736c")
+    border = colors.HexColor("#dbe7e1")
+
+    def text(label, value="", *, size=9, bold=False, color=colors.black):
+        nonlocal y
+        canvas.setFillColor(color)
+        canvas.setFont("Helvetica-Bold" if bold else "Helvetica", size)
+        canvas.drawString(margin, y, f"{label}{value}")
+        y -= 13
+
+    client_name = statement["client"].organization_name or statement["client"].get_full_name() or statement["client"].email
+    canvas.setFillColor(forest)
+    canvas.setFont("Helvetica-Bold", 18)
+    canvas.drawString(margin, y, "Client Statement")
+    canvas.setFont("Helvetica", 9)
+    canvas.drawRightString(width - margin, y, timezone.localdate().strftime("%d %b %Y"))
+    y -= 26
+    text("Client: ", client_name, bold=True)
+    text("Total billed: ", f"INR {statement['total_billed']:,.2f}")
+    text("Total paid: ", f"INR {statement['total_paid']:,.2f}")
+    text("Outstanding balance: ", f"INR {statement['outstanding_balance']:,.2f}", bold=True, color=forest)
+    y -= 8
+
+    canvas.setStrokeColor(border)
+    canvas.line(margin, y, width - margin, y)
+    y -= 18
+    text("Open / unpaid invoices", bold=True, color=forest)
+    canvas.setFont("Helvetica-Bold", 8)
+    columns = [margin, margin + 92, margin + 165, margin + 235, margin + 320, margin + 410]
+    for x, label in zip(columns, ["Invoice", "Status", "Invoice Date", "Due Date", "Total", "Balance"]):
+        canvas.drawString(x, y, label)
+    y -= 12
+    canvas.setFont("Helvetica", 8)
+    for invoice in statement.get("unpaid_invoices", [])[:14]:
+        total_paid = get_invoice_amount_paid(invoice)
+        values = [
+            invoice.invoice_number or f"Draft #{invoice.pk}",
+            invoice.status,
+            str(invoice.invoice_date or invoice.issue_date or ""),
+            str(invoice.due_date or ""),
+            f"{invoice.grand_total or invoice.total_amount or ZERO:,.2f}",
+            f"{get_invoice_balance_due(invoice, total_paid=total_paid):,.2f}",
+        ]
+        for x, value in zip(columns, values):
+            canvas.drawString(x, y, str(value)[:24])
+        y -= 11
+        if y < margin + 70:
+            canvas.showPage()
+            y = height - margin
+
+    y -= 10
+    text("Recent payments", bold=True, color=forest)
+    canvas.setFont("Helvetica-Bold", 8)
+    for x, label in zip([margin, margin + 92, margin + 165, margin + 245, margin + 330], ["Invoice", "Date", "Amount", "Method", "Reference"]):
+        canvas.drawString(x, y, label)
+    y -= 12
+    canvas.setFont("Helvetica", 8)
+    for payment in statement.get("payments", [])[:16]:
+        values = [
+            payment.invoice.invoice_number or f"Invoice #{payment.invoice_id}",
+            payment.payment_date,
+            f"{payment.amount:,.2f}",
+            payment.method.replace("_", " "),
+            payment.reference_number or "",
+        ]
+        for x, value in zip([margin, margin + 92, margin + 165, margin + 245, margin + 330], values):
+            canvas.drawString(x, y, str(value)[:28])
+        y -= 11
+        if y < margin + 45:
+            canvas.showPage()
+            y = height - margin
+
+    canvas.setFillColor(muted)
+    canvas.setFont("Helvetica", 8)
+    canvas.drawString(margin, margin - 2, "Generated by OMMS")
+    canvas.save()
+    return buffer.getvalue()
 
 
 class InvoiceLineService(BaseService):

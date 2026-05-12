@@ -1,7 +1,7 @@
 from core.repositories import BaseRepository
 from core.roles import CLIENT
 
-from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, Payment, SupplierProfile
+from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, Payment, SupplierProfile
 
 
 class SupplierProfileRepository(BaseRepository):
@@ -14,7 +14,7 @@ class SupplierProfileRepository(BaseRepository):
 class InvoiceRepository(BaseRepository):
     model = Invoice
     select_related = ("campaign", "campaign__client", "supplier_profile", "issued_by", "cancelled_by")
-    prefetch_related = ("lines", "payments__recorded_by", "events__actor")
+    prefetch_related = ("lines", "payments__recorded_by", "credit_notes__created_by", "events__actor")
 
     def scope_queryset(self, queryset, user=None):
         if user and getattr(user, "role", None) == CLIENT:
@@ -61,6 +61,16 @@ class PaymentRepository(BaseRepository):
         if user and getattr(user, "role", None) == CLIENT:
             queryset = queryset.filter(invoice__campaign__client=user)
         return queryset.order_by("-created_at")
+
+
+class CreditNoteRepository(BaseRepository):
+    model = CreditNote
+    select_related = ("invoice", "created_by")
+
+    def scope_queryset(self, queryset, user=None):
+        if user and getattr(user, "role", None) == CLIENT:
+            queryset = queryset.filter(invoice__campaign__client=user)
+        return queryset.order_by("-credit_date", "-created_at")
 
 
 class InvoiceEventRepository(BaseRepository):

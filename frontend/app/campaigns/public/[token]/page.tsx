@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
 
 import { SafeImage } from "@/components/safe-image";
 import {
@@ -55,7 +56,9 @@ function formatStatusLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-export default function PublicCampaignPage({ params }: { params: { token: string } }) {
+export default function PublicCampaignPage() {
+  const params = useParams<{ token: string }>();
+  const token = params.token;
   const [payload, setPayload] = useState<PublicCampaignAccessPayload | null>(null);
   const [error, setError] = useState<PublicCampaignAccessError | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,7 +71,7 @@ export default function PublicCampaignPage({ params }: { params: { token: string
       setError(null);
 
       try {
-        const response = await fetchPublicCampaignAccess(params.token);
+        const response = await fetchPublicCampaignAccess(token);
         if (isMounted) {
           setPayload(response);
         }
@@ -96,7 +99,7 @@ export default function PublicCampaignPage({ params }: { params: { token: string
     return () => {
       isMounted = false;
     };
-  }, [params.token]);
+  }, [token]);
 
   const summary = useMemo(() => {
     const bookings = payload?.campaign.bookings ?? [];

@@ -1,14 +1,9 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 import { fetchPublicIssueReport, submitPublicIssueReport, type PublicIssueReportContext } from "@/lib/issues";
-
-type ReportIssuePageProps = {
-  params: {
-    token: string;
-  };
-};
 
 const ISSUE_TYPES = [
   { value: "damage", label: "Damage" },
@@ -25,7 +20,9 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
-export default function ReportIssuePage({ params }: ReportIssuePageProps) {
+export default function ReportIssuePage() {
+  const params = useParams<{ token: string }>();
+  const token = params.token;
   const [context, setContext] = useState<PublicIssueReportContext | null>(null);
   const [issueType, setIssueType] = useState("damage");
   const [description, setDescription] = useState("");
@@ -41,7 +38,7 @@ export default function ReportIssuePage({ params }: ReportIssuePageProps) {
       setError("");
       setIsLoading(true);
       try {
-        setContext(await fetchPublicIssueReport(params.token));
+        setContext(await fetchPublicIssueReport(token));
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "This issue reporting link is not available.");
       } finally {
@@ -50,7 +47,7 @@ export default function ReportIssuePage({ params }: ReportIssuePageProps) {
     }
 
     void loadContext();
-  }, [params.token]);
+  }, [token]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -73,7 +70,7 @@ export default function ReportIssuePage({ params }: ReportIssuePageProps) {
         formData.append("image", image);
       }
 
-      const response = await submitPublicIssueReport(params.token, formData);
+      const response = await submitPublicIssueReport(token, formData);
       setSuccess(`${response.detail} Priority: ${response.priority.replace("_", " ")}.`);
       setDescription("");
       setContact("");

@@ -33,6 +33,10 @@ export type PoeRecord = {
   verification_status: string;
   verification_score: string | null;
   verification_notes: string;
+  review_comment: string;
+  review_due_at: string | null;
+  reviewed_at: string | null;
+  review_sla_status: string;
   location_confidence?: {
     captured_latitude: string | null;
     captured_longitude: string | null;
@@ -144,15 +148,16 @@ export async function createPoeWorkflow(payload: PoeWorkflowInput): Promise<PoeW
   return { record, evidence };
 }
 
-export async function quickApprovePoe(recordId: number) {
+export async function quickApprovePoe(recordId: number, comment = "") {
   return apiFetch<PoeRecord>(`poe/${recordId}/quick-approve/`, {
     method: "POST",
+    body: JSON.stringify({ comment }),
   });
 }
 
-export async function quickRejectPoe(recordId: number, reason: string) {
+export async function quickRejectPoe(recordId: number, reason: string, comment = "") {
   return apiFetch<PoeRecord>(`poe/${recordId}/quick-reject/`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify({ reason, comment }),
   });
 }

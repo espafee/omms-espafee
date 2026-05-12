@@ -332,6 +332,37 @@ class Payment(TimeStampedModel):
         return f"{invoice_label} - {self.amount}"
 
 
+class CreditNote(TimeStampedModel):
+    class Method(models.TextChoices):
+        BANK_TRANSFER = "bank_transfer", "Bank Transfer"
+        CASH = "cash", "Cash"
+        CARD = "card", "Card"
+        CHEQUE = "cheque", "Cheque"
+        ADJUSTMENT = "adjustment", "Ledger Adjustment"
+
+    invoice = models.ForeignKey(Invoice, related_name="credit_notes", on_delete=models.CASCADE)
+    credit_date = models.DateField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    method = models.CharField(max_length=30, choices=Method.choices)
+    reference_number = models.CharField(max_length=100, blank=True)
+    reason = models.TextField()
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="created_invoice_credit_notes",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-credit_date", "-created_at"]
+
+    def __str__(self) -> str:
+        invoice_label = self.invoice.invoice_number or f"Draft #{self.invoice_id}"
+        return f"Credit note {invoice_label} - {self.amount}"
+
+
 class InvoiceEvent(TimeStampedModel):
     class EventType(models.TextChoices):
         CREATED = "created", "Created"
@@ -339,6 +370,7 @@ class InvoiceEvent(TimeStampedModel):
         PDF_GENERATED = "pdf_generated", "PDF Generated"
         PDF_DOWNLOADED = "pdf_downloaded", "PDF Downloaded"
         PAYMENT_RECORDED = "payment_recorded", "Payment Recorded"
+        CREDIT_NOTE_CREATED = "credit_note_created", "Credit Note Created"
         STATUS_CHANGED = "status_changed", "Status Changed"
         VOIDED = "voided", "Voided"
 

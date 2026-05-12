@@ -164,8 +164,36 @@ class PoeVerificationAPITests(TestCase):
         approve_poe.refresh_from_db()
         reject_poe.refresh_from_db()
         self.assertEqual(approve_poe.verification_status, ProofOfExecution.VerificationStatus.VERIFIED)
+        self.assertEqual(approve_poe.review_sla_status, ProofOfExecution.ReviewSlaStatus.REVIEWED)
+        self.assertIsNotNone(approve_poe.reviewed_at)
         self.assertEqual(reject_poe.verification_status, ProofOfExecution.VerificationStatus.REJECTED)
         self.assertEqual(reject_poe.verification_notes, "Location evidence is unclear.")
+
+    def test_quick_review_actions_store_reviewer_comments(self):
+        poe = self._create_poe("19.076500", "72.878000")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("poe-quick-approve", args=[poe.id]),
+            {"comment": "GPS and image are acceptable."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        poe.refresh_from_db()
+        self.assertEqual(poe.review_comment, "GPS and image are acceptable.")
+        self.assertEqual(response.data["review_sla_status"], ProofOfExecution.ReviewSlaStatus.REVIEWED)
+
+    def test_poe_review_sla_status_marks_overdue_records(self):
+        poe = self._create_poe("19.076500", "72.878000")
+        poe.review_due_at = timezone.now() - timedelta(hours=1)
+        poe.save(update_fields=["review_due_at", "updated_at"])
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.get(reverse("poe-detail", args=[poe.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["review_sla_status"], ProofOfExecution.ReviewSlaStatus.OVERDUE)
 
     def test_first_poe_captures_provisional_location_for_unmapped_site(self):
         self.site.latitude = None

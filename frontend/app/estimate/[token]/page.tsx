@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 
 import {
   fetchPublicEstimate,
@@ -9,12 +10,6 @@ import {
   type PublicEstimatePayload,
 } from "@/lib/public-estimate";
 import { formatCurrency } from "@/lib/dashboard";
-
-type EstimatePageProps = {
-  params: {
-    token: string;
-  };
-};
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -28,7 +23,9 @@ function formatStatusLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
-export default function PublicEstimatePage({ params }: EstimatePageProps) {
+export default function PublicEstimatePage() {
+  const params = useParams<{ token: string }>();
+  const token = params.token;
   const [estimate, setEstimate] = useState<PublicEstimatePayload | null>(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -41,7 +38,7 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
       setIsLoading(true);
       setError("");
       try {
-        setEstimate(await fetchPublicEstimate(params.token));
+        setEstimate(await fetchPublicEstimate(token));
       } catch (loadError) {
         setError(getPublicEstimateActionError(loadError));
       } finally {
@@ -50,7 +47,7 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
     }
 
     void loadEstimate();
-  }, [params.token]);
+  }, [token]);
 
   async function handleDecision(decision: "approve" | "reject") {
     if (isSubmitting) {
@@ -62,7 +59,7 @@ export default function PublicEstimatePage({ params }: EstimatePageProps) {
     setIsSubmitting(true);
 
     try {
-      const updated = await submitPublicEstimateDecision(params.token, decision, comment.trim());
+      const updated = await submitPublicEstimateDecision(token, decision, comment.trim());
       setEstimate(updated);
       setComment("");
       setSuccess(

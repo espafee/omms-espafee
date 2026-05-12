@@ -39,6 +39,21 @@ export type Payment = {
   created_at: string;
 };
 
+export type CreditNote = {
+  id: number;
+  invoice: number;
+  credit_date: string;
+  amount: string;
+  method: string;
+  credit_method: string;
+  reference_number: string;
+  reason: string;
+  notes: string;
+  created_by: number | null;
+  created_by_name: string;
+  created_at: string;
+};
+
 export type InvoiceEvent = {
   id: number;
   invoice: number;
@@ -70,6 +85,7 @@ export type Invoice = {
   pdf_file?: string | null;
   lines: InvoiceLine[];
   payments: Payment[];
+  credit_notes: CreditNote[];
   events: InvoiceEvent[];
 };
 
@@ -135,6 +151,15 @@ export type InvoicePaymentCreateInput = {
   payment_mode: string;
   reference_number: string;
   notes: string;
+};
+
+export type InvoiceCancelInput = {
+  reason: string;
+  credit_amount?: string;
+  credit_date?: string;
+  credit_method?: string;
+  credit_reference_number?: string;
+  credit_notes?: string;
 };
 
 export type CampaignEstimateCreateInput = {
@@ -205,6 +230,10 @@ export async function fetchBillingData(): Promise<BillingPayload> {
   return { estimates, invoices, campaigns, summary };
 }
 
+export async function fetchInvoice(invoiceId: number) {
+  return apiFetch<Invoice>(`billing/invoices/${invoiceId}/`);
+}
+
 export async function fetchCampaignInvoicePreview(campaignId: number) {
   return apiFetch<CampaignInvoicePreview>(`campaigns/${campaignId}/invoice-preview/`);
 }
@@ -254,15 +283,46 @@ export async function createInvoicePayment(invoiceId: number, payload: InvoicePa
   });
 }
 
-export async function cancelInvoice(invoiceId: number, reason: string) {
+export async function cancelInvoice(invoiceId: number, payload: InvoiceCancelInput) {
   return apiFetch<Invoice>(`billing/invoices/${invoiceId}/cancel/`, {
     method: "POST",
-    body: JSON.stringify({ reason }),
+    body: JSON.stringify(payload),
   });
 }
 
 export async function fetchClientStatement(clientId: number) {
   return apiFetch<ClientStatement>(`billing/invoices/client-statement/?client=${clientId}`);
+}
+
+async function downloadBillingBlob(path: string, fallbackFilename: string) {
+  const token = getAccessToken();
+  const apiRoot = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
+  const response = await fetch(normalizeUrl(apiRoot, path), {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+
+  if (!response.ok) {
+    throw await parseApiError(response);
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: getFilenameFromDisposition(response.headers.get("content-disposition")) ?? fallbackFilename,
+  };
+}
+
+export async function exportClientStatementCsv(clientId: number) {
+  return downloadBillingBlob(
+    `billing/invoices/client-statement/export-csv/?client=${clientId}`,
+    `client-statement-${clientId}.csv`,
+  );
+}
+
+export async function exportClientStatementPdf(clientId: number) {
+  return downloadBillingBlob(
+    `billing/invoices/client-statement/export-pdf/?client=${clientId}`,
+    `client-statement-${clientId}.pdf`,
+  );
 }
 
 export async function generateInvoicePdf(invoiceId: number) {
@@ -300,20 +360,7 @@ function getFilenameFromDisposition(contentDisposition: string | null) {
 }
 
 export async function downloadInvoicePdf(invoiceId: number) {
-  const token = getAccessToken();
-  const apiRoot = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
-  const response = await fetch(normalizeUrl(apiRoot, `billing/invoices/${invoiceId}/download-pdf/`), {
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-
-  if (!response.ok) {
-    throw await parseApiError(response);
-  }
-
-  return {
-    blob: await response.blob(),
-    filename: getFilenameFromDisposition(response.headers.get("content-disposition")) ?? `invoice-${invoiceId}.pdf`,
-  };
+  return downloadBillingBlob(`billing/invoices/${invoiceId}/download-pdf/`, `invoice-${invoiceId}.pdf`);
 }
 
 export function getInvoiceActionError(error: unknown) {

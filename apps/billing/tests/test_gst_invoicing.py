@@ -10,7 +10,7 @@ from pypdf import PdfReader
 from rest_framework import status
 from rest_framework.test import APITestCase
 
-from apps.billing.models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from apps.billing.models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from apps.billing.services import CampaignEstimateService, generate_invoice_pdf, get_indian_financial_year, issue_invoice
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
@@ -690,7 +690,7 @@ class BillingApiTests(APITestCase):
         self.assertEqual(invoice.cancellation_reason, "Client cancelled before publication.")
         self.assertTrue(invoice.events.filter(event_type=InvoiceEvent.EventType.VOIDED).exists())
 
-    def test_invoice_cancel_endpoint_blocks_invoice_with_payments(self):
+    def test_invoice_cancel_endpoint_requires_credit_note_for_invoice_with_payments(self):
         invoice = issue_invoice(self._create_draft_invoice(), self.finance)
         Payment.objects.create(
             invoice=invoice,
@@ -708,7 +708,62 @@ class BillingApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("payments", response.data)
+        self.assertIn("credit_amount", response.data)
+
+    def test_invoice_cancel_endpoint_creates_credit_note_for_paid_invoice(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("10.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            recorded_by=self.finance,
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        response = self.client.post(
+            reverse("billing-invoices-cancel", args=[invoice.id]),
+            {
+                "reason": "Client cancelled after partial payment.",
+                "credit_amount": "10.00",
+                "credit_date": str(date.today()),
+                "credit_method": CreditNote.Method.BANK_TRANSFER,
+                "credit_reference_number": "CN-001",
+                "credit_notes": "Refund initiated.",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.CANCELLED)
+        self.assertEqual(invoice.payments.count(), 1)
+        credit_note = invoice.credit_notes.get()
+        self.assertEqual(credit_note.amount, Decimal("10.00"))
+        self.assertEqual(credit_note.reason, "Client cancelled after partial payment.")
+        self.assertTrue(invoice.events.filter(event_type=InvoiceEvent.EventType.CREDIT_NOTE_CREATED).exists())
+
+    def test_client_cannot_record_payment_or_void_invoice(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        self.client.force_authenticate(user=self.client_user)
+
+        payment_response = self.client.post(
+            reverse("billing-invoices-payments", args=[invoice.id]),
+            {
+                "amount": "10.00",
+                "payment_date": str(date.today()),
+                "payment_mode": Payment.Method.BANK_TRANSFER,
+            },
+            format="json",
+        )
+        cancel_response = self.client.post(
+            reverse("billing-invoices-cancel", args=[invoice.id]),
+            {"reason": "Client attempted void."},
+            format="json",
+        )
+
+        self.assertEqual(payment_response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(cancel_response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_client_statement_endpoint_returns_unpaid_invoices_and_payment_history(self):
         unpaid = issue_invoice(self._create_draft_invoice(), self.finance)
@@ -731,6 +786,27 @@ class BillingApiTests(APITestCase):
         self.assertEqual(len(response.data["payments"]), 1)
         self.assertEqual(response.data["payments"][0]["recorded_by_name"], self.finance.email)
         self.assertIn(unpaid.id, [item["id"] for item in response.data["unpaid_invoices"]])
+
+    def test_client_statement_exports_csv_and_pdf(self):
+        invoice = issue_invoice(self._create_draft_invoice(), self.finance)
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("10.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            recorded_by=self.finance,
+        )
+        self.client.force_authenticate(user=self.finance)
+
+        csv_response = self.client.get(f"{reverse('billing-invoices-client-statement-csv')}?client={self.client_user.id}")
+        pdf_response = self.client.get(f"{reverse('billing-invoices-client-statement-pdf')}?client={self.client_user.id}")
+
+        self.assertEqual(csv_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(csv_response["Content-Type"], "text/csv")
+        self.assertIn(b"Invoices", csv_response.content)
+        self.assertEqual(pdf_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(pdf_response["Content-Type"], "application/pdf")
+        self.assertTrue(pdf_response.content.startswith(b"%PDF"))
 
     def test_invoice_payment_endpoint_prevents_overpayment(self):
         invoice = issue_invoice(self._create_draft_invoice(), self.finance)

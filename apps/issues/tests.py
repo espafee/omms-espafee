@@ -10,11 +10,12 @@ from rest_framework.test import APIClient
 from apps.bookings.models import Assignment, Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
+from apps.notifications.models import EmailNotificationLog
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import ProofOfExecutionService
 from apps.users.models import User
 
-from .models import Issue, IssueReportToken, IssueTask
+from .models import Issue, IssueEvent, IssueReportToken, IssueTask
 
 
 class IssueApiTests(TestCase):
@@ -443,3 +444,49 @@ class IssueApiTests(TestCase):
         self.assertEqual(ProofOfExecution.objects.filter(booking=self.booking).count(), 2)
         self.assertEqual(replacement_poe.booking, self.booking)
         self.assertEqual(issue.status, Issue.Status.RESOLVED)
+
+    def test_high_priority_issue_auto_escalates_and_logs_notification(self):
+        issue = Issue.objects.create(
+            booking=self.booking,
+            assignment=self.assignment,
+            reported_by=self.field_staff,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.MISSING,
+            description="Missing creative on active campaign display.",
+        )
+
+        issue.refresh_from_db()
+        self.assertIsNotNone(issue.escalated_at)
+        self.assertTrue(issue.events.filter(event_type=IssueEvent.EventType.ESCALATED).exists())
+        self.assertTrue(
+            EmailNotificationLog.objects.filter(
+                notification_type=EmailNotificationLog.NotificationType.ISSUE_ESCALATED,
+                issue=issue,
+            ).exists()
+        )
+
+    def test_admin_can_manually_escalate_issue_with_reason(self):
+        issue = Issue.objects.create(
+            booking=self.booking,
+            assignment=self.assignment,
+            reported_by=self.field_staff,
+            reporter_type=Issue.ReporterType.FIELD_STAFF,
+            issue_type=Issue.IssueType.OTHER,
+            description="Minor copy mismatch on display.",
+        )
+        issue.escalated_at = None
+        issue.escalated_by = None
+        issue.escalation_reason = ""
+        issue.save(update_fields=["escalated_at", "escalated_by", "escalation_reason", "updated_at"])
+        self.client.force_authenticate(user=self.admin)
+
+        response = self.client.post(
+            f"/api/v1/issues/{issue.id}/escalate/",
+            {"reason": "Client requested urgent leadership review."},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        issue.refresh_from_db()
+        self.assertEqual(issue.escalated_by, self.admin)
+        self.assertEqual(issue.escalation_reason, "Client requested urgent leadership review.")

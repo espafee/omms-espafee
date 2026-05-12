@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -156,38 +157,38 @@ export default function DashboardPage() {
               <span>Billing</span>
             </div>
             <div className="module-stats">
-              <div className="module-stat">
+              <Link className="module-stat" href="/billing?invoiceStatus=unpaid">
                 <p className="stat-label">Total invoiced</p>
                 <p className="stat-value">
                   {isLoading ? "..." : formatCurrency(dashboard?.billing.total_invoiced ?? "0.00")}
                 </p>
-              </div>
-              <div className="module-stat">
+              </Link>
+              <Link className="module-stat" href="/billing?payments=this_month">
                 <p className="stat-label">Collected</p>
                 <p className="stat-value">
                   {isLoading ? "..." : formatCurrency(dashboard?.billing.total_paid ?? "0.00")}
                 </p>
-              </div>
-              <div className="module-stat">
+              </Link>
+              <Link className="module-stat" href="/billing?invoiceStatus=overdue">
                 <p className="stat-label">Overdue amount</p>
                 <p className="stat-value">
                   {isLoading ? "..." : formatCurrency(dashboard?.billing.overdue_amount ?? "0.00")}
                 </p>
-              </div>
-              <div className="module-stat">
+              </Link>
+              <Link className="module-stat" href="/billing?invoiceStatus=due_soon">
                 <p className="stat-label">Due soon</p>
                 <p className="stat-value">{isLoading ? "..." : dashboard?.billing.due_soon_invoices ?? 0}</p>
-              </div>
-              <div className="module-stat">
+              </Link>
+              <Link className="module-stat" href="/billing?payments=this_month">
                 <p className="stat-label">This month</p>
                 <p className="stat-value">
                   {isLoading ? "..." : formatCurrency(dashboard?.billing.payments_received_this_month ?? "0.00")}
                 </p>
-              </div>
-              <div className="module-stat">
+              </Link>
+              <Link className="module-stat" href="/billing?invoiceStatus=draft">
                 <p className="stat-label">Draft invoices</p>
                 <p className="stat-value">{isLoading ? "..." : dashboard?.billing.draft_invoices ?? 0}</p>
-              </div>
+              </Link>
             </div>
           </article>
         </section>

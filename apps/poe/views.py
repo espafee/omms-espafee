@@ -11,6 +11,7 @@ from core.viewsets import ServiceModelViewSet
 from .exceptions import DuplicateProofOfExecutionError
 from .serializers import (
     ProofOfExecutionMediaSerializer,
+    ProofOfExecutionApproveRequestSerializer,
     ProofOfExecutionRejectRequestSerializer,
     ProofOfExecutionSerializer,
     ProofOfExecutionVerifyRequestSerializer,
@@ -25,8 +26,8 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
     service_class = ProofOfExecutionService
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, OPERATIONS)
-    filterset_fields = ["booking", "verification_status", "checked_by"]
-    ordering_fields = ["executed_on", "captured_at", "created_at"]
+    filterset_fields = ["booking", "verification_status", "checked_by", "review_sla_status", "review_due_at"]
+    ordering_fields = ["executed_on", "captured_at", "review_due_at", "created_at"]
 
     def get_throttles(self):
         if getattr(self, "action", None) == "create":
@@ -42,7 +43,13 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
     @action(detail=True, methods=["post"], url_path="quick-approve")
     def quick_approve(self, request, pk=None):
         poe_record = self.get_object()
-        updated = self.get_service().approve_record(poe_record, actor=request.user)
+        serializer = ProofOfExecutionApproveRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = self.get_service().approve_record(
+            poe_record,
+            actor=request.user,
+            comment=serializer.validated_data.get("comment", ""),
+        )
         return Response(self.get_serializer(updated).data)
 
     @action(detail=True, methods=["post"], url_path="quick-reject")
@@ -54,6 +61,7 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
             poe_record,
             actor=request.user,
             reason=serializer.validated_data.get("reason", ""),
+            comment=serializer.validated_data.get("comment", ""),
         )
         return Response(self.get_serializer(updated).data)
 

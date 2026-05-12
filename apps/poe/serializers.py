@@ -3,7 +3,7 @@ from rest_framework import serializers
 from core.images import build_public_media_url
 
 from .models import ProofOfExecution, ProofOfExecutionMedia, ProofOfExecutionVerificationLog
-from .services import build_location_confidence
+from .services import build_location_confidence, resolve_review_sla_status
 
 
 class AbsoluteMediaUrlMixin:
@@ -68,6 +68,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
     media_items = ProofOfExecutionMediaSerializer(many=True, read_only=True)
     verification_logs = ProofOfExecutionVerificationLogSerializer(many=True, read_only=True)
     location_confidence = serializers.SerializerMethodField()
+    review_sla_status = serializers.SerializerMethodField()
 
     class Meta:
         model = ProofOfExecution
@@ -82,6 +83,10 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "verification_status",
             "verification_score",
             "verification_notes",
+            "review_comment",
+            "review_due_at",
+            "reviewed_at",
+            "review_sla_status",
             "notes",
             "location_confidence",
             "media_items",
@@ -93,6 +98,8 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "id",
             "verification_score",
             "verification_notes",
+            "reviewed_at",
+            "review_sla_status",
             "location_confidence",
             "media_items",
             "verification_logs",
@@ -102,6 +109,13 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
 
     def get_location_confidence(self, obj):
         return build_location_confidence(obj)
+
+    def get_review_sla_status(self, obj):
+        return resolve_review_sla_status(obj)
+
+
+class ProofOfExecutionApproveRequestSerializer(serializers.Serializer):
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class ProofOfExecutionVerifyRequestSerializer(serializers.Serializer):
@@ -117,6 +131,7 @@ class ProofOfExecutionVerifyRequestSerializer(serializers.Serializer):
 
 class ProofOfExecutionRejectRequestSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    comment = serializers.CharField(required=False, allow_blank=True, max_length=500)
 
 
 class ProofOfExecutionVerifyResponseSerializer(serializers.Serializer):

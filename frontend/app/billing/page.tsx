@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -11,6 +12,8 @@ import {
   createCampaignEstimate,
   createCampaignEstimateLine,
   downloadInvoicePdf,
+  exportClientStatementCsv,
+  exportClientStatementPdf,
   fetchBillingData,
   fetchCampaignInvoicePreview,
   fetchClientStatement,
@@ -62,6 +65,18 @@ const PAYMENT_MODE_OPTIONS = [
   { value: "card", label: "Card" },
   { value: "cheque", label: "Cheque" },
 ];
+
+function saveBlobDownload(blob: Blob, filename: string) {
+  const objectUrl = window.URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+}
 
 function formatDate(dateValue: string) {
   return new Intl.DateTimeFormat("en-IN", {
@@ -157,6 +172,7 @@ export default function BillingPage() {
   const [isLoadingStatement, setIsLoadingStatement] = useState(false);
   const [invoicePdfActionId, setInvoicePdfActionId] = useState<number | null>(null);
   const [invoiceCancelActionId, setInvoiceCancelActionId] = useState<number | null>(null);
+  const [invoiceFilter, setInvoiceFilter] = useState("");
 
   const canManageBilling = WRITE_ROLES.has(user?.role ?? "");
 
@@ -207,6 +223,11 @@ export default function BillingPage() {
 
     void loadBilling();
   }, [loadBilling, router]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setInvoiceFilter(params.get("invoiceStatus") ?? "");
+  }, []);
 
   const campaignMap = useMemo(() => {
     const map = new Map<number, Campaign>();
@@ -613,6 +634,25 @@ export default function BillingPage() {
     return (billingData?.invoices ?? []).find((invoice) => invoice.id === selectedInvoiceId) ?? null;
   }, [billingData, selectedInvoiceId]);
 
+  const displayedInvoices = useMemo(() => {
+    const today = getTodayLocalIsoDate();
+    const sevenDaysFromNow = new Date();
+    sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+    const dueSoonCutoff = sevenDaysFromNow.toISOString().slice(0, 10);
+    return (billingData?.invoices ?? []).filter((invoice) => {
+      if (!invoiceFilter) {
+        return true;
+      }
+      if (invoiceFilter === "unpaid") {
+        return !["draft", "cancelled", "paid"].includes(invoice.payment_status) && parseMoney(invoice.balance_due) > 0;
+      }
+      if (invoiceFilter === "due_soon") {
+        return invoice.due_date ? invoice.due_date >= today && invoice.due_date <= dueSoonCutoff : false;
+      }
+      return invoice.status === invoiceFilter || invoice.payment_status === invoiceFilter;
+    });
+  }, [billingData, invoiceFilter]);
+
   function updatePaymentForm<K extends keyof InvoicePaymentCreateInput>(field: K, value: InvoicePaymentCreateInput[K]) {
     setPaymentError("");
     setPaymentMessage("");
@@ -720,12 +760,31 @@ export default function BillingPage() {
       setInvoiceError("Cancellation reason is required.");
       return;
     }
+    const paidAmount = parseMoney(invoice.amount_paid);
+    let creditPayload = {};
+    if (paidAmount > 0) {
+      const creditAmount = window.prompt(
+        `This invoice has ${formatCurrency(invoice.amount_paid)} recorded. Enter refund/credit amount to preserve the financial trail:`,
+        formatMoneyInput(invoice.amount_paid),
+      );
+      if (!creditAmount || parseMoney(creditAmount) <= 0) {
+        setInvoiceError("Credit/refund amount is required when voiding an invoice with payments.");
+        return;
+      }
+      creditPayload = {
+        credit_amount: formatMoneyInput(creditAmount),
+        credit_date: getTodayLocalIsoDate(),
+        credit_method: "bank_transfer",
+        credit_reference_number: window.prompt("Optional refund/credit reference number:") ?? "",
+        credit_notes: window.prompt("Optional credit/refund notes:") ?? "",
+      };
+    }
 
     setInvoiceError("");
     setInvoiceMessage("");
     setInvoiceCancelActionId(invoice.id);
     try {
-      await cancelInvoice(invoice.id, reason.trim());
+      await cancelInvoice(invoice.id, { reason: reason.trim(), ...creditPayload });
       setInvoiceMessage("Invoice cancelled/voided successfully.");
       await loadBilling();
       if (selectedStatementClientId) {
@@ -757,6 +816,25 @@ export default function BillingPage() {
     }
   }
 
+  async function handleExportClientStatement(format: "csv" | "pdf") {
+    if (!selectedStatementClientId) {
+      setStatementError("Select a client before exporting a statement.");
+      return;
+    }
+    setStatementError("");
+    setStatementMessage("");
+    try {
+      const { blob, filename } =
+        format === "csv"
+          ? await exportClientStatementCsv(selectedStatementClientId)
+          : await exportClientStatementPdf(selectedStatementClientId);
+      saveBlobDownload(blob, filename);
+      setStatementMessage(`Statement ${format.toUpperCase()} exported.`);
+    } catch (exportError) {
+      setStatementError(getInvoiceActionError(exportError));
+    }
+  }
+
   async function handleDownloadInvoice(invoice: Invoice) {
     setInvoiceError("");
     setInvoiceMessage("");
@@ -764,15 +842,7 @@ export default function BillingPage() {
 
     try {
       const { blob, filename } = await downloadInvoicePdf(invoice.id);
-      const objectUrl = window.URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = objectUrl;
-      anchor.download = filename;
-      anchor.style.display = "none";
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 60_000);
+      saveBlobDownload(blob, filename);
 
       setInvoiceMessage(`Invoice PDF ready for ${invoice.invoice_number ?? `draft #${invoice.id}`}.`);
       await loadBilling();
@@ -1152,6 +1222,12 @@ export default function BillingPage() {
             <button className="ghost" type="button" disabled={!selectedStatementClientId || isLoadingStatement} onClick={() => void handleLoadClientStatement()}>
               {isLoadingStatement ? "Loading statement..." : "Load statement"}
             </button>
+            <button className="ghost" type="button" disabled={!selectedStatementClientId} onClick={() => void handleExportClientStatement("csv")}>
+              Export CSV
+            </button>
+            <button className="ghost" type="button" disabled={!selectedStatementClientId} onClick={() => void handleExportClientStatement("pdf")}>
+              Export PDF
+            </button>
           </div>
           {clientStatement ? (
             <>
@@ -1375,8 +1451,13 @@ export default function BillingPage() {
         <article className="module-card module-card-wide">
           <div className="module-head">
             <h2>Invoice roster</h2>
-            <span>{billingData?.invoices.length ?? 0} items</span>
+            <span>{displayedInvoices.length} items</span>
           </div>
+          {invoiceFilter ? (
+            <p className="section-copy">
+              Showing {invoiceFilter.replaceAll("_", " ")} invoices. <button className="ghost table-action" type="button" onClick={() => setInvoiceFilter("")}>Clear filter</button>
+            </p>
+          ) : null}
           <div className="inventory-table-wrap">
             <table className="inventory-table">
               <thead>
@@ -1393,7 +1474,7 @@ export default function BillingPage() {
                 </tr>
               </thead>
               <tbody>
-                {(billingData?.invoices ?? []).map((invoice) => {
+                {displayedInvoices.map((invoice) => {
                   const campaign = campaignMap.get(invoice.campaign);
 
                   return (
@@ -1435,6 +1516,9 @@ export default function BillingPage() {
                           >
                             Record Payment
                           </button>
+                          <Link className="ghost table-action" href={`/billing/invoices/${invoice.id}`}>
+                            View Details
+                          </Link>
                           <button
                             className="ghost table-action"
                             type="button"
@@ -1453,11 +1537,13 @@ export default function BillingPage() {
                             disabled={
                               !canManageBilling ||
                               invoiceCancelActionId === invoice.id ||
-                              invoice.status === "cancelled" ||
-                              invoice.payment_status === "paid" ||
-                              parseMoney(invoice.amount_paid) > 0
+                              invoice.status === "cancelled"
                             }
-                            title="Void/cancel invoices before payments are recorded."
+                            title={
+                              parseMoney(invoice.amount_paid) > 0
+                                ? "Void with credit/refund workflow while preserving payments."
+                                : "Void/cancel this invoice with a reason."
+                            }
                             onClick={() => void handleCancelInvoice(invoice)}
                           >
                             {invoiceCancelActionId === invoice.id ? "Voiding..." : "Void"}
@@ -1470,7 +1556,7 @@ export default function BillingPage() {
               </tbody>
             </table>
           </div>
-          {!isLoading && (billingData?.invoices.length ?? 0) === 0 ? (
+          {!isLoading && displayedInvoices.length === 0 ? (
             <p className="empty-state">No invoices yet. Generate Invoice after the campaign starts and bookings are confirmed.</p>
           ) : null}
         </article>

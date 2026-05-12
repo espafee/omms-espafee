@@ -5,6 +5,8 @@ from .views import (
     BillingSummaryView,
     CampaignEstimateLineViewSet,
     CampaignEstimateViewSet,
+    CreditNoteViewSet,
+    InvoiceEventViewSet,
     InvoiceLineViewSet,
     InvoiceViewSet,
     PaymentViewSet,
@@ -18,6 +20,8 @@ router.register("campaign-estimate-lines", CampaignEstimateLineViewSet, basename
 router.register("invoices", InvoiceViewSet, basename="billing-invoices")
 router.register("invoice-lines", InvoiceLineViewSet, basename="billing-invoice-lines")
 router.register("payments", PaymentViewSet, basename="billing-payments")
+router.register("credit-notes", CreditNoteViewSet, basename="billing-credit-notes")
+router.register("invoice-events", InvoiceEventViewSet, basename="billing-invoice-events")
 
 urlpatterns = [
     path("summary/", BillingSummaryView.as_view(), name="billing-summary"),

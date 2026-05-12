@@ -15,8 +15,10 @@ from .serializers import (
     CampaignEstimateLineSerializer,
     CampaignEstimateSerializer,
     ClientStatementSerializer,
+    CreditNoteSerializer,
     GenerateInvoiceFromBookingsSerializer,
     InvoiceCancelSerializer,
+    InvoiceEventSerializer,
     InvoiceLineSerializer,
     InvoiceSerializer,
     InvoicePaymentCreateSerializer,
@@ -27,14 +29,19 @@ from .serializers import (
     PublicEstimateDecisionSerializer,
     SupplierProfileSerializer,
 )
+from .permissions import enforce_finance_permission
 from .services import (
     CampaignEstimateLineService,
     CampaignEstimateService,
+    CreditNoteService,
     InvoiceLineService,
     InvoiceService,
+    InvoiceEventService,
     PaymentService,
     PublicEstimateAccessError,
     SupplierProfileService,
+    build_client_statement_csv,
+    render_client_statement_pdf,
 )
 
 User = get_user_model()
@@ -122,12 +129,14 @@ class InvoiceViewSet(ServiceModelViewSet):
     @extend_schema(responses=InvoiceSummarySerializer)
     @action(detail=False, methods=["get"], url_path="summary")
     def summary(self, request):
+        enforce_finance_permission(request.user, "view_finance_dashboard")
         summary = self.get_service().get_summary(user=request.user)
         return Response(InvoiceSummarySerializer(instance=summary).data)
 
     @extend_schema(request=GenerateInvoiceFromBookingsSerializer, responses=InvoiceSerializer)
     @action(detail=False, methods=["post"], url_path="generate-from-bookings")
     def generate_from_bookings(self, request):
+        enforce_finance_permission(request.user, "issue_invoice")
         serializer = GenerateInvoiceFromBookingsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         invoice = self.get_service().generate_from_bookings(actor=request.user, **serializer.validated_data)
@@ -136,6 +145,7 @@ class InvoiceViewSet(ServiceModelViewSet):
     @extend_schema(request=None, responses=InvoiceSerializer)
     @action(detail=True, methods=["post"], url_path="issue")
     def issue(self, request, pk=None):
+        enforce_finance_permission(request.user, "issue_invoice")
         invoice = self.get_object()
         issued_invoice = self.get_service().issue(invoice, actor=request.user)
         serializer = self.get_serializer(instance=issued_invoice)
@@ -144,6 +154,7 @@ class InvoiceViewSet(ServiceModelViewSet):
     @extend_schema(request=InvoiceCancelSerializer, responses=InvoiceSerializer)
     @action(detail=True, methods=["post"], url_path="cancel")
     def cancel(self, request, pk=None):
+        enforce_finance_permission(request.user, "void_invoice")
         invoice = self.get_object()
         serializer = InvoiceCancelSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -151,27 +162,66 @@ class InvoiceViewSet(ServiceModelViewSet):
             invoice,
             actor=request.user,
             reason=serializer.validated_data["reason"],
+            credit_amount=serializer.validated_data.get("credit_amount"),
+            credit_date=serializer.validated_data.get("credit_date"),
+            credit_method=serializer.validated_data.get("credit_method", ""),
+            credit_reference_number=serializer.validated_data.get("credit_reference_number", ""),
+            credit_notes=serializer.validated_data.get("credit_notes", ""),
         )
         return Response(self.get_serializer(instance=cancelled_invoice).data)
+
+    def _resolve_statement_client(self, request):
+        client_id = request.query_params.get("client")
+        if not client_id:
+            return None, Response({"client": ["Client query parameter is required."]}, status=400)
+        try:
+            client = User.objects.get(pk=client_id)
+        except User.DoesNotExist:
+            return None, Response({"client": ["Client does not exist."]}, status=404)
+        if getattr(request.user, "role", None) == CLIENT and client.pk != request.user.pk:
+            return None, Response({"detail": "You can only access your own client statement."}, status=403)
+        return client, None
 
     @extend_schema(responses=ClientStatementSerializer)
     @action(detail=False, methods=["get"], url_path="client-statement")
     def client_statement(self, request):
-        client_id = request.query_params.get("client")
-        if not client_id:
-            return Response({"client": ["Client query parameter is required."]}, status=400)
-        try:
-            client = User.objects.get(pk=client_id)
-        except User.DoesNotExist:
-            return Response({"client": ["Client does not exist."]}, status=404)
-        if getattr(request.user, "role", None) == CLIENT and client.pk != request.user.pk:
-            return Response({"detail": "You can only access your own client statement."}, status=403)
+        enforce_finance_permission(request.user, "export_statement")
+        client, error_response = self._resolve_statement_client(request)
+        if error_response:
+            return error_response
         statement = self.get_service().get_client_statement(client=client, user=request.user)
         return Response(ClientStatementSerializer(instance=statement).data)
+
+    @extend_schema(responses=None)
+    @action(detail=False, methods=["get"], url_path="client-statement/export-csv")
+    def client_statement_csv(self, request):
+        enforce_finance_permission(request.user, "export_statement")
+        client, error_response = self._resolve_statement_client(request)
+        if error_response:
+            return error_response
+        statement = self.get_service().get_client_statement(client=client, user=request.user)
+        filename = f"client-statement-{client.pk}.csv"
+        response = HttpResponse(build_client_statement_csv(statement), content_type="text/csv")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
+
+    @extend_schema(responses=None)
+    @action(detail=False, methods=["get"], url_path="client-statement/export-pdf")
+    def client_statement_pdf(self, request):
+        enforce_finance_permission(request.user, "export_statement")
+        client, error_response = self._resolve_statement_client(request)
+        if error_response:
+            return error_response
+        statement = self.get_service().get_client_statement(client=client, user=request.user)
+        filename = f"client-statement-{client.pk}.pdf"
+        response = HttpResponse(render_client_statement_pdf(statement), content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        return response
 
     @extend_schema(request=None, responses=InvoiceSerializer)
     @action(detail=True, methods=["post"], url_path="generate-pdf")
     def generate_pdf(self, request, pk=None):
+        enforce_finance_permission(request.user, "issue_invoice")
         invoice = self.get_object()
         updated_invoice = self.get_service().generate_pdf(invoice, actor=request.user)
         serializer = self.get_serializer(instance=updated_invoice)
@@ -201,6 +251,7 @@ class InvoiceViewSet(ServiceModelViewSet):
     @extend_schema(request=InvoicePaymentCreateSerializer, responses=PaymentSerializer)
     @action(detail=True, methods=["post"], url_path="payments")
     def payments(self, request, pk=None):
+        enforce_finance_permission(request.user, "record_payment")
         invoice = self.get_object()
         serializer = InvoicePaymentCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -230,12 +281,36 @@ class PaymentViewSet(ServiceModelViewSet):
     ordering_fields = ["payment_date", "amount", "created_at"]
 
 
+class CreditNoteViewSet(ServiceModelViewSet):
+    serializer_class = CreditNoteSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = CreditNoteService
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN, FINANCE)
+    filterset_fields = ["invoice", "method", "credit_date"]
+    search_fields = ["invoice__invoice_number", "reference_number", "reason", "notes"]
+    ordering_fields = ["credit_date", "amount", "created_at"]
+
+
+class InvoiceEventViewSet(ServiceModelViewSet):
+    serializer_class = InvoiceEventSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = InvoiceEventService
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN, FINANCE)
+    http_method_names = ["get", "head", "options"]
+    filterset_fields = ["invoice", "event_type", "actor", "invoice__campaign", "invoice__campaign__client"]
+    search_fields = ["message", "invoice__invoice_number", "invoice__campaign__name", "invoice__client_legal_name"]
+    ordering_fields = ["created_at", "event_type"]
+
+
 class BillingSummaryView(APIView):
     permission_classes = [RoleBasedPermission]
     allowed_roles = ALL_ROLES
     write_roles = (ADMIN, FINANCE)
 
     def get(self, request, *args, **kwargs):
+        enforce_finance_permission(request.user, "view_finance_dashboard")
         summary = InvoiceService().get_summary(user=request.user)
         return Response(
             {

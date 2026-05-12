@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.mail import send_mail
@@ -14,7 +15,7 @@ from apps.issues.models import Issue
 from apps.poe.models import ProofOfExecution
 from apps.poe.models import ProofOfExecutionMedia
 
-from .models import EmailNotificationLog
+from .models import EmailNotificationLog, NotificationPreference
 
 
 def build_frontend_public_url(path: str) -> str:
@@ -65,7 +66,13 @@ class NotificationResult:
 
 
 class NotificationService:
-    def _get_or_create_log(self, *, event_key: str, notification_type: str, campaign, booking=None, poe_record=None, poe_media=None, recipient_email: str, recipient_name: str, subject: str) -> NotificationResult:
+    def _recipient_allows_email(self, user, notification_type: str) -> bool:
+        if not user:
+            return True
+        preference = NotificationPreference.objects.filter(user=user, notification_type=notification_type).first()
+        return True if preference is None else preference.email_enabled
+
+    def _get_or_create_log(self, *, event_key: str, notification_type: str, campaign, booking=None, poe_record=None, poe_media=None, issue=None, recipient_email: str, recipient_name: str, subject: str) -> NotificationResult:
         try:
             log, created = EmailNotificationLog.objects.get_or_create(
                 event_key=event_key,
@@ -75,6 +82,7 @@ class NotificationService:
                     "booking": booking,
                     "poe_record": poe_record,
                     "poe_media": poe_media,
+                    "issue": issue,
                     "recipient_email": recipient_email,
                     "recipient_name": recipient_name,
                     "subject": subject,
@@ -106,13 +114,18 @@ class NotificationService:
         except Exception as exc:
             log.status = EmailNotificationLog.Status.FAILED
             log.error_message = str(exc)
-            log.save(update_fields=["status", "error_message", "updated_at"])
+            log.last_attempt_at = timezone.now()
+            log.retry_count += 1
+            log.next_retry_at = log.last_attempt_at + timedelta(minutes=min(60, 5 * log.retry_count))
+            log.save(update_fields=["status", "error_message", "last_attempt_at", "retry_count", "next_retry_at", "updated_at"])
             return NotificationResult(log=log, created=True)
 
         log.status = EmailNotificationLog.Status.SENT
         log.sent_at = timezone.now()
+        log.last_attempt_at = log.sent_at
+        log.next_retry_at = None
         log.error_message = ""
-        log.save(update_fields=["status", "sent_at", "error_message", "updated_at"])
+        log.save(update_fields=["status", "sent_at", "last_attempt_at", "next_retry_at", "error_message", "updated_at"])
         return NotificationResult(log=log, created=True)
 
     def send_campaign_booked_notification(self, booking: Booking, *, actor=None) -> NotificationResult:
@@ -129,6 +142,11 @@ class NotificationService:
             subject=subject,
         )
         if not result.created:
+            return result
+        if not self._recipient_allows_email(campaign.client, EmailNotificationLog.NotificationType.CAMPAIGN_BOOKED):
+            result.log.status = EmailNotificationLog.Status.SKIPPED
+            result.log.error_message = "Recipient email notifications disabled for this event."
+            result.log.save(update_fields=["status", "error_message", "updated_at"])
             return result
         if not recipient_email:
             return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body="")
@@ -170,6 +188,11 @@ class NotificationService:
             subject=subject,
         )
         if not result.created:
+            return result
+        if not self._recipient_allows_email(campaign.client, EmailNotificationLog.NotificationType.POE_UPLOADED):
+            result.log.status = EmailNotificationLog.Status.SKIPPED
+            result.log.error_message = "Recipient email notifications disabled for this event."
+            result.log.save(update_fields=["status", "error_message", "updated_at"])
             return result
         if not recipient_email:
             return self._send_logged_email(log=result.log, created=True, recipient_email=recipient_email, body="")
@@ -242,10 +265,43 @@ class NotificationService:
             notification_type=EmailNotificationLog.NotificationType.ISSUE_REPORTED,
             campaign=campaign,
             booking=issue.booking,
+            issue=issue,
             recipient_email=recipient_email,
             recipient_name=recipient_name,
             subject=f"Issue reported: {campaign.name}",
         )
+
+    def log_issue_escalated(self, issue: Issue, *, actor=None) -> NotificationResult:
+        campaign = issue.booking.campaign
+        recipient_email, recipient_name = get_client_recipient(campaign)
+        event_time = issue.escalated_at.isoformat() if getattr(issue, "escalated_at", None) else timezone.now().isoformat()
+        return self._get_or_create_log(
+            event_key=f"issue_escalated:{issue.id}:{event_time}",
+            notification_type=EmailNotificationLog.NotificationType.ISSUE_ESCALATED,
+            campaign=campaign,
+            booking=issue.booking,
+            issue=issue,
+            recipient_email=recipient_email,
+            recipient_name=recipient_name,
+            subject=f"Issue escalated: {campaign.name}",
+        )
+
+    def due_retry_queryset(self):
+        return EmailNotificationLog.objects.filter(
+            status=EmailNotificationLog.Status.FAILED,
+            next_retry_at__lte=timezone.now(),
+        ).order_by("next_retry_at", "created_at")
+
+    def mark_due_retries_pending(self, *, limit: int = 50) -> int:
+        logs = list(self.due_retry_queryset()[:limit])
+        if not logs:
+            return 0
+        EmailNotificationLog.objects.filter(id__in=[log.id for log in logs]).update(
+            status=EmailNotificationLog.Status.PENDING,
+            next_retry_at=None,
+            updated_at=timezone.now(),
+        )
+        return len(logs)
 
 
 def trigger_campaign_booked_notification(booking: Booking, *, actor=None) -> None:
@@ -288,5 +344,12 @@ def trigger_suspicious_poe_notification(poe_record: ProofOfExecution, *, actor=N
 def trigger_issue_reported_notification(issue: Issue, *, actor=None) -> None:
     try:
         NotificationService().log_issue_reported(issue, actor=actor)
+    except Exception:
+        pass
+
+
+def trigger_issue_escalated_notification(issue: Issue, *, actor=None) -> None:
+    try:
+        NotificationService().log_issue_escalated(issue, actor=actor)
     except Exception:
         pass

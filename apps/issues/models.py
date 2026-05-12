@@ -72,6 +72,15 @@ class Issue(TimeStampedModel):
     acknowledged_at = models.DateTimeField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
     sla_status = models.CharField(max_length=20, choices=SlaStatus.choices, default=SlaStatus.ON_TRACK)
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    escalated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="escalated_issues",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    escalation_reason = models.TextField(blank=True)
 
     class Meta:
         ordering = ["-created_at"]
@@ -93,15 +102,59 @@ class Issue(TimeStampedModel):
         compress_field_image(self.image)
         super().save(*args, **kwargs)
         if is_create:
+            IssueEvent.objects.create(
+                issue=self,
+                actor=self.reported_by,
+                event_type=IssueEvent.EventType.REPORTED,
+                message="Issue reported.",
+                metadata={"priority": self.priority, "sla_status": self.sla_status},
+            )
             try:
                 from apps.notifications.services import trigger_issue_reported_notification
 
                 trigger_issue_reported_notification(self, actor=self.reported_by)
             except Exception:
                 pass
+            try:
+                from .services import should_auto_escalate_issue, escalate_issue
+
+                if should_auto_escalate_issue(self):
+                    escalate_issue(self, actor=self.reported_by, reason="High priority issue requires escalation.", auto=True)
+            except Exception:
+                pass
 
     def __str__(self) -> str:
         return f"{self.get_issue_type_display()} issue for booking {self.booking_id}"
+
+
+class IssueEvent(TimeStampedModel):
+    class EventType(models.TextChoices):
+        REPORTED = "reported", "Reported"
+        ESCALATED = "escalated", "Escalated"
+        TASK_ASSIGNED = "task_assigned", "Task Assigned"
+        AUTO_RESOLVED = "auto_resolved", "Auto Resolved"
+
+    issue = models.ForeignKey(Issue, related_name="events", on_delete=models.CASCADE)
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="issue_events",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    event_type = models.CharField(max_length=30, choices=EventType.choices)
+    message = models.CharField(max_length=255, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["issue", "event_type"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.issue_id} - {self.event_type}"
 
 
 def issue_report_token_default():

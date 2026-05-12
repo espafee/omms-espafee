@@ -618,3 +618,42 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - client estimate approval refinement via public link flows
 - payment collection workflows
 - analytics dashboard
+
+## Finance Controls + Audit Review + Smoke Test Sprint
+
+- Latest sprint expands finance controls from payment recording into controlled void/refund handling.
+- Credit note/refund workflow:
+  - paid or partially paid invoices can now be voided only with a reason plus credit/refund amount, date, method, reference, and notes
+  - payment history is preserved; payments are never deleted during voiding
+  - credit/refund records are linked to the invoice and logged in invoice audit events
+- Invoice detail workflow:
+  - billing dashboard links each invoice to a dedicated invoice detail page
+  - invoice detail shows metadata, line items, payment history, credit notes, audit trail filters/search, PDF action, record payment, and void controls
+  - billing dashboard remains a roster/workbench instead of expanding all audit information inline
+- Client statement exports:
+  - client statement can now be exported as CSV or PDF
+  - exports include invoice rows, payment rows, balances, and credit/refund rows where present
+- Notification readiness:
+  - notification logs now include issue links, retry count, last attempt, and next retry timestamp
+  - user notification preferences allow event-level email enable/disable
+  - issue escalation notification event added
+- Issue escalation/audit:
+  - high-priority/SLA-breached issues can escalate automatically
+  - admin users can manually escalate issues with a reason
+  - issue events record reported, escalated, task assigned, and auto-resolved milestones
+- POE review SLA:
+  - POE records now track review due date, reviewed timestamp, reviewer comment, and SLA status
+  - POE review queue shows SLA badges and reviewer comments
+- Finance permissions:
+  - granular finance permission checks now protect invoice issue, payment recording, voiding, statement export, and finance dashboard access
+  - clients remain scoped to their own finance data
+- Dashboard drill-downs:
+  - finance widgets deep-link to billing filters for unpaid, overdue, due-soon, draft invoices, and payments this month
+- Automated smoke testing:
+  - Playwright smoke setup added under `frontend/e2e/smoke`
+  - tests verify public/protected routes and invoice detail deep-link route respond without server errors
+- Test architecture isolation:
+  - Django `manage.py test` defaults to backend `apps` discovery through `core.test_runner.BackendOnlyDiscoverRunner`
+  - `pytest.ini` excludes frontend, node, build, Playwright, media, and static artifact folders
+  - Playwright reports, traces, videos, screenshots, and test results are frontend-scoped and gitignored
+  - `TESTING.md` documents backend, frontend, and E2E commands as separate phases

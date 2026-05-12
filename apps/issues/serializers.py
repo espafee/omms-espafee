@@ -5,7 +5,7 @@ from apps.bookings.models import Assignment, Booking
 from core.images import build_public_media_url
 from core.roles import FIELD_STAFF
 
-from .models import Issue, IssueTask
+from .models import Issue, IssueEvent, IssueTask
 from .services import sync_issue_sla_status
 
 User = get_user_model()
@@ -28,6 +28,7 @@ class IssueSerializer(serializers.ModelSerializer):
     booking_display = serializers.SerializerMethodField()
     reported_by_email = serializers.EmailField(source="reported_by.email", read_only=True)
     assignment_user_email = serializers.EmailField(source="assignment.user.email", read_only=True)
+    escalated_by_email = serializers.EmailField(source="escalated_by.email", read_only=True)
 
     class Meta:
         model = Issue
@@ -55,6 +56,10 @@ class IssueSerializer(serializers.ModelSerializer):
             "resolution_due_at",
             "acknowledged_at",
             "sla_status",
+            "escalated_at",
+            "escalated_by",
+            "escalated_by_email",
+            "escalation_reason",
             "created_at",
             "updated_at",
             "resolved_at",
@@ -70,6 +75,10 @@ class IssueSerializer(serializers.ModelSerializer):
             "resolution_due_at",
             "acknowledged_at",
             "sla_status",
+            "escalated_at",
+            "escalated_by",
+            "escalated_by_email",
+            "escalation_reason",
             "created_at",
             "updated_at",
             "resolved_at",
@@ -114,6 +123,25 @@ class IssueSerializer(serializers.ModelSerializer):
         if reporter_type == Issue.ReporterType.CLIENT:
             raise serializers.ValidationError("Client issue reporting is not enabled yet.")
         return reporter_type
+
+
+class IssueEscalateSerializer(serializers.Serializer):
+    reason = serializers.CharField(min_length=3, max_length=500)
+
+
+class IssueEventSerializer(serializers.ModelSerializer):
+    actor_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = IssueEvent
+        fields = ["id", "issue", "event_type", "actor", "actor_name", "message", "metadata", "created_at"]
+        read_only_fields = fields
+
+    def get_actor_name(self, obj):
+        user = obj.actor
+        if not user:
+            return ""
+        return user.get_full_name() or user.organization_name or user.email or user.username
 
 
 class PublicIssueReportSerializer(serializers.ModelSerializer):

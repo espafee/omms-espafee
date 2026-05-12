@@ -96,13 +96,45 @@ def sync_issue_sla_status(issue):
     return issue.sla_status
 
 
+def should_auto_escalate_issue(issue) -> bool:
+    from .models import Issue
+
+    return issue.priority in {Issue.Priority.HIGH, Issue.Priority.CRITICAL} or issue.sla_status == Issue.SlaStatus.BREACHED
+
+
+def escalate_issue(issue, *, actor=None, reason: str = "", auto: bool = False):
+    from .models import IssueEvent
+
+    if issue.escalated_at:
+        return issue
+
+    issue.escalated_at = timezone.now()
+    issue.escalated_by = actor if getattr(actor, "is_authenticated", False) else None
+    issue.escalation_reason = (reason or "").strip() or ("Auto-escalated by SLA/priority rules." if auto else "Issue escalated.")
+    issue.save(update_fields=["escalated_at", "escalated_by", "escalation_reason", "updated_at"])
+    IssueEvent.objects.create(
+        issue=issue,
+        actor=issue.escalated_by,
+        event_type=IssueEvent.EventType.ESCALATED,
+        message=issue.escalation_reason,
+        metadata={"auto": auto, "priority": issue.priority, "sla_status": issue.sla_status},
+    )
+    try:
+        from apps.notifications.services import trigger_issue_escalated_notification
+
+        trigger_issue_escalated_notification(issue, actor=issue.escalated_by)
+    except Exception:
+        pass
+    return issue
+
+
 def build_public_issue_report_url(token: str) -> str:
     base_url = settings.FRONTEND_PUBLIC_BASE_URL.rstrip("/")
     return f"{base_url}/report-issue/{token}"
 
 
 def resolve_open_issues_after_poe(booking, poe_created_at=None):
-    from .models import Issue
+    from .models import Issue, IssueEvent
 
     poe_created_at = poe_created_at or timezone.now()
     queryset = Issue.objects.filter(booking=booking).exclude(status=Issue.Status.RESOLVED)
@@ -111,3 +143,9 @@ def resolve_open_issues_after_poe(booking, poe_created_at=None):
             continue
         issue.status = Issue.Status.RESOLVED
         issue.save(update_fields=["status", "resolved_at", "sla_status", "updated_at"])
+        IssueEvent.objects.create(
+            issue=issue,
+            event_type=IssueEvent.EventType.AUTO_RESOLVED,
+            message="Issue auto-resolved after replacement POE upload.",
+            metadata={"poe_created_at": poe_created_at.isoformat()},
+        )

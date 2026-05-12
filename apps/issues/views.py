@@ -13,14 +13,16 @@ from rest_framework.viewsets import ModelViewSet
 from apps.bookings.models import Assignment
 from core.roles import FIELD_STAFF
 
-from .models import Issue, IssueReportToken, IssueTask
+from .models import Issue, IssueEvent, IssueReportToken, IssueTask
 from .serializers import (
+    IssueEscalateSerializer,
     IssueSerializer,
     IssueTaskAssignSerializer,
     IssueTaskSerializer,
     PublicIssueReportSerializer,
     is_admin_like_user,
 )
+from .services import escalate_issue
 
 
 class IssuePermission(BasePermission):
@@ -108,6 +110,13 @@ class IssueViewSet(ModelViewSet):
                 )
                 issue.status = Issue.Status.ACKNOWLEDGED
                 issue.save(update_fields=["status", "acknowledged_at", "sla_status", "updated_at"])
+                IssueEvent.objects.create(
+                    issue=issue,
+                    actor=request.user,
+                    event_type=IssueEvent.EventType.TASK_ASSIGNED,
+                    message=f"Task assigned to {task.assigned_to.email}.",
+                    metadata={"task_id": task.id, "assigned_to": task.assigned_to_id},
+                )
         except IntegrityError:
             return Response(
                 {"detail": "This issue already has an active task."},
@@ -115,6 +124,14 @@ class IssueViewSet(ModelViewSet):
             )
 
         return Response(IssueTaskSerializer(task, context={"request": request}).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="escalate")
+    def escalate(self, request, pk=None):
+        issue = self.get_object()
+        serializer = IssueEscalateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        updated = escalate_issue(issue, actor=request.user, reason=serializer.validated_data["reason"], auto=False)
+        return Response(IssueSerializer(updated, context={"request": request}).data, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["get"], url_path="task")
     def task(self, request, pk=None):

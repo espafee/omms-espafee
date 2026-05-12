@@ -51,6 +51,7 @@ pip-wheel-metadata/
 # Django
 db.sqlite3
 db.sqlite3-journal
+default_*.sqlite3
 local_settings.py
 media/
 staticfiles/
@@ -69,6 +70,18 @@ node_modules/
 out/
 coverage/
 *.tsbuildinfo
+
+# Playwright / browser test artifacts
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+frontend/e2e/artifacts/
+frontend/e2e/screenshots/
+frontend/e2e/videos/
+frontend/e2e/traces/
+playwright-report/
+test-results/
 
 # Environment files
 .env

@@ -1,5 +1,7 @@
+from datetime import timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.utils import timezone
 
 from apps.notifications.services import trigger_poe_uploaded_notification
@@ -48,6 +50,13 @@ class ProofOfExecutionService(BaseService):
 
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
+        if "review_due_at" not in validated_data or not validated_data.get("review_due_at"):
+            captured_at = validated_data["captured_at"]
+            validated_data["review_due_at"] = captured_at + timedelta(hours=getattr(settings, "POE_REVIEW_SLA_HOURS", 24))
+        validated_data["review_sla_status"] = resolve_review_sla_status_from_values(
+            reviewed_at=validated_data.get("reviewed_at"),
+            review_due_at=validated_data.get("review_due_at"),
+        )
         poe_record = super().create(actor=actor, **validated_data)
         self.capture_first_poe_location(poe_record)
         if booking:
@@ -60,24 +69,32 @@ class ProofOfExecutionService(BaseService):
             verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
         )
 
-    def approve_record(self, instance, actor=None):
+    def approve_record(self, instance, actor=None, comment: str = ""):
+        comment = (comment or "").strip()
         updated = self.update(
             instance,
             checked_by=actor if actor else instance.checked_by,
             verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
             verification_score=Decimal("100.00"),
             verification_notes="Manually approved by operations review.",
+            review_comment=comment,
+            reviewed_at=timezone.now(),
+            review_sla_status=ProofOfExecution.ReviewSlaStatus.REVIEWED,
         )
         self.lock_site_location_from_verified_poe(updated, actor=actor)
         return updated
 
-    def reject_record(self, instance, actor=None, reason: str = ""):
+    def reject_record(self, instance, actor=None, reason: str = "", comment: str = ""):
         reason = (reason or "").strip() or "Manually rejected by operations review."
+        review_comment = (comment or reason).strip()
         updated = self.update(
             instance,
             checked_by=actor if actor else instance.checked_by,
             verification_status=ProofOfExecution.VerificationStatus.REJECTED,
             verification_notes=reason,
+            review_comment=review_comment,
+            reviewed_at=timezone.now(),
+            review_sla_status=ProofOfExecution.ReviewSlaStatus.REVIEWED,
         )
         self.mark_site_location_suspicious(updated)
         try:
@@ -99,6 +116,8 @@ class ProofOfExecutionService(BaseService):
             verification_status=outcome.status,
             verification_score=outcome.score,
             verification_notes=outcome.verification_notes,
+            reviewed_at=timezone.now(),
+            review_sla_status=ProofOfExecution.ReviewSlaStatus.REVIEWED,
         )
         if outcome.status == ProofOfExecution.VerificationStatus.VERIFIED:
             self.lock_site_location_from_verified_poe(updated_instance, actor=actor)
@@ -245,6 +264,23 @@ def build_location_confidence(poe_record: ProofOfExecution, *, threshold_meters=
         "location_confidence_status": status,
         "site_location_status": getattr(site, "location_status", ""),
     }
+
+
+def resolve_review_sla_status_from_values(*, reviewed_at=None, review_due_at=None, now=None) -> str:
+    now = now or timezone.now()
+    if reviewed_at:
+        return ProofOfExecution.ReviewSlaStatus.REVIEWED
+    if review_due_at and now > review_due_at:
+        return ProofOfExecution.ReviewSlaStatus.OVERDUE
+    return ProofOfExecution.ReviewSlaStatus.ON_TRACK
+
+
+def resolve_review_sla_status(poe_record: ProofOfExecution, *, now=None) -> str:
+    return resolve_review_sla_status_from_values(
+        reviewed_at=poe_record.reviewed_at,
+        review_due_at=poe_record.review_due_at,
+        now=now,
+    )
 
 
 class ProofOfExecutionMediaService(BaseService):

@@ -215,11 +215,12 @@ export default function PoePage() {
     if (reviewActionId) {
       return;
     }
+    const comment = window.prompt("Optional reviewer comment for approval:") ?? "";
     setReviewActionId(record.id);
     setFormError("");
     setFormSuccess("");
     try {
-      await quickApprovePoe(record.id);
+      await quickApprovePoe(record.id, comment.trim());
       setFormSuccess("POE approved from review queue.");
       await loadPoe(user);
     } catch (actionError) {
@@ -238,11 +239,12 @@ export default function PoePage() {
       setFormError("Rejection reason is required.");
       return;
     }
+    const comment = window.prompt("Optional reviewer comment for rejection:") ?? "";
     setReviewActionId(record.id);
     setFormError("");
     setFormSuccess("");
     try {
-      await quickRejectPoe(record.id, reason.trim());
+      await quickRejectPoe(record.id, reason.trim(), comment.trim());
       setFormSuccess("POE rejected from review queue.");
       await loadPoe(user);
     } catch (actionError) {
@@ -546,6 +548,7 @@ export default function PoePage() {
                   <th>Unit</th>
                   <th>Executed on</th>
                   <th>Status</th>
+                  <th>Review SLA</th>
                   <th>GPS confidence</th>
                   <th>Media</th>
                   <th>Notes</th>
@@ -578,6 +581,17 @@ export default function PoePage() {
                         <span className={`status-pill status-${record.verification_status}`}>
                           {record.verification_status}
                         </span>
+                      </td>
+                      <td>
+                        <div className="table-primary">
+                          <strong>
+                            <span className={`status-pill status-${record.review_sla_status}`}>
+                              {record.review_sla_status?.replaceAll("_", " ") ?? "on track"}
+                            </span>
+                          </strong>
+                          <span>{record.review_due_at ? `Due ${formatDateTime(record.review_due_at)}` : "No review due date"}</span>
+                          {record.review_comment ? <span>{record.review_comment}</span> : null}
+                        </div>
                       </td>
                       <td>
                         <div className="table-primary">

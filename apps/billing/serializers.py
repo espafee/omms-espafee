@@ -4,7 +4,7 @@ from rest_framework import serializers
 
 from apps.campaigns.models import Campaign
 
-from .models import CampaignEstimate, CampaignEstimateLine, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
+from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .services import get_invoice_payment_status
 
 
@@ -78,6 +78,36 @@ class PaymentSerializer(serializers.ModelSerializer):
         return user.get_full_name() or user.organization_name or user.email or user.username
 
 
+class CreditNoteSerializer(serializers.ModelSerializer):
+    credit_method = serializers.CharField(source="method", required=False)
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CreditNote
+        fields = [
+            "id",
+            "invoice",
+            "credit_date",
+            "amount",
+            "method",
+            "credit_method",
+            "reference_number",
+            "reason",
+            "notes",
+            "created_by",
+            "created_by_name",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_by", "created_by_name", "created_at", "updated_at"]
+
+    def get_created_by_name(self, obj):
+        user = obj.created_by
+        if not user:
+            return ""
+        return user.get_full_name() or user.organization_name or user.email or user.username
+
+
 class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
     payment_mode = serializers.CharField(source="method", required=False)
 
@@ -88,6 +118,11 @@ class InvoicePaymentCreateSerializer(serializers.ModelSerializer):
 
 class InvoiceCancelSerializer(serializers.Serializer):
     reason = serializers.CharField(min_length=3, max_length=500)
+    credit_amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True, min_value=Decimal("0.01"))
+    credit_date = serializers.DateField(required=False, allow_null=True)
+    credit_method = serializers.ChoiceField(choices=CreditNote.Method.choices, required=False, allow_blank=True)
+    credit_reference_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    credit_notes = serializers.CharField(required=False, allow_blank=True)
 
 
 class InvoiceEventSerializer(serializers.ModelSerializer):
@@ -279,6 +314,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     pdf_file = serializers.SerializerMethodField()
     lines = InvoiceLineSerializer(many=True, read_only=True)
     payments = PaymentSerializer(many=True, read_only=True)
+    credit_notes = CreditNoteSerializer(many=True, read_only=True)
     events = InvoiceEventSerializer(many=True, read_only=True)
     invoice_total = serializers.SerializerMethodField()
     amount_paid = serializers.SerializerMethodField()
