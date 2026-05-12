@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, DecimalField, Q, Sum
@@ -73,7 +74,7 @@ def log_invoice_event(
     message: str = "",
     metadata: dict | None = None,
 ) -> InvoiceEvent:
-    return InvoiceEvent.objects.create(
+    event = InvoiceEvent.objects.create(
         invoice=invoice,
         event_type=event_type,
         actor=actor if getattr(actor, "is_authenticated", False) else None,
@@ -82,6 +83,30 @@ def log_invoice_event(
         message=message or "",
         metadata=metadata or {},
     )
+    try:
+        from apps.observability.services import record_audit_event
+
+        record_audit_event(
+            event_type=f"invoice.{event_type}",
+            entity_type="invoice",
+            entity_id=invoice.id,
+            actor=actor,
+            severity="warning" if event_type in {InvoiceEvent.EventType.VOIDED, InvoiceEvent.EventType.CREDIT_NOTE_CREATED} else "info",
+            summary=message or f"Invoice {event_type.replace('_', ' ')}.",
+            metadata=metadata or {},
+            campaign_reference=getattr(invoice.campaign, "code", "") or getattr(invoice.campaign, "name", ""),
+            client_reference=getattr(getattr(invoice.campaign, "client", None), "email", ""),
+            invoice_reference=invoice.invoice_number or str(invoice.id),
+        )
+        try:
+            from apps.observability.services import bump_dashboard_cache_version
+
+            bump_dashboard_cache_version()
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return event
 
 
 def log_invoice_status_change(invoice: Invoice, *, actor=None, from_status: str, to_status: str, message: str = ""):
@@ -941,6 +966,16 @@ class InvoiceService(BaseService):
     }
 
     def get_summary(self, user=None):
+        try:
+            from apps.observability.services import get_dashboard_cache_version
+
+            version = get_dashboard_cache_version()
+        except Exception:
+            version = 1
+        cache_key = f"dashboard:billing:{version}:{getattr(user, 'id', 'anon')}:{getattr(user, 'role', '')}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
         invoice_queryset = self.get_queryset(user=user)
         payment_queryset = Payment.objects.filter(invoice_id__in=invoice_queryset.values("id"))
         estimate_queryset = CampaignEstimate.objects.all()
@@ -1008,6 +1043,7 @@ class InvoiceService(BaseService):
         summary["outstanding_amount"] = max(summary["total_invoiced"] - summary["total_paid"], Decimal("0.00"))
         summary["total_collected"] = summary["total_paid"]
         summary["outstanding_balance"] = summary["outstanding_amount"]
+        cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
         return summary
 
     @transaction.atomic

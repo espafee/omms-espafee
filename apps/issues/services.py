@@ -120,6 +120,21 @@ def escalate_issue(issue, *, actor=None, reason: str = "", auto: bool = False):
         metadata={"auto": auto, "priority": issue.priority, "sla_status": issue.sla_status},
     )
     try:
+        from apps.observability.services import record_audit_event
+
+        record_audit_event(
+            event_type="issue.escalated",
+            entity_type="issue",
+            entity_id=issue.id,
+            actor=issue.escalated_by,
+            severity="critical" if issue.priority == "critical" else "warning",
+            summary=issue.escalation_reason,
+            metadata={"auto": auto, "priority": issue.priority, "sla_status": issue.sla_status},
+            campaign_reference=getattr(issue.booking.campaign, "code", ""),
+        )
+    except Exception:
+        pass
+    try:
         from apps.notifications.services import trigger_issue_escalated_notification
 
         trigger_issue_escalated_notification(issue, actor=issue.escalated_by)

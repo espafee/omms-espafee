@@ -24,6 +24,7 @@ class ProofOfExecution(TimeStampedModel):
         REVIEWED = "reviewed", "Reviewed"
 
     booking = models.ForeignKey(Booking, related_name="poe_records", on_delete=models.CASCADE)
+    client_upload_id = models.CharField(max_length=80, blank=True, db_index=True)
     executed_on = models.DateField()
     captured_at = models.DateTimeField(default=timezone.now)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -54,6 +55,15 @@ class ProofOfExecution(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"POE {self.booking_id} - {self.executed_on}"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["client_upload_id"],
+                condition=~models.Q(client_upload_id=""),
+                name="unique_non_empty_poe_client_upload_id",
+            )
+        ]
 
 
 class ProofOfExecutionMedia(TimeStampedModel):

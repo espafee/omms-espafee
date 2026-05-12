@@ -25,6 +25,7 @@ export type PoeMedia = {
 export type PoeRecord = {
   id: number;
   booking: number;
+  client_upload_id: string;
   executed_on: string;
   captured_at: string;
   latitude: string | null;
@@ -123,10 +124,37 @@ export async function fetchPoeData(): Promise<PoePayload> {
   };
 }
 
+function buildClientUploadId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `poe-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function uploadWithRetry<T>(path: string, formData: FormData, retries = 2): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await apiFetch<T>(path, {
+        method: "POST",
+        body: formData,
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt === retries) {
+        break;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export async function createPoeWorkflow(payload: PoeWorkflowInput): Promise<PoeWorkflowResult> {
+  const clientUploadId = buildClientUploadId();
   const record = await apiFetch<PoeRecord>("poe/", {
     method: "POST",
-    body: JSON.stringify(payload.record),
+    body: JSON.stringify({ ...payload.record, client_upload_id: clientUploadId }),
   });
 
   const evidence: PoeMedia[] = [];
@@ -137,12 +165,7 @@ export async function createPoeWorkflow(payload: PoeWorkflowInput): Promise<PoeW
     formData.append("media_type", item.media_type);
     formData.append("captured_at", item.captured_at);
 
-    evidence.push(
-      await apiFetch<PoeMedia>("poe/media/", {
-        method: "POST",
-        body: formData,
-      }),
-    );
+    evidence.push(await uploadWithRetry<PoeMedia>("poe/media/", formData));
   }
 
   return { record, evidence };

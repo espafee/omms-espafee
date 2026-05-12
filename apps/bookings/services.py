@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.db import IntegrityError
 from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
+from django.conf import settings
+from django.core.cache import cache
 from core.services import BaseService
 from rest_framework.exceptions import ValidationError
 
@@ -69,6 +71,7 @@ class BookingService(BaseService):
             raise
         if assigned_user:
             self._set_assignment(booking=booking, assigned_user=assigned_user, actor=actor)
+        self._invalidate_dashboard_cache()
         trigger_campaign_booked_notification(booking, actor=actor)
         return booking
 
@@ -106,6 +109,7 @@ class BookingService(BaseService):
             raise
         if assignment_was_provided:
             self._set_assignment(booking=booking, assigned_user=assigned_user, actor=actor)
+        self._invalidate_dashboard_cache()
         return booking
 
     def _set_assignment(self, booking, assigned_user, actor=None):
@@ -123,8 +127,12 @@ class BookingService(BaseService):
         )
 
     def get_summary(self, user=None):
+        cache_key = f"dashboard:bookings:{self._dashboard_cache_version()}:{getattr(user, 'id', 'anon')}:{getattr(user, 'role', '')}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
         queryset = self.get_queryset(user=user)
-        return queryset.aggregate(
+        summary = queryset.aggregate(
             total_bookings=Count("id"),
             pending_bookings=Count("id", filter=Q(status=Booking.Status.PENDING)),
             confirmed_bookings=Count("id", filter=Q(status=Booking.Status.CONFIRMED)),
@@ -139,3 +147,21 @@ class BookingService(BaseService):
                 output_field=SUMMARY_DECIMAL_FIELD,
             ),
         )
+        cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
+        return summary
+
+    def _dashboard_cache_version(self):
+        try:
+            from apps.observability.services import get_dashboard_cache_version
+
+            return get_dashboard_cache_version()
+        except Exception:
+            return 1
+
+    def _invalidate_dashboard_cache(self):
+        try:
+            from apps.observability.services import bump_dashboard_cache_version
+
+            bump_dashboard_cache_version()
+        except Exception:
+            pass

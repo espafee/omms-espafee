@@ -42,6 +42,13 @@ class ProofOfExecutionService(BaseService):
         return not self._booking_has_new_open_issue(booking, existing_poe)
 
     def create(self, actor=None, **validated_data):
+        client_upload_id = (validated_data.get("client_upload_id") or "").strip()
+        if client_upload_id:
+            existing = ProofOfExecution.objects.filter(client_upload_id=client_upload_id).first()
+            if existing:
+                return existing
+            validated_data["client_upload_id"] = client_upload_id
+
         booking = validated_data.get("booking")
         if booking:
             existing_poe = ProofOfExecution.objects.filter(booking=booking).order_by("-created_at", "-id").first()
@@ -58,6 +65,23 @@ class ProofOfExecutionService(BaseService):
             review_due_at=validated_data.get("review_due_at"),
         )
         poe_record = super().create(actor=actor, **validated_data)
+        try:
+            from apps.observability.services import record_audit_event
+
+            record_audit_event(
+                event_type="poe.uploaded",
+                entity_type="poe",
+                entity_id=poe_record.id,
+                actor=actor,
+                summary="POE record uploaded.",
+                metadata={"booking_id": poe_record.booking_id, "client_upload_id": poe_record.client_upload_id},
+                campaign_reference=getattr(poe_record.booking.campaign, "code", ""),
+            )
+            from apps.observability.services import bump_dashboard_cache_version
+
+            bump_dashboard_cache_version()
+        except Exception:
+            pass
         self.capture_first_poe_location(poe_record)
         if booking:
             resolve_open_issues_after_poe(booking, poe_created_at=poe_record.created_at)
@@ -82,6 +106,7 @@ class ProofOfExecutionService(BaseService):
             review_sla_status=ProofOfExecution.ReviewSlaStatus.REVIEWED,
         )
         self.lock_site_location_from_verified_poe(updated, actor=actor)
+        self._record_review_audit(updated, actor=actor, event_type="poe.reviewed", summary="POE approved by reviewer.")
         return updated
 
     def reject_record(self, instance, actor=None, reason: str = "", comment: str = ""):
@@ -97,6 +122,7 @@ class ProofOfExecutionService(BaseService):
             review_sla_status=ProofOfExecution.ReviewSlaStatus.REVIEWED,
         )
         self.mark_site_location_suspicious(updated)
+        self._record_review_audit(updated, actor=actor, event_type="poe.reviewed", summary="POE rejected by reviewer.", severity="warning")
         try:
             from apps.notifications.services import trigger_suspicious_poe_notification
 
@@ -132,6 +158,14 @@ class ProofOfExecutionService(BaseService):
                 trigger_suspicious_poe_notification(updated_instance, actor=actor)
             except Exception:
                 pass
+        self._record_review_audit(
+            updated_instance,
+            actor=actor,
+            event_type="poe.reviewed",
+            summary=f"POE verification completed as {outcome.status}.",
+            severity="warning" if outcome.suspicious else "info",
+            metadata=outcome.as_payload(),
+        )
 
         ProofOfExecutionVerificationLogService().create(
             actor=actor,
@@ -200,6 +234,19 @@ class ProofOfExecutionService(BaseService):
                 "updated_at",
             ]
         )
+        try:
+            from apps.observability.services import record_audit_event
+
+            record_audit_event(
+                event_type="site.gps_locked",
+                entity_type="site",
+                entity_id=site.id,
+                actor=actor,
+                summary="Site GPS locked from first verified POE.",
+                metadata={"poe_record_id": poe_record.id},
+            )
+        except Exception:
+            pass
 
     def mark_site_location_suspicious(self, poe_record: ProofOfExecution):
         site = self._get_site(poe_record)
@@ -220,6 +267,23 @@ class ProofOfExecutionService(BaseService):
             and site.latitude is not None
             and site.longitude is not None
         )
+
+    def _record_review_audit(self, poe_record: ProofOfExecution, *, actor=None, event_type: str, summary: str, severity: str = "info", metadata=None):
+        try:
+            from apps.observability.services import record_audit_event
+
+            record_audit_event(
+                event_type=event_type,
+                entity_type="poe",
+                entity_id=poe_record.id,
+                actor=actor,
+                severity=severity,
+                summary=summary,
+                metadata=metadata or {"verification_status": poe_record.verification_status},
+                campaign_reference=getattr(poe_record.booking.campaign, "code", ""),
+            )
+        except Exception:
+            pass
 
 
 def build_location_confidence(poe_record: ProofOfExecution, *, threshold_meters=DEFAULT_DISTANCE_THRESHOLD_METERS) -> dict:

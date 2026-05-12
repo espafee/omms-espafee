@@ -619,6 +619,37 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - payment collection workflows
 - analytics dashboard
 
+## Operational Intelligence + Observability Foundation Sprint
+
+- Added a central `apps.observability` module for safe SaaS operations telemetry.
+- API request logging:
+  - logs API method, path, status, duration, user, company snapshot, category, IP/user-agent, and slow flag
+  - slow threshold is controlled by `OMMS_SLOW_REQUEST_MS`
+  - request bodies, auth headers, OTPs, tokens, passwords, and uploaded files are not logged
+  - admin can filter slow requests in Django admin and via API
+- Central audit timeline:
+  - `AuditEvent` tracks event type, entity type/id, actor, company, severity, summary, safe metadata, and references
+  - invoice events, POE upload/review, site GPS lock, public issue reporting, and issue escalation now write central audit entries
+- Notification center:
+  - internal `Notification` inbox added alongside existing email notification logs/preferences
+  - `/notifications` page lists alerts, supports unread filtering, severity filtering, and mark-read action
+- Operations intelligence page:
+  - `/operations` shows suspicious POE counts, missing GPS, geofence misses, overdue review counts, recent suspicious POE drill-down, diagnostics, and audit timeline
+- POE upload reliability:
+  - `client_upload_id` added for safe retry/idempotency
+  - repeated POE create calls with the same upload ID return the existing record instead of creating duplicates
+- Import/export foundation:
+  - `ImportExportJob` tracks review-first import/export jobs
+  - inventory site CSV export and import preview validation added
+- Dashboard performance:
+  - campaign, booking, and billing dashboard summaries now use user/role-scoped cache keys
+  - mutation paths bump a dashboard cache version for short-lived aggregate invalidation
+- Background jobs:
+  - Celery-ready tasks added for notification retry, invoice status refresh, and request-log cleanup
+  - `cleanup_api_request_logs` management command added
+- New documentation:
+  - `OBSERVABILITY_OPERATIONS.md` documents request logging, audit timeline, notifications, POE analytics, diagnostics, background jobs, upload idempotency, import/export, and caching.
+
 ## Finance Controls + Audit Review + Smoke Test Sprint
 
 - Latest sprint expands finance controls from payment recording into controlled void/refund handling.

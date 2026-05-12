@@ -52,6 +52,7 @@ LOCAL_APPS = [
     "apps.issues",
     "apps.billing",
     "apps.notifications",
+    "apps.observability",
     "apps.setup",
     "apps.mobile",
 ]
@@ -64,6 +65,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "apps.observability.middleware.ApiRequestLoggingMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -221,6 +223,13 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 BILLING_DEFAULT_GST_RATE = get_env("BILLING_DEFAULT_GST_RATE", "")
 BILLING_GST_RATE_BY_SAC = get_env("BILLING_GST_RATE_BY_SAC", "")
 POE_REVIEW_SLA_HOURS = get_int("POE_REVIEW_SLA_HOURS", 24)
+OMMS_API_REQUEST_LOGGING_ENABLED = get_bool("OMMS_API_REQUEST_LOGGING_ENABLED", True)
+OMMS_SLOW_REQUEST_MS = get_int("OMMS_SLOW_REQUEST_MS", 1000)
+OMMS_REQUEST_LOG_RETENTION_DAYS = get_int("OMMS_REQUEST_LOG_RETENTION_DAYS", 30)
+OMMS_QUERY_TIMING_ENABLED = get_bool("OMMS_QUERY_TIMING_ENABLED", False)
+OMMS_DASHBOARD_CACHE_SECONDS = get_int("OMMS_DASHBOARD_CACHE_SECONDS", 60)
+OMMS_APP_VERSION = get_env("OMMS_APP_VERSION", "")
+OMMS_GIT_COMMIT = get_env("OMMS_GIT_COMMIT", "")
 OMMS_PUBLIC_REGISTRATION_ENABLED = get_bool("OMMS_PUBLIC_REGISTRATION_ENABLED", False)
 AUTH_USER_MODEL = "users.User"
 TEST_RUNNER = "core.test_runner.BackendOnlyDiscoverRunner"

@@ -3,6 +3,8 @@ from decimal import Decimal
 
 from django.db.models import Count, DecimalField, Q, Sum
 from django.db.models.functions import Coalesce
+from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from apps.bookings.models import Booking
@@ -21,8 +23,12 @@ class CampaignService(BaseService):
         return self.get_queryset().filter(status="active")
 
     def get_summary(self, user=None):
+        cache_key = f"dashboard:campaigns:{self._dashboard_cache_version()}:{getattr(user, 'id', 'anon')}:{getattr(user, 'role', '')}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
         queryset = self.get_queryset(user=user)
-        return queryset.aggregate(
+        summary = queryset.aggregate(
             total_campaigns=Count("id"),
             active_campaigns=Count("id", filter=Q(status=Campaign.Status.ACTIVE)),
             draft_campaigns=Count("id", filter=Q(status=Campaign.Status.DRAFT)),
@@ -37,6 +43,34 @@ class CampaignService(BaseService):
             live_bookings=Count("bookings", filter=Q(bookings__status=Booking.Status.LIVE), distinct=True),
             approved_assets=Count("assets", filter=Q(assets__is_approved=True), distinct=True),
         )
+        cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
+        return summary
+
+    def create(self, actor=None, **validated_data):
+        campaign = super().create(actor=actor, **validated_data)
+        self._invalidate_dashboard_cache()
+        return campaign
+
+    def update(self, instance, actor=None, **validated_data):
+        campaign = super().update(instance, actor=actor, **validated_data)
+        self._invalidate_dashboard_cache()
+        return campaign
+
+    def _dashboard_cache_version(self):
+        try:
+            from apps.observability.services import get_dashboard_cache_version
+
+            return get_dashboard_cache_version()
+        except Exception:
+            return 1
+
+    def _invalidate_dashboard_cache(self):
+        try:
+            from apps.observability.services import bump_dashboard_cache_version
+
+            bump_dashboard_cache_version()
+        except Exception:
+            pass
 
 
 class CampaignAssetService(BaseService):

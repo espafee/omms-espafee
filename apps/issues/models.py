@@ -110,6 +110,21 @@ class Issue(TimeStampedModel):
                 metadata={"priority": self.priority, "sla_status": self.sla_status},
             )
             try:
+                from apps.observability.services import record_audit_event
+
+                record_audit_event(
+                    event_type="issue.reported",
+                    entity_type="issue",
+                    entity_id=self.id,
+                    actor=self.reported_by,
+                    severity="warning" if self.priority in {self.Priority.HIGH, self.Priority.CRITICAL} else "info",
+                    summary="Public or field issue reported.",
+                    metadata={"priority": self.priority, "reporter_type": self.reporter_type},
+                    campaign_reference=getattr(self.booking.campaign, "code", ""),
+                )
+            except Exception:
+                pass
+            try:
                 from apps.notifications.services import trigger_issue_reported_notification
 
                 trigger_issue_reported_notification(self, actor=self.reported_by)

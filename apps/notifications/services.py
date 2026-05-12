@@ -15,7 +15,7 @@ from apps.issues.models import Issue
 from apps.poe.models import ProofOfExecution
 from apps.poe.models import ProofOfExecutionMedia
 
-from .models import EmailNotificationLog, NotificationPreference
+from .models import EmailNotificationLog, Notification, NotificationPreference
 
 
 def build_frontend_public_url(path: str) -> str:
@@ -66,6 +66,52 @@ class NotificationResult:
 
 
 class NotificationService:
+    def create_internal_notification(
+        self,
+        *,
+        recipient=None,
+        recipient_role: str = "",
+        event_type: str,
+        title: str,
+        message: str = "",
+        severity: str = Notification.Severity.INFO,
+        metadata: dict | None = None,
+    ) -> Notification:
+        try:
+            from apps.observability.services import get_company_name, scrub_metadata
+        except Exception:
+            get_company_name = lambda: ""
+            scrub_metadata = lambda value: value or {}
+
+        return Notification.objects.create(
+            recipient=recipient if getattr(recipient, "is_authenticated", False) else recipient,
+            recipient_role=recipient_role,
+            company_name=get_company_name(),
+            event_type=event_type,
+            title=title[:255],
+            message=message,
+            severity=severity,
+            metadata=scrub_metadata(metadata or {}),
+        )
+
+    def notify_operations(
+        self,
+        *,
+        event_type: str,
+        title: str,
+        message: str = "",
+        severity: str = Notification.Severity.INFO,
+        metadata: dict | None = None,
+    ) -> Notification:
+        return self.create_internal_notification(
+            recipient_role="operations",
+            event_type=event_type,
+            title=title,
+            message=message,
+            severity=severity,
+            metadata=metadata,
+        )
+
     def _recipient_allows_email(self, user, notification_type: str) -> bool:
         if not user:
             return True
@@ -219,6 +265,12 @@ class NotificationService:
     def log_invoice_issued(self, invoice: Invoice, *, actor=None) -> NotificationResult:
         campaign = invoice.campaign
         recipient_email, recipient_name = get_client_recipient(campaign)
+        self.notify_operations(
+            event_type=EmailNotificationLog.NotificationType.INVOICE_ISSUED,
+            title=f"Invoice issued: {invoice.invoice_number or invoice.pk}",
+            message=f"Invoice for {campaign.name} was issued.",
+            metadata={"invoice_id": invoice.id, "campaign_id": campaign.id},
+        )
         return self._get_or_create_log(
             event_key=f"invoice_issued:{invoice.id}",
             notification_type=EmailNotificationLog.NotificationType.INVOICE_ISSUED,
@@ -233,6 +285,12 @@ class NotificationService:
         invoice = payment.invoice
         campaign = invoice.campaign
         recipient_email, recipient_name = get_client_recipient(campaign)
+        self.notify_operations(
+            event_type=EmailNotificationLog.NotificationType.PAYMENT_RECORDED,
+            title=f"Payment recorded: {invoice.invoice_number or invoice.pk}",
+            message=f"Payment of {payment.amount} was recorded.",
+            metadata={"invoice_id": invoice.id, "payment_id": payment.id},
+        )
         return self._get_or_create_log(
             event_key=f"payment_recorded:{payment.id}",
             notification_type=EmailNotificationLog.NotificationType.PAYMENT_RECORDED,
@@ -246,6 +304,13 @@ class NotificationService:
     def log_suspicious_poe(self, poe_record: ProofOfExecution, *, actor=None) -> NotificationResult:
         campaign = poe_record.booking.campaign
         recipient_email, recipient_name = get_client_recipient(campaign)
+        self.notify_operations(
+            event_type=EmailNotificationLog.NotificationType.SUSPICIOUS_POE,
+            title=f"Suspicious POE detected: {campaign.name}",
+            message=poe_record.verification_notes,
+            severity=Notification.Severity.WARNING,
+            metadata={"poe_record_id": poe_record.id, "campaign_id": campaign.id},
+        )
         return self._get_or_create_log(
             event_key=f"suspicious_poe:{poe_record.id}:{poe_record.verification_status}",
             notification_type=EmailNotificationLog.NotificationType.SUSPICIOUS_POE,
@@ -260,6 +325,13 @@ class NotificationService:
     def log_issue_reported(self, issue: Issue, *, actor=None) -> NotificationResult:
         campaign = issue.booking.campaign
         recipient_email, recipient_name = get_client_recipient(campaign)
+        self.notify_operations(
+            event_type=EmailNotificationLog.NotificationType.ISSUE_REPORTED,
+            title=f"Issue reported: {campaign.name}",
+            message=issue.description[:500],
+            severity=Notification.Severity.WARNING if issue.priority in {"high", "critical"} else Notification.Severity.INFO,
+            metadata={"issue_id": issue.id, "priority": issue.priority},
+        )
         return self._get_or_create_log(
             event_key=f"issue_reported:{issue.id}",
             notification_type=EmailNotificationLog.NotificationType.ISSUE_REPORTED,
@@ -275,6 +347,13 @@ class NotificationService:
         campaign = issue.booking.campaign
         recipient_email, recipient_name = get_client_recipient(campaign)
         event_time = issue.escalated_at.isoformat() if getattr(issue, "escalated_at", None) else timezone.now().isoformat()
+        self.notify_operations(
+            event_type=EmailNotificationLog.NotificationType.ISSUE_ESCALATED,
+            title=f"Issue escalated: {campaign.name}",
+            message=issue.escalation_reason,
+            severity=Notification.Severity.CRITICAL if issue.priority == "critical" else Notification.Severity.WARNING,
+            metadata={"issue_id": issue.id, "priority": issue.priority, "sla_status": issue.sla_status},
+        )
         return self._get_or_create_log(
             event_key=f"issue_escalated:{issue.id}:{event_time}",
             notification_type=EmailNotificationLog.NotificationType.ISSUE_ESCALATED,

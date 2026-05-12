@@ -1,0 +1,174 @@
+from datetime import date, timedelta
+from decimal import Decimal
+from io import BytesIO
+
+from django.contrib.auth import get_user_model
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+from rest_framework import status
+from rest_framework.test import APIClient
+
+from apps.bookings.models import Booking
+from apps.campaigns.models import Campaign
+from apps.inventory.models import MediaSite, MediaUnit
+from apps.notifications.models import EmailNotificationLog, Notification
+from apps.observability.models import ApiRequestLog, AuditEvent, ImportExportJob
+from apps.observability.services import build_poe_analytics, record_audit_event, validate_inventory_sites_import
+from apps.poe.models import ProofOfExecution
+
+User = get_user_model()
+
+
+class ObservabilityFoundationTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.password = "TestPass123!"
+        self.admin = User.objects.create_user(
+            email="admin-obs@example.com",
+            username="admin_obs",
+            password=self.password,
+            role=User.Role.ADMIN,
+            is_staff=True,
+        )
+        self.operations = User.objects.create_user(
+            email="ops-obs@example.com",
+            username="ops_obs",
+            password=self.password,
+            role=User.Role.OPERATIONS,
+        )
+        self.client_user = User.objects.create_user(
+            email="client-obs@example.com",
+            username="client_obs",
+            password=self.password,
+            role=User.Role.CLIENT,
+        )
+        self.site = MediaSite.objects.create(
+            name="Observability Site",
+            code="OBS-SITE-001",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Ring Road",
+            city="Delhi",
+            state="Delhi",
+            latitude=Decimal("28.613900"),
+            longitude=Decimal("77.209000"),
+        )
+        self.unit = MediaUnit.objects.create(
+            site=self.site,
+            unit_code="OBS-UNIT-001",
+            face_count=1,
+            width=Decimal("20.00"),
+            height=Decimal("10.00"),
+            monthly_rate=Decimal("50000.00"),
+        )
+        self.campaign = Campaign.objects.create(
+            name="Observability Campaign",
+            code="OBS-CMP-001",
+            client=self.client_user,
+            account_manager=self.admin,
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=7),
+            budget=Decimal("100000.00"),
+            status=Campaign.Status.ACTIVE,
+        )
+        self.booking = Booking.objects.create(
+            campaign=self.campaign,
+            media_unit=self.unit,
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=7),
+            booked_rate=Decimal("50000.00"),
+            status=Booking.Status.CONFIRMED,
+        )
+
+    @override_settings(OMMS_API_REQUEST_LOGGING_ENABLED=True, OMMS_SLOW_REQUEST_MS=0)
+    def test_api_request_logging_middleware_records_safe_metadata(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(reverse("observability-diagnostics"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        log = ApiRequestLog.objects.filter(path__contains="/api/v1/observability/diagnostics/").first()
+        self.assertIsNotNone(log)
+        self.assertEqual(log.user, self.admin)
+        self.assertTrue(log.is_slow)
+        self.assertEqual(log.category, ApiRequestLog.Category.OBSERVABILITY)
+
+    def test_audit_event_service_scrubs_sensitive_metadata(self):
+        event = record_audit_event(
+            event_type="security.login",
+            entity_type="user",
+            entity_id=self.admin.id,
+            actor=self.admin,
+            summary="Login recorded.",
+            metadata={"token": "secret-token", "safe": "value"},
+        )
+
+        self.assertEqual(event.metadata["token"], "[redacted]")
+        self.assertEqual(event.metadata["safe"], "value")
+
+    def test_poe_analytics_counts_suspicious_missing_and_overdue(self):
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+            review_due_at=timezone.now() - timedelta(hours=2),
+        )
+
+        payload = build_poe_analytics()
+
+        self.assertEqual(payload["suspicious_count"], 1)
+        self.assertEqual(payload["missing_gps_count"], 1)
+        self.assertEqual(payload["pending_review_count"], 1)
+        self.assertEqual(payload["overdue_review_count"], 1)
+
+    def test_diagnostics_are_admin_only(self):
+        self.client.force_authenticate(self.client_user)
+        denied = self.client.get(reverse("observability-diagnostics"))
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.admin)
+        allowed = self.client.get(reverse("observability-diagnostics"))
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK)
+        self.assertIn("database", allowed.data)
+
+    def test_notification_inbox_mark_read(self):
+        notification = Notification.objects.create(
+            recipient=self.operations,
+            event_type=EmailNotificationLog.NotificationType.POE_UPLOADED,
+            title="POE uploaded",
+            message="A field upload arrived.",
+        )
+        self.client.force_authenticate(self.operations)
+
+        response = self.client.post(reverse("notifications-inbox-mark-read", args=[notification.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        notification.refresh_from_db()
+        self.assertTrue(notification.is_read)
+        self.assertIsNotNone(notification.read_at)
+
+    def test_inventory_site_import_preview_validates_rows_without_creating_sites(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\n,Missing Code,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        self.assertEqual(job.status, ImportExportJob.Status.FAILED)
+        self.assertEqual(job.rows_total, 1)
+        self.assertEqual(job.rows_failed, 1)
+        self.assertEqual(MediaSite.objects.filter(name="Missing Code").count(), 0)
+
+    def test_role_activity_endpoint_aggregates_audit_events(self):
+        record_audit_event(
+            event_type="invoice.issued",
+            entity_type="invoice",
+            entity_id="1",
+            actor=self.admin,
+            summary="Invoice issued.",
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("observability-role-activity"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["total_events"], 1)

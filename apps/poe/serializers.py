@@ -75,6 +75,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "booking",
+            "client_upload_id",
             "executed_on",
             "captured_at",
             "latitude",
@@ -106,6 +107,9 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "client_upload_id": {"validators": []},
+        }
 
     def get_location_confidence(self, obj):
         return build_location_confidence(obj)

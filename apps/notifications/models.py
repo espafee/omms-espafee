@@ -92,3 +92,48 @@ class NotificationPreference(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.user_id} - {self.notification_type}: {'email' if self.email_enabled else 'muted'}"
+
+
+class Notification(TimeStampedModel):
+    class Severity(models.TextChoices):
+        INFO = "info", "Info"
+        WARNING = "warning", "Warning"
+        ERROR = "error", "Error"
+        CRITICAL = "critical", "Critical"
+
+    class DeliveryStatus(models.TextChoices):
+        INTERNAL = "internal", "Internal"
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="notifications",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    recipient_role = models.CharField(max_length=30, blank=True, db_index=True)
+    company_name = models.CharField(max_length=255, blank=True)
+    event_type = models.CharField(max_length=30, choices=EmailNotificationLog.NotificationType.choices, db_index=True)
+    title = models.CharField(max_length=255)
+    message = models.TextField(blank=True)
+    severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.INFO, db_index=True)
+    is_read = models.BooleanField(default=False, db_index=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+    delivery_status = models.CharField(max_length=20, choices=DeliveryStatus.choices, default=DeliveryStatus.INTERNAL)
+    retry_count = models.PositiveIntegerField(default=0)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["recipient", "is_read", "-created_at"]),
+            models.Index(fields=["recipient_role", "is_read", "-created_at"]),
+            models.Index(fields=["event_type", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        target = self.recipient.email if self.recipient else self.recipient_role or "team"
+        return f"{self.title} -> {target}"

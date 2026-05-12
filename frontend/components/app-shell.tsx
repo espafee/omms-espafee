@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ReactNode } from "react";
 
 type AppShellProps = {
-  active: "dashboard" | "inventory" | "campaigns" | "bookings" | "billing" | "poe" | "setup";
+  active: "dashboard" | "inventory" | "campaigns" | "bookings" | "billing" | "poe" | "notifications" | "operations" | "setup";
   roleLabel: string;
   userEmail: string;
   title: string;
@@ -55,6 +55,12 @@ export function AppShell({
           </Link>
           <Link className={`nav-item ${active === "billing" ? "nav-item-active" : ""}`} href="/billing">
             Billing
+          </Link>
+          <Link className={`nav-item ${active === "notifications" ? "nav-item-active" : ""}`} href="/notifications">
+            Notifications
+          </Link>
+          <Link className={`nav-item ${active === "operations" ? "nav-item-active" : ""}`} href="/operations">
+            Operations
           </Link>
           <Link className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
             Setup
