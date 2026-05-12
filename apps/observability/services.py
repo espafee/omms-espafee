@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
 from datetime import timedelta
 from io import StringIO
 from typing import Any
@@ -14,12 +13,16 @@ from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.inventory.models import MediaSite
+from apps.campaigns.models import Campaign
+from apps.billing.models import Invoice, Payment
+from apps.issues.models import Issue
+from apps.notifications.models import EmailNotificationLog
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import resolve_review_sla_status
 from core.repositories import BaseRepository
 from core.services import BaseService
 
-from .models import ApiRequestLog, AuditEvent, ImportExportJob
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 
 
 SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret", "private_key", "file", "image"}
@@ -157,6 +160,23 @@ class ImportExportJobService(BaseService):
         return super().create(actor=actor, **validated_data)
 
 
+class AlertRuleRepository(BaseRepository):
+    model = AlertRule
+
+
+class AlertEventRepository(BaseRepository):
+    model = AlertEvent
+    select_related = ("rule",)
+
+
+class AlertRuleService(BaseService):
+    repository_class = AlertRuleRepository
+
+
+class AlertEventService(BaseService):
+    repository_class = AlertEventRepository
+
+
 def cleanup_old_request_logs(*, days: int | None = None) -> int:
     retention_days = days or getattr(settings, "OMMS_REQUEST_LOG_RETENTION_DAYS", 30)
     cutoff = timezone.now() - timedelta(days=retention_days)
@@ -177,6 +197,93 @@ def notification_retry_job(limit: int = 50) -> int:
     from apps.notifications.services import NotificationService
 
     return NotificationService().mark_due_retries_pending(limit=limit)
+
+
+def ensure_default_alert_rules() -> None:
+    defaults = [
+        ("Slow requests in last hour", AlertRule.Metric.SLOW_REQUESTS, 10, 60, AlertRule.Severity.WARNING),
+        ("Failed notifications in last hour", AlertRule.Metric.FAILED_NOTIFICATIONS, 3, 60, AlertRule.Severity.WARNING),
+        ("Suspicious POEs today", AlertRule.Metric.SUSPICIOUS_POES, 5, 1440, AlertRule.Severity.WARNING),
+        ("Overdue POE reviews", AlertRule.Metric.OVERDUE_POE_REVIEWS, 5, 1440, AlertRule.Severity.WARNING),
+        ("Breached issues", AlertRule.Metric.BREACHED_ISSUES, 1, 1440, AlertRule.Severity.CRITICAL),
+        ("Overdue invoices", AlertRule.Metric.OVERDUE_INVOICES, 5, 1440, AlertRule.Severity.WARNING),
+    ]
+    for name, metric, threshold, window_minutes, severity in defaults:
+        AlertRule.objects.get_or_create(
+            metric=metric,
+            defaults={
+                "name": name,
+                "threshold": threshold,
+                "window_minutes": window_minutes,
+                "severity": severity,
+            },
+        )
+
+
+def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
+    now = now or timezone.now()
+    since = now - timedelta(minutes=rule.window_minutes)
+    if rule.metric == AlertRule.Metric.SLOW_REQUESTS:
+        return ApiRequestLog.objects.filter(is_slow=True, created_at__gte=since).count()
+    if rule.metric == AlertRule.Metric.FAILED_NOTIFICATIONS:
+        return EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED, updated_at__gte=since).count()
+    if rule.metric == AlertRule.Metric.SUSPICIOUS_POES:
+        return ProofOfExecution.objects.filter(
+            verification_status__in=[ProofOfExecution.VerificationStatus.SUSPICIOUS, ProofOfExecution.VerificationStatus.REJECTED],
+            created_at__gte=since,
+        ).count()
+    if rule.metric == AlertRule.Metric.OVERDUE_POE_REVIEWS:
+        return ProofOfExecution.objects.filter(reviewed_at__isnull=True, review_due_at__lt=now).count()
+    if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
+        return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
+    if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
+        return Invoice.objects.filter(status=Invoice.Status.OVERDUE).count()
+    return 0
+
+
+def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
+    ensure_default_alert_rules()
+    now = now or timezone.now()
+    created_events = []
+    for rule in AlertRule.objects.filter(is_enabled=True):
+        observed_value = get_alert_metric_value(rule, now=now)
+        if observed_value < rule.threshold:
+            continue
+        cooldown_since = now - timedelta(minutes=rule.cooldown_minutes)
+        if AlertEvent.objects.filter(rule=rule, created_at__gte=cooldown_since).exists():
+            continue
+        summary = f"{rule.name}: observed {observed_value}, threshold {rule.threshold}."
+        event = AlertEvent.objects.create(
+            rule=rule,
+            metric=rule.metric,
+            observed_value=observed_value,
+            threshold=rule.threshold,
+            severity=rule.severity,
+            summary=summary,
+            metadata={"window_minutes": rule.window_minutes},
+        )
+        record_audit_event(
+            event_type="alert.triggered",
+            entity_type="alert_rule",
+            entity_id=rule.id,
+            severity=rule.severity,
+            summary=summary,
+            metadata={"metric": rule.metric, "observed_value": observed_value, "threshold": rule.threshold},
+        )
+        try:
+            from apps.notifications.services import NotificationService
+
+            NotificationService().notify_operations(
+                event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                title=f"Operational alert: {rule.name}",
+                message=summary,
+                severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                metadata={"alert_rule_id": rule.id, "alert_event_id": event.id},
+            )
+        except Exception:
+            pass
+        created_events.append(event)
+    return created_events
 
 
 def build_poe_analytics(filters: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -251,6 +358,45 @@ def build_poe_analytics(filters: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
+def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str, Any]:
+    filters = filters or {}
+    poe_payload = build_poe_analytics(filters)
+    request_queryset = ApiRequestLog.objects.all()
+    audit_queryset = AuditEvent.objects.all()
+    notification_queryset = EmailNotificationLog.objects.all()
+    alert_queryset = AlertEvent.objects.select_related("rule")
+    if filters.get("date_from"):
+        request_queryset = request_queryset.filter(created_at__date__gte=filters["date_from"])
+        audit_queryset = audit_queryset.filter(created_at__date__gte=filters["date_from"])
+        notification_queryset = notification_queryset.filter(created_at__date__gte=filters["date_from"])
+        alert_queryset = alert_queryset.filter(created_at__date__gte=filters["date_from"])
+    if filters.get("date_to"):
+        request_queryset = request_queryset.filter(created_at__date__lte=filters["date_to"])
+        audit_queryset = audit_queryset.filter(created_at__date__lte=filters["date_to"])
+        notification_queryset = notification_queryset.filter(created_at__date__lte=filters["date_to"])
+        alert_queryset = alert_queryset.filter(created_at__date__lte=filters["date_to"])
+    if filters.get("severity"):
+        audit_queryset = audit_queryset.filter(severity=filters["severity"])
+        alert_queryset = alert_queryset.filter(severity=filters["severity"])
+    if filters.get("event_type"):
+        audit_queryset = audit_queryset.filter(event_type=filters["event_type"])
+
+    return {
+        "poe": poe_payload,
+        "slow_requests_count": request_queryset.filter(is_slow=True).count(),
+        "audit_by_severity": list(audit_queryset.values("severity").annotate(total=Count("id")).order_by("severity")),
+        "notification_failures_count": notification_queryset.filter(status=EmailNotificationLog.Status.FAILED).count(),
+        "notification_retries_due": notification_queryset.filter(
+            status=EmailNotificationLog.Status.FAILED,
+            next_retry_at__lte=timezone.now(),
+        ).count(),
+        "recent_critical_alerts": list(
+            alert_queryset.filter(severity__in=[AlertRule.Severity.CRITICAL, AlertRule.Severity.WARNING])
+            .values("id", "metric", "summary", "severity", "created_at")[:10]
+        ),
+    }
+
+
 def build_role_activity(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
     queryset = AuditEvent.objects.select_related("actor")
@@ -291,6 +437,7 @@ def build_diagnostics_payload() -> dict[str, Any]:
         "cache": {"ok": bool(cache_ok), "timeout_seconds": getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60)},
         "background_jobs": {
             "celery_broker_configured": bool(getattr(settings, "CELERY_BROKER_URL", "")),
+            "background_jobs_enabled": getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True),
             "mode": "celery-ready",
         },
         "request_logging": {
@@ -306,6 +453,17 @@ def build_diagnostics_payload() -> dict[str, Any]:
             ApiRequestLog.objects.filter(status_code__gte=500)
             .values("created_at", "method", "path", "status_code", "duration_ms", "category")[:10]
         ),
+        "recent_critical_alerts": list(
+            AlertEvent.objects.filter(severity=AlertRule.Severity.CRITICAL)
+            .values("created_at", "metric", "summary", "observed_value", "threshold")[:10]
+        ),
+        "notification_retry_health": {
+            "failed_count": EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED).count(),
+            "due_retry_count": EmailNotificationLog.objects.filter(
+                status=EmailNotificationLog.Status.FAILED,
+                next_retry_at__lte=timezone.now(),
+            ).count(),
+        },
     }
 
 
@@ -339,6 +497,7 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
     reader = csv.DictReader(StringIO(text))
     required = {"code", "name", "site_type", "address", "city", "state"}
     errors = []
+    warnings = []
     preview = []
     total = 0
     for index, row in enumerate(reader, start=2):
@@ -346,6 +505,11 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
         missing = [field for field in required if not (row.get(field) or "").strip()]
         if missing:
             errors.append({"row": index, "error": f"Missing required fields: {', '.join(sorted(missing))}"})
+        code = (row.get("code") or "").strip()
+        if code and MediaSite.objects.filter(code__iexact=code).exists():
+            errors.append({"row": index, "error": f"Duplicate site code already exists: {code}"})
+        if not (row.get("latitude") and row.get("longitude")):
+            warnings.append({"row": index, "warning": "Coordinates are empty and can be captured during first verified POE."})
         if len(preview) < 20:
             preview.append(row)
     job = ImportExportJob.objects.create(
@@ -353,12 +517,173 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
         company_name=get_company_name(),
         job_type=ImportExportJob.JobType.IMPORT,
         resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
-        status=ImportExportJob.Status.FAILED if errors else ImportExportJob.Status.VALIDATED,
+        status=ImportExportJob.Status.FAILED if errors else ImportExportJob.Status.PREVIEWED,
         rows_total=total,
         rows_success=0 if errors else total,
         rows_failed=len(errors),
         errors=errors,
+        filters={"warnings": warnings},
         preview_rows=preview,
     )
     job.original_file.save(getattr(file_obj, "name", "inventory-sites.csv"), ContentFile(text.encode("utf-8")), save=True)
     return job
+
+
+def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
+        raise ValueError("Only inventory site import jobs can be confirmed here.")
+    if job.errors:
+        job.status = ImportExportJob.Status.FAILED
+        job.save(update_fields=["status", "updated_at"])
+        return job
+
+    job.status = ImportExportJob.Status.PROCESSING
+    job.save(update_fields=["status", "updated_at"])
+    success_count = 0
+    errors = []
+    valid_site_types = {choice[0] for choice in MediaSite.SiteType.choices}
+    if job.original_file:
+        raw = job.original_file.read()
+        text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
+        rows = list(csv.DictReader(StringIO(text)))
+    else:
+        rows = job.preview_rows
+    for index, row in enumerate(rows, start=2):
+        code = (row.get("code") or "").strip()
+        if not code or MediaSite.objects.filter(code__iexact=code).exists():
+            errors.append({"row": index, "error": f"Duplicate or missing site code: {code}"})
+            continue
+        site_type = (row.get("site_type") or "").strip()
+        if site_type not in valid_site_types:
+            errors.append({"row": index, "error": f"Invalid site type: {site_type}"})
+            continue
+        MediaSite.objects.create(
+            code=code,
+            name=(row.get("name") or "").strip(),
+            site_type=site_type,
+            address=(row.get("address") or "").strip(),
+            city=(row.get("city") or "").strip(),
+            state=(row.get("state") or "").strip(),
+            latitude=(row.get("latitude") or None),
+            longitude=(row.get("longitude") or None),
+            owner=actor if getattr(actor, "is_authenticated", False) else None,
+        )
+        success_count += 1
+    job.rows_success = success_count
+    job.rows_failed = len(errors)
+    job.errors = errors
+    job.status = ImportExportJob.Status.FAILED if errors else ImportExportJob.Status.COMPLETED
+    job.save(update_fields=["rows_success", "rows_failed", "errors", "status", "updated_at"])
+    return job
+
+
+def _create_csv_export_job(*, actor=None, resource_type: str, filename: str, header: list[str], rows: list[list[Any]], filters=None) -> ImportExportJob:
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(header)
+    writer.writerows(rows)
+    job = ImportExportJob.objects.create(
+        created_by=actor if getattr(actor, "is_authenticated", False) else None,
+        company_name=get_company_name(),
+        job_type=ImportExportJob.JobType.EXPORT,
+        resource_type=resource_type,
+        status=ImportExportJob.Status.COMPLETED,
+        rows_total=len(rows),
+        rows_success=len(rows),
+        filters=filters or {},
+    )
+    job.output_file.save(filename, ContentFile(output.getvalue().encode("utf-8")), save=True)
+    return job
+
+
+def export_campaigns_csv(*, actor=None, filters=None) -> ImportExportJob:
+    filters = filters or {}
+    queryset = Campaign.objects.select_related("client", "account_manager").order_by("-created_at")
+    if filters.get("status"):
+        queryset = queryset.filter(status=filters["status"])
+    if filters.get("client"):
+        queryset = queryset.filter(client_id=filters["client"])
+    rows = [
+        [item.code, item.name, item.status, item.client.email, item.start_date, item.end_date, item.budget]
+        for item in queryset
+    ]
+    return _create_csv_export_job(
+        actor=actor,
+        resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+        filename="campaigns.csv",
+        header=["code", "name", "status", "client", "start_date", "end_date", "budget"],
+        rows=rows,
+        filters=filters,
+    )
+
+
+def export_invoices_csv(*, actor=None, filters=None) -> ImportExportJob:
+    filters = filters or {}
+    queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+    if filters.get("status"):
+        queryset = queryset.filter(status=filters["status"])
+    if filters.get("client"):
+        queryset = queryset.filter(campaign__client_id=filters["client"])
+    rows = [
+        [item.invoice_number or item.id, item.campaign.name, item.campaign.client.email, item.status, item.invoice_date, item.due_date, item.total_amount, item.grand_total]
+        for item in queryset
+    ]
+    return _create_csv_export_job(
+        actor=actor,
+        resource_type=ImportExportJob.ResourceType.INVOICES,
+        filename="invoices.csv",
+        header=["invoice", "campaign", "client", "status", "invoice_date", "due_date", "total_amount", "grand_total"],
+        rows=rows,
+        filters=filters,
+    )
+
+
+def export_poe_reports_csv(*, actor=None, filters=None) -> ImportExportJob:
+    filters = filters or {}
+    queryset = ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site", "checked_by").order_by("-captured_at")
+    if filters.get("campaign"):
+        queryset = queryset.filter(booking__campaign_id=filters["campaign"])
+    if filters.get("status"):
+        queryset = queryset.filter(verification_status=filters["status"])
+    rows = [
+        [
+            item.id,
+            item.booking.campaign.name,
+            item.booking.media_unit.site.name,
+            item.verification_status,
+            item.review_sla_status,
+            item.captured_at,
+            item.latitude,
+            item.longitude,
+        ]
+        for item in queryset
+    ]
+    return _create_csv_export_job(
+        actor=actor,
+        resource_type=ImportExportJob.ResourceType.POE_REPORTS,
+        filename="poe-report.csv",
+        header=["poe_id", "campaign", "site", "verification_status", "review_sla_status", "captured_at", "latitude", "longitude"],
+        rows=rows,
+        filters=filters,
+    )
+
+
+def export_client_statement_csv(*, actor=None, filters=None) -> ImportExportJob:
+    filters = filters or {}
+    client_id = filters.get("client")
+    queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+    if client_id:
+        queryset = queryset.filter(campaign__client_id=client_id)
+    rows = []
+    for invoice in queryset:
+        paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or 0
+        total = invoice.grand_total or invoice.total_amount
+        rows.append([invoice.campaign.client.email, invoice.invoice_number or invoice.id, invoice.status, total, paid, total - paid])
+    return _create_csv_export_job(
+        actor=actor,
+        resource_type=ImportExportJob.ResourceType.CLIENT_STATEMENTS,
+        filename="client-statement.csv",
+        header=["client", "invoice", "status", "total", "paid", "balance"],
+        rows=rows,
+        filters=filters,
+    )

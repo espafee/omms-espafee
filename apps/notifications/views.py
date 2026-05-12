@@ -50,7 +50,15 @@ class NotificationPreferenceService(BaseService):
     def create(self, actor=None, **validated_data):
         if actor and getattr(actor, "role", None) not in {ADMIN, FINANCE, OPERATIONS} and not getattr(actor, "is_superuser", False):
             validated_data["user"] = actor
-        return super().create(actor=actor, **validated_data)
+        preference, _created = NotificationPreference.objects.update_or_create(
+            user=validated_data["user"],
+            notification_type=validated_data["notification_type"],
+            defaults={
+                "in_app_enabled": validated_data.get("in_app_enabled", True),
+                "email_enabled": validated_data.get("email_enabled", True),
+            },
+        )
+        return preference
 
 
 class NotificationInboxService(BaseService):
@@ -81,8 +89,19 @@ class NotificationPreferenceViewSet(ServiceModelViewSet):
     service_class = NotificationPreferenceService
     allowed_roles = ALL_ROLES
     write_roles = ALL_ROLES
-    filterset_fields = ["user", "notification_type", "email_enabled"]
+    filterset_fields = ["user", "notification_type", "in_app_enabled", "email_enabled"]
     ordering_fields = ["notification_type", "updated_at"]
+
+    @action(detail=False, methods=["get"], url_path="event-types")
+    def event_types(self, request):
+        return Response(
+            {
+                "event_types": [
+                    {"value": value, "label": label}
+                    for value, label in EmailNotificationLog.NotificationType.choices
+                ]
+            }
+        )
 
 
 class NotificationViewSet(ServiceModelViewSet):

@@ -9,16 +9,25 @@ from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FINANCE, OPERATIONS
 from core.viewsets import ServiceModelViewSet
 
-from .models import ApiRequestLog, AuditEvent, ImportExportJob
-from .serializers import ApiRequestLogSerializer, AuditEventSerializer, ImportExportJobSerializer
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
+from .serializers import AlertEventSerializer, AlertRuleSerializer, ApiRequestLogSerializer, AuditEventSerializer, ImportExportJobSerializer
 from .services import (
+    AlertEventService,
+    AlertRuleService,
     ApiRequestLogService,
     AuditEventService,
     ImportExportJobService,
     build_diagnostics_payload,
+    build_operations_summary,
     build_poe_analytics,
     build_role_activity,
+    confirm_inventory_sites_import,
+    evaluate_alert_thresholds,
+    export_campaigns_csv,
+    export_client_statement_csv,
+    export_invoices_csv,
     export_inventory_sites_csv,
+    export_poe_reports_csv,
     validate_inventory_sites_import,
 )
 
@@ -86,6 +95,31 @@ class ImportExportJobViewSet(ServiceModelViewSet):
         job = export_inventory_sites_csv(actor=request.user)
         return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
+    @action(detail=True, methods=["post"], url_path="confirm")
+    def confirm(self, request, pk=None):
+        job = confirm_inventory_sites_import(self.get_object(), actor=request.user)
+        return Response(self.get_serializer(job).data)
+
+    @action(detail=False, methods=["post"], url_path="campaigns/export")
+    def campaigns_export(self, request):
+        job = export_campaigns_csv(actor=request.user, filters=request.data)
+        return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="invoices/export")
+    def invoices_export(self, request):
+        job = export_invoices_csv(actor=request.user, filters=request.data)
+        return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="poe-reports/export")
+    def poe_reports_export(self, request):
+        job = export_poe_reports_csv(actor=request.user, filters=request.data)
+        return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["post"], url_path="client-statements/export")
+    def client_statements_export(self, request):
+        job = export_client_statement_csv(actor=request.user, filters=request.data)
+        return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["get"], url_path="download")
     def download(self, request, pk=None):
         job = self.get_object()
@@ -112,9 +146,56 @@ class DiagnosticsView(APIView):
         return Response(build_diagnostics_payload())
 
 
+class HealthView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        return Response({"status": "ok", "service": "omms", "alive": True})
+
+
 class RoleActivityView(APIView):
     permission_classes = [RoleBasedPermission]
     allowed_roles = OBSERVABILITY_ROLES
 
     def get(self, request):
         return Response(build_role_activity(request.query_params))
+
+
+class OperationsSummaryView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = OBSERVABILITY_ROLES
+
+    def get(self, request):
+        return Response(build_operations_summary(request.query_params))
+
+
+class EvaluateAlertsView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = (ADMIN,)
+
+    def post(self, request):
+        events = evaluate_alert_thresholds()
+        return Response({"created_alerts": len(events), "alert_ids": [event.id for event in events]})
+
+
+class AlertRuleViewSet(ServiceModelViewSet):
+    serializer_class = AlertRuleSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = AlertRuleService
+    allowed_roles = OBSERVABILITY_ROLES
+    write_roles = (ADMIN,)
+    filterset_fields = ["metric", "severity", "is_enabled"]
+    search_fields = ["name"]
+    ordering_fields = ["metric", "threshold", "updated_at"]
+
+
+class AlertEventViewSet(ServiceModelViewSet):
+    serializer_class = AlertEventSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = AlertEventService
+    allowed_roles = OBSERVABILITY_ROLES
+    http_method_names = ["get", "head", "options"]
+    filterset_fields = ["metric", "severity", "rule"]
+    search_fields = ["summary"]
+    ordering_fields = ["created_at", "observed_value", "severity"]

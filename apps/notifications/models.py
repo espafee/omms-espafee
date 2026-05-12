@@ -16,6 +16,7 @@ class EmailNotificationLog(TimeStampedModel):
         SUSPICIOUS_POE = "suspicious_poe", "Suspicious POE"
         ISSUE_REPORTED = "issue_reported", "Issue Reported"
         ISSUE_ESCALATED = "issue_escalated", "Issue Escalated"
+        ALERT_TRIGGERED = "alert_triggered", "Alert Triggered"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
@@ -84,6 +85,7 @@ class NotificationPreference(TimeStampedModel):
         on_delete=models.CASCADE,
     )
     notification_type = models.CharField(max_length=30, choices=EmailNotificationLog.NotificationType.choices)
+    in_app_enabled = models.BooleanField(default=True)
     email_enabled = models.BooleanField(default=True)
 
     class Meta:

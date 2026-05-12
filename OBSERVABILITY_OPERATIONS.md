@@ -53,6 +53,14 @@ py manage.py cleanup_api_request_logs --days 30
 - Reports database/cache health, slow request threshold, recent slow requests, recent 500s, and Celery-ready status.
 - Does not expose secrets.
 
+Public deployment health:
+
+- `GET /health/`
+
+Admin operations summary:
+
+- `GET /api/v1/observability/operations-summary/`
+
 ## Background Jobs
 
 Celery is already configured. The current foundation includes task-ready functions for:
@@ -60,6 +68,7 @@ Celery is already configured. The current foundation includes task-ready functio
 - notification retry
 - invoice status refresh
 - old request-log cleanup
+- operational alert threshold evaluation
 
 Local worker:
 
@@ -78,8 +87,17 @@ Scheduled cleanup can run through Celery Beat later, or via management command t
 ## Import / Export Foundation
 
 - Model: `ImportExportJob`
-- Inventory site CSV export and review-first import validation are implemented.
-- Import preview validates rows and stores errors without creating records.
+- Inventory site CSV export and review-first import validation/confirmation are implemented.
+- Import preview validates rows, duplicate site codes, warnings, and stores errors without creating records.
+- Confirm import creates only valid rows.
+- CSV exports are available for campaigns, invoices, POE reports, client statements, and inventory sites.
+
+## Alert Thresholds
+
+- Models: `AlertRule`, `AlertEvent`
+- Evaluation creates audit events and internal notifications when thresholds cross.
+- Cooldown prevents duplicate alert spam.
+- Current metrics include slow requests, failed notifications, suspicious POEs, overdue POE reviews, breached issues, and overdue invoices.
 
 ## Dashboard Caching
 

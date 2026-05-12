@@ -21,6 +21,6 @@ class NotificationAdmin(admin.ModelAdmin):
 
 @admin.register(NotificationPreference)
 class NotificationPreferenceAdmin(admin.ModelAdmin):
-    list_display = ("user", "notification_type", "email_enabled")
-    list_filter = ("notification_type", "email_enabled")
+    list_display = ("user", "notification_type", "in_app_enabled", "email_enabled")
+    list_filter = ("notification_type", "in_app_enabled", "email_enabled")
     search_fields = ("user__email",)

@@ -6,6 +6,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 
 from apps.billing.views import PublicEstimateApproveView, PublicEstimateDetailView, PublicEstimateRejectView
 from apps.issues.views import PublicIssueReportView
+from apps.observability.views import HealthView
 from core.images import is_local_media_storage_backend
 
 urlpatterns = [
@@ -13,6 +14,7 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="api-schema"),
     path("api/docs/swagger/", SpectacularSwaggerView.as_view(url_name="api-schema"), name="swagger-ui"),
     path("api/docs/redoc/", SpectacularRedocView.as_view(url_name="api-schema"), name="redoc"),
+    path("health/", HealthView.as_view(), name="health"),
     path("api/v1/users/", include("apps.users.urls")),
     path("api/v1/inventory/", include("apps.inventory.urls")),
     path("api/v1/bookings/", include("apps.bookings.urls")),

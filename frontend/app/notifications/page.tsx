@@ -5,9 +5,19 @@ import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
-import { fetchNotifications, markNotificationRead, type NotificationItem } from "@/lib/notifications";
+import {
+  fetchNotificationEventTypes,
+  fetchNotificationPreferences,
+  fetchNotifications,
+  markNotificationRead,
+  saveNotificationPreference,
+  type NotificationEventType,
+  type NotificationItem,
+  type NotificationPreference,
+} from "@/lib/notifications";
 
 type StoredUser = {
+  id?: number;
   email?: string;
   role?: string;
 };
@@ -25,6 +35,8 @@ export default function NotificationsPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [preferences, setPreferences] = useState<NotificationPreference[]>([]);
+  const [eventTypes, setEventTypes] = useState<NotificationEventType[]>([]);
   const [filter, setFilter] = useState({ severity: "", unreadOnly: false });
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -43,9 +55,16 @@ export default function NotificationsPage() {
       setIsLoading(true);
       setError("");
       try {
-        const [profile, notifications] = await Promise.all([fetchCurrentUser(), fetchNotifications()]);
+        const [profile, notifications, preferencePayload, eventTypePayload] = await Promise.all([
+          fetchCurrentUser(),
+          fetchNotifications(),
+          fetchNotificationPreferences(),
+          fetchNotificationEventTypes(),
+        ]);
         setUser(profile);
         setItems(notifications);
+        setPreferences(preferencePayload);
+        setEventTypes(eventTypePayload.event_types);
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : "Unable to load notifications.";
         setError(message);
@@ -77,6 +96,23 @@ export default function NotificationsPage() {
   async function handleMarkRead(id: number) {
     const updated = await markNotificationRead(id);
     setItems((current) => current.map((item) => (item.id === id ? updated : item)));
+  }
+
+  async function handlePreferenceToggle(eventType: string, field: "in_app_enabled" | "email_enabled", enabled: boolean) {
+    if (!user?.id) {
+      return;
+    }
+    const existing = preferences.find((item) => item.notification_type === eventType);
+    const updated = await saveNotificationPreference({
+      user: user.id,
+      notification_type: eventType,
+      in_app_enabled: field === "in_app_enabled" ? enabled : existing?.in_app_enabled ?? true,
+      email_enabled: field === "email_enabled" ? enabled : existing?.email_enabled ?? true,
+    });
+    setPreferences((current) => {
+      const others = current.filter((item) => item.notification_type !== eventType);
+      return [...others, updated].sort((a, b) => a.notification_type.localeCompare(b.notification_type));
+    });
   }
 
   function handleLogout() {
@@ -118,6 +154,47 @@ export default function NotificationsPage() {
             />
             Unread only
           </label>
+        </div>
+      </section>
+      <section className="module-card">
+        <div className="module-head">
+          <h2>Preferences</h2>
+          <span>In-app now, email ready</span>
+        </div>
+        <div className="inventory-table-wrap">
+          <table className="inventory-table">
+            <thead>
+              <tr>
+                <th>Event type</th>
+                <th>In-app</th>
+                <th>Email</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventTypes.map((eventType) => {
+                const preference = preferences.find((item) => item.notification_type === eventType.value);
+                return (
+                  <tr key={eventType.value}>
+                    <td>{eventType.label}</td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={preference?.in_app_enabled ?? true}
+                        onChange={(event) => void handlePreferenceToggle(eventType.value, "in_app_enabled", event.target.checked)}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="checkbox"
+                        checked={preference?.email_enabled ?? true}
+                        onChange={(event) => void handlePreferenceToggle(eventType.value, "email_enabled", event.target.checked)}
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       </section>
       <section className="module-card">

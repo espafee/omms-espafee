@@ -12,9 +12,17 @@ from rest_framework.test import APIClient
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
-from apps.notifications.models import EmailNotificationLog, Notification
-from apps.observability.models import ApiRequestLog, AuditEvent, ImportExportJob
-from apps.observability.services import build_poe_analytics, record_audit_event, validate_inventory_sites_import
+from apps.notifications.models import EmailNotificationLog, Notification, NotificationPreference
+from apps.notifications.services import NotificationService
+from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
+from apps.observability.services import (
+    build_poe_analytics,
+    confirm_inventory_sites_import,
+    evaluate_alert_thresholds,
+    export_campaigns_csv,
+    record_audit_event,
+    validate_inventory_sites_import,
+)
 from apps.poe.models import ProofOfExecution
 
 User = get_user_model()
@@ -157,6 +165,80 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(job.rows_total, 1)
         self.assertEqual(job.rows_failed, 1)
         self.assertEqual(MediaSite.objects.filter(name="Missing Code").count(), 0)
+
+    def test_inventory_site_import_preview_detects_duplicates(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-001,Duplicate,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        self.assertEqual(job.status, ImportExportJob.Status.FAILED)
+        self.assertIn("Duplicate site code", job.errors[0]["error"])
+
+    def test_confirm_inventory_site_import_creates_valid_rows_only(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-002,New Site,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        confirmed = confirm_inventory_sites_import(job, actor=self.admin)
+
+        self.assertEqual(confirmed.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(confirmed.rows_success, 1)
+        self.assertTrue(MediaSite.objects.filter(code="OBS-SITE-002").exists())
+
+    def test_campaign_export_creates_completed_job(self):
+        job = export_campaigns_csv(actor=self.admin, filters={"status": Campaign.Status.ACTIVE})
+
+        self.assertEqual(job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(job.resource_type, ImportExportJob.ResourceType.CAMPAIGNS)
+        self.assertEqual(job.rows_total, 1)
+        self.assertTrue(job.output_file.name.endswith(".csv"))
+
+    def test_alert_threshold_evaluation_respects_cooldown(self):
+        rule = AlertRule.objects.create(
+            name="Any slow request",
+            metric=AlertRule.Metric.SLOW_REQUESTS,
+            threshold=1,
+            window_minutes=60,
+            cooldown_minutes=60,
+        )
+        ApiRequestLog.objects.create(
+            method="GET",
+            path="/api/v1/test/",
+            status_code=200,
+            duration_ms=1500,
+            is_slow=True,
+            category=ApiRequestLog.Category.OTHER,
+        )
+
+        first = evaluate_alert_thresholds()
+        second = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in first if event.rule_id == rule.id]), 1)
+        self.assertEqual(len([event for event in second if event.rule_id == rule.id]), 0)
+        self.assertEqual(AlertEvent.objects.filter(rule=rule).count(), 1)
+
+    def test_notification_preferences_can_disable_in_app_notification_for_user(self):
+        NotificationPreference.objects.create(
+            user=self.operations,
+            notification_type=EmailNotificationLog.NotificationType.POE_UPLOADED,
+            in_app_enabled=False,
+            email_enabled=True,
+        )
+
+        NotificationService().create_internal_notification(
+            recipient=self.operations,
+            event_type=EmailNotificationLog.NotificationType.POE_UPLOADED,
+            title="Muted",
+        )
+
+        self.assertFalse(Notification.objects.filter(recipient=self.operations, title="Muted").exists())
+
+    def test_public_health_endpoint_is_accessible(self):
+        response = self.client.get(reverse("health"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["status"], "ok")
 
     def test_role_activity_endpoint_aggregates_audit_events(self):
         record_audit_event(

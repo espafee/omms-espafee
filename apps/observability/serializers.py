@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import ApiRequestLog, AuditEvent, ImportExportJob
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 
 
 class ApiRequestLogSerializer(serializers.ModelSerializer):
@@ -68,3 +68,19 @@ class RoleActivitySerializer(serializers.Serializer):
     total_events = serializers.IntegerField()
     by_role = serializers.ListField()
     by_event_type = serializers.ListField()
+
+
+class AlertRuleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AlertRule
+        fields = "__all__"
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class AlertEventSerializer(serializers.ModelSerializer):
+    rule_name = serializers.CharField(source="rule.name", read_only=True)
+
+    class Meta:
+        model = AlertEvent
+        fields = "__all__"
+        read_only_fields = fields

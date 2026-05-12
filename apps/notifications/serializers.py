@@ -12,7 +12,7 @@ class EmailNotificationLogSerializer(serializers.ModelSerializer):
 class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationPreference
-        fields = ["id", "user", "notification_type", "email_enabled", "created_at", "updated_at"]
+        fields = ["id", "user", "notification_type", "in_app_enabled", "email_enabled", "created_at", "updated_at"]
         read_only_fields = ["id", "created_at", "updated_at"]
 
 

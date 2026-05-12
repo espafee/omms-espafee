@@ -23,12 +23,27 @@ export type PoeAnalytics = {
   }>;
 };
 
+export type OperationsSummary = {
+  poe: PoeAnalytics;
+  slow_requests_count: number;
+  audit_by_severity: Array<{ severity: string; total: number }>;
+  notification_failures_count: number;
+  notification_retries_due: number;
+  recent_critical_alerts: Array<{
+    id: number;
+    metric: string;
+    summary: string;
+    severity: string;
+    created_at: string;
+  }>;
+};
+
 export type DiagnosticsPayload = {
   app_version: string;
   git_commit: string;
   database: { ok: boolean };
   cache: { ok: boolean; timeout_seconds: number };
-  background_jobs: { celery_broker_configured: boolean; mode: string };
+  background_jobs: { celery_broker_configured: boolean; background_jobs_enabled: boolean; mode: string };
   request_logging: { enabled: boolean; slow_threshold_ms: number; retention_days: number };
   recent_slow_requests: Array<{
     created_at: string;
@@ -59,6 +74,21 @@ export type AuditEvent = {
   created_at: string;
 };
 
+export type ImportExportJob = {
+  id: number;
+  job_type: string;
+  resource_type: string;
+  status: string;
+  rows_total: number;
+  rows_success: number;
+  rows_failed: number;
+  errors: Array<{ row?: number; error: string }>;
+  filters: { warnings?: Array<{ row?: number; warning: string }> };
+  preview_rows: Array<Record<string, string>>;
+  output_file_url: string;
+  created_at: string;
+};
+
 async function list<T>(path: string) {
   const payload = await apiFetch<Paginated<T> | T[]>(path);
   return Array.isArray(payload) ? payload : payload.results;
@@ -68,10 +98,48 @@ export async function fetchPoeAnalytics() {
   return apiFetch<PoeAnalytics>("observability/poe-analytics/");
 }
 
+function toQuery(params: Record<string, string>) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) {
+      search.set(key, value);
+    }
+  }
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
+export async function fetchOperationsSummary(filters: Record<string, string> = {}) {
+  return apiFetch<OperationsSummary>(`observability/operations-summary/${toQuery(filters)}`);
+}
+
 export async function fetchDiagnostics() {
   return apiFetch<DiagnosticsPayload>("observability/diagnostics/");
 }
 
-export async function fetchAuditEvents() {
-  return list<AuditEvent>("observability/audit-events/?page_size=10");
+export async function fetchAuditEvents(filters: Record<string, string> = {}) {
+  return list<AuditEvent>(`observability/audit-events/${toQuery({ page_size: "10", ...filters })}`);
+}
+
+export async function uploadInventorySiteImport(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+  return apiFetch<ImportExportJob>("observability/import-export-jobs/inventory-sites/import-preview/", {
+    method: "POST",
+    body: formData,
+  });
+}
+
+export async function confirmImportJob(id: number) {
+  return apiFetch<ImportExportJob>(`observability/import-export-jobs/${id}/confirm/`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
+export async function createExportJob(path: "campaigns" | "invoices" | "poe-reports" | "client-statements", filters: Record<string, string> = {}) {
+  return apiFetch<ImportExportJob>(`observability/import-export-jobs/${path}/export/`, {
+    method: "POST",
+    body: JSON.stringify(filters),
+  });
 }

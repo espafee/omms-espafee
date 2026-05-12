@@ -66,6 +66,12 @@ class NotificationResult:
 
 
 class NotificationService:
+    def _recipient_allows_in_app(self, user, notification_type: str) -> bool:
+        if not user:
+            return True
+        preference = NotificationPreference.objects.filter(user=user, notification_type=notification_type).first()
+        return True if preference is None else preference.in_app_enabled
+
     def create_internal_notification(
         self,
         *,
@@ -82,6 +88,17 @@ class NotificationService:
         except Exception:
             get_company_name = lambda: ""
             scrub_metadata = lambda value: value or {}
+        if recipient and not self._recipient_allows_in_app(recipient, event_type):
+            return Notification(
+                recipient=recipient,
+                recipient_role=recipient_role,
+                event_type=event_type,
+                title=title[:255],
+                message=message,
+                severity=severity,
+                delivery_status=Notification.DeliveryStatus.INTERNAL,
+                metadata=scrub_metadata(metadata or {}),
+            )
 
         return Notification.objects.create(
             recipient=recipient if getattr(recipient, "is_authenticated", False) else recipient,

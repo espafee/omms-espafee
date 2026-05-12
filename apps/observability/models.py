@@ -103,6 +103,10 @@ class ImportExportJob(TimeStampedModel):
         POE_REPORTS = "poe_reports", "POE Reports"
 
     class Status(models.TextChoices):
+        UPLOADED = "uploaded", "Uploaded"
+        PREVIEWED = "previewed", "Previewed"
+        CONFIRMED = "confirmed", "Confirmed"
+        PROCESSING = "processing", "Processing"
         PENDING = "pending", "Pending"
         VALIDATED = "validated", "Validated"
         RUNNING = "running", "Running"
@@ -122,6 +126,7 @@ class ImportExportJob(TimeStampedModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING, db_index=True)
     original_file = models.FileField(upload_to="imports/", blank=True, null=True, max_length=500)
     output_file = models.FileField(upload_to="exports/", blank=True, null=True, max_length=500)
+    filters = models.JSONField(default=dict, blank=True)
     rows_total = models.PositiveIntegerField(default=0)
     rows_success = models.PositiveIntegerField(default=0)
     rows_failed = models.PositiveIntegerField(default=0)
@@ -137,3 +142,52 @@ class ImportExportJob(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.job_type} {self.resource_type} ({self.status})"
+
+
+class AlertRule(TimeStampedModel):
+    class Metric(models.TextChoices):
+        SLOW_REQUESTS = "slow_requests", "Slow Requests"
+        FAILED_NOTIFICATIONS = "failed_notifications", "Failed Notifications"
+        SUSPICIOUS_POES = "suspicious_poes", "Suspicious POEs"
+        OVERDUE_POE_REVIEWS = "overdue_poe_reviews", "Overdue POE Reviews"
+        BREACHED_ISSUES = "breached_issues", "Breached Issues"
+        OVERDUE_INVOICES = "overdue_invoices", "Overdue Invoices"
+
+    class Severity(models.TextChoices):
+        WARNING = "warning", "Warning"
+        CRITICAL = "critical", "Critical"
+
+    name = models.CharField(max_length=120)
+    metric = models.CharField(max_length=40, choices=Metric.choices, unique=True)
+    threshold = models.PositiveIntegerField(default=1)
+    window_minutes = models.PositiveIntegerField(default=60)
+    cooldown_minutes = models.PositiveIntegerField(default=60)
+    severity = models.CharField(max_length=20, choices=Severity.choices, default=Severity.WARNING)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        ordering = ["metric"]
+
+    def __str__(self) -> str:
+        return f"{self.name} >= {self.threshold}"
+
+
+class AlertEvent(TimeStampedModel):
+    rule = models.ForeignKey(AlertRule, related_name="events", on_delete=models.CASCADE)
+    metric = models.CharField(max_length=40, db_index=True)
+    observed_value = models.PositiveIntegerField(default=0)
+    threshold = models.PositiveIntegerField(default=0)
+    severity = models.CharField(max_length=20, db_index=True)
+    summary = models.CharField(max_length=255)
+    metadata = models.JSONField(default=dict, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["metric", "-created_at"]),
+            models.Index(fields=["severity", "-created_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return self.summary

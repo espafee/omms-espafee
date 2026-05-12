@@ -9,7 +9,7 @@ test.describe("OMMS web smoke", () => {
   });
 
   test("protected workflow routes are available to the app shell", async ({ request }) => {
-    for (const path of ["/dashboard", "/inventory", "/campaigns", "/bookings", "/billing", "/poe"]) {
+    for (const path of ["/dashboard", "/inventory", "/campaigns", "/bookings", "/billing", "/poe", "/operations", "/notifications"]) {
       const response = await request.get(path);
       expect(response.status(), `${path} should render or redirect cleanly`).toBeLessThan(500);
     }

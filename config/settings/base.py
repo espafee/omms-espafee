@@ -230,6 +230,7 @@ OMMS_QUERY_TIMING_ENABLED = get_bool("OMMS_QUERY_TIMING_ENABLED", False)
 OMMS_DASHBOARD_CACHE_SECONDS = get_int("OMMS_DASHBOARD_CACHE_SECONDS", 60)
 OMMS_APP_VERSION = get_env("OMMS_APP_VERSION", "")
 OMMS_GIT_COMMIT = get_env("OMMS_GIT_COMMIT", "")
+OMMS_ENABLE_BACKGROUND_JOBS = get_bool("OMMS_ENABLE_BACKGROUND_JOBS", True)
 OMMS_PUBLIC_REGISTRATION_ENABLED = get_bool("OMMS_PUBLIC_REGISTRATION_ENABLED", False)
 AUTH_USER_MODEL = "users.User"
 TEST_RUNNER = "core.test_runner.BackendOnlyDiscoverRunner"
@@ -291,6 +292,7 @@ SPECTACULAR_SETTINGS = {
 
 CELERY_BROKER_URL = get_env("CELERY_BROKER_URL", "redis://localhost:6379/0")
 CELERY_RESULT_BACKEND = get_env("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = get_bool("CELERY_TASK_ALWAYS_EAGER", False)
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
@@ -299,5 +301,21 @@ CELERY_BEAT_SCHEDULE = {
     "mark-overdue-invoices-nightly": {
         "task": "apps.billing.tasks.mark_overdue_invoices",
         "schedule": crontab(hour=get_int("CELERY_OVERDUE_CHECK_HOUR", 1), minute=0),
-    }
+    },
+    "cleanup-api-request-logs-nightly": {
+        "task": "apps.observability.tasks.cleanup_old_api_request_logs",
+        "schedule": crontab(hour=get_int("CELERY_REQUEST_LOG_CLEANUP_HOUR", 2), minute=15),
+    },
+    "retry-failed-notifications-every-15-minutes": {
+        "task": "apps.observability.tasks.retry_failed_notifications",
+        "schedule": crontab(minute="*/15"),
+    },
+    "refresh-invoice-statuses-hourly": {
+        "task": "apps.observability.tasks.refresh_invoice_statuses",
+        "schedule": crontab(minute=10),
+    },
+    "evaluate-operational-alerts-every-10-minutes": {
+        "task": "apps.observability.tasks.evaluate_operational_alert_thresholds",
+        "schedule": crontab(minute="*/10"),
+    },
 }

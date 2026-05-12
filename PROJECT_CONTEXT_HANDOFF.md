@@ -650,6 +650,35 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - New documentation:
   - `OBSERVABILITY_OPERATIONS.md` documents request logging, audit timeline, notifications, POE analytics, diagnostics, background jobs, upload idempotency, import/export, and caching.
 
+## Production Operations Foundation Sprint
+
+- Deployment health checks:
+  - public `/health/` endpoint added for Render/web uptime checks
+  - admin diagnostics now include background job flag, recent critical alerts, and notification retry health without exposing secrets
+- Celery/Beat production wiring:
+  - Beat schedule now covers request-log cleanup, notification retry queue, invoice status refresh, and alert threshold evaluation
+  - documented worker and beat commands for Render services
+  - background jobs remain optional for normal local web startup
+- Alert thresholds:
+  - `AlertRule` and `AlertEvent` added
+  - threshold evaluator covers slow requests, failed notifications, suspicious POEs, overdue POE reviews, breached issues, and overdue invoices
+  - cooldown logic prevents duplicate alert spam
+  - alert events create audit entries and internal operations notifications
+- Import/export:
+  - inventory site import is now preview + confirm
+  - duplicate site codes are detected during preview
+  - confirm import creates only valid rows
+  - CSV exports added for campaigns, invoices, POE reports, client statements, and inventory sites
+- Operations UI:
+  - `/operations` now includes filters, compact bar charts, alert cards, diagnostics, import preview/confirm, and export actions
+- Notification preferences:
+  - preferences now support `in_app_enabled` and `email_enabled`
+  - notification center exposes event-type preferences and respects in-app opt-outs for user-targeted notifications
+- New documentation:
+  - `CELERY_BACKGROUND_JOBS.md`
+  - `IMPORT_EXPORT.md`
+  - `DEPLOYMENT_HEALTHCHECKS.md`
+
 ## Finance Controls + Audit Review + Smoke Test Sprint
 
 - Latest sprint expands finance controls from payment recording into controlled void/refund handling.
