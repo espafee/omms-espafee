@@ -1,0 +1,568 @@
+.site {
+  --forest: #064e3b;
+  --green: #0f6b4d;
+  --mint: #dff4ea;
+  --paper: #ffffff;
+  --pale: #f6fbf8;
+  --mist: #eef4f1;
+  --line: #d8e7df;
+  --ink: #0f172a;
+  --muted: #4b635a;
+  min-height: 100vh;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(15, 107, 77, 0.12), transparent 34rem),
+    linear-gradient(180deg, #ffffff 0%, #f7faf8 46%, #ffffff 100%);
+  font-family: "Manrope", "Trebuchet MS", "Segoe UI", sans-serif;
+}
+
+.hero {
+  min-height: 780px;
+  position: relative;
+  isolation: isolate;
+  color: white;
+  background-image:
+    linear-gradient(90deg, rgba(6, 78, 59, 0.96) 0%, rgba(6, 78, 59, 0.78) 38%, rgba(6, 78, 59, 0.28) 100%),
+    url("/omms/hero-outdoor-media.svg");
+  background-size: cover;
+  background-position: center;
+}
+
+.hero::after,
+.subHero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 120px;
+  z-index: -1;
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.96));
+}
+
+.nav {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  color: inherit;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: max-content;
+}
+
+.brandMark {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 16px;
+  color: var(--forest);
+  background: var(--mint);
+  font-weight: 900;
+}
+
+.brand strong,
+.brand small {
+  display: block;
+}
+
+.brand strong {
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.brand small {
+  margin-top: 2px;
+  color: currentColor;
+  opacity: 0.72;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(18px);
+}
+
+.subHero .navLinks {
+  border-color: rgba(6, 78, 59, 0.12);
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.navLinks a,
+.navCta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.navLinks a:hover,
+.navCta:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.subHero .navLinks a:hover,
+.subHero .navCta:hover {
+  background: var(--pale);
+}
+
+.navCta {
+  color: var(--forest);
+  background: var(--paper);
+}
+
+.heroContent,
+.subHeroContent,
+.section,
+.splitSection,
+.ctaSection,
+.detailGrid,
+.relatedSection,
+.lifecycleBand {
+  width: min(1180px, calc(100% - 40px));
+  margin: 0 auto;
+}
+
+.heroContent {
+  padding: 92px 0 132px;
+}
+
+.kicker {
+  margin: 0 0 14px;
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.hero .kicker,
+.subHero .kicker {
+  color: var(--mint);
+}
+
+.hero h1,
+.subHero h1,
+.section h2,
+.splitSection h2,
+.ctaSection h2,
+.relatedSection h2 {
+  margin: 0;
+  font-family: "Fraunces", "Iowan Old Style", Georgia, serif;
+  letter-spacing: -0.045em;
+}
+
+.hero h1 {
+  max-width: 820px;
+  font-size: clamp(44px, 7vw, 86px);
+  line-height: 1;
+}
+
+.heroCopy {
+  max-width: 670px;
+  margin: 28px 0 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.65;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 34px;
+}
+
+.primaryButton,
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 0 22px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.primaryButton {
+  color: white;
+  background: var(--forest);
+  box-shadow: 0 18px 40px rgba(6, 78, 59, 0.2);
+}
+
+.hero .primaryButton {
+  color: var(--forest);
+  background: var(--mint);
+}
+
+.secondaryButton {
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.lifecycleBand {
+  transform: translateY(-50%);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 30px 70px rgba(15, 23, 42, 0.1);
+}
+
+.lifecycleBand span,
+.workflowPanel span {
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 18px;
+  color: var(--forest);
+  background: var(--pale);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.section {
+  padding: 68px 0;
+}
+
+.sectionIntro {
+  max-width: 780px;
+}
+
+.sectionIntro h2,
+.splitSection h2,
+.ctaSection h2,
+.relatedSection h2 {
+  font-size: clamp(36px, 5vw, 62px);
+  line-height: 1.02;
+}
+
+.sectionIntro p,
+.splitSection p,
+.ctaSection p,
+.subHeroContent p,
+.detailCard p {
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.7;
+}
+
+.proofGrid,
+.cardGrid,
+.detailGrid {
+  display: grid;
+  gap: 18px;
+}
+
+.proofGrid {
+  margin-top: 34px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.proofItem,
+.featureCard,
+.detailCard,
+.statCard {
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.05);
+}
+
+.proofItem {
+  min-height: 190px;
+  display: grid;
+  align-content: space-between;
+  padding: 20px;
+  border-radius: 24px;
+}
+
+.proofItem span {
+  color: var(--green);
+  font-family: "Cascadia Mono", monospace;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.proofItem p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 800;
+}
+
+.cardGrid {
+  margin-top: 34px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.featureCard,
+.detailCard {
+  padding: 28px;
+  border-radius: 30px;
+}
+
+.featureCard h3,
+.detailCard h2 {
+  margin: 0 0 12px;
+  color: var(--forest);
+  font-size: 24px;
+  letter-spacing: -0.025em;
+}
+
+.featureCard p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.splitSection {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: 46px;
+  align-items: center;
+  padding: 78px 0;
+}
+
+.workflowPanel {
+  display: grid;
+  gap: 14px;
+  padding: 26px;
+  border-radius: 36px;
+  background: var(--forest);
+  box-shadow: 0 30px 70px rgba(6, 78, 59, 0.22);
+}
+
+.workflowPanel span {
+  justify-content: flex-start;
+  min-height: 62px;
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.ctaSection {
+  margin-top: 40px;
+  margin-bottom: 90px;
+  padding: 58px;
+  border-radius: 42px;
+  color: white;
+  background:
+    linear-gradient(135deg, rgba(6, 78, 59, 0.96), rgba(15, 107, 77, 0.92)),
+    url("/omms/hero-outdoor-media.svg");
+  background-size: cover;
+  background-position: center;
+}
+
+.ctaSection .kicker,
+.ctaSection p {
+  color: var(--mint);
+}
+
+.ctaSection h2 {
+  max-width: 860px;
+}
+
+.ctaSection p {
+  max-width: 760px;
+}
+
+.subHero {
+  position: relative;
+  isolation: isolate;
+  padding-bottom: 78px;
+  color: var(--ink);
+  background:
+    linear-gradient(180deg, rgba(246, 251, 248, 0.98), rgba(255, 255, 255, 0.98)),
+    url("/omms/hero-outdoor-media.svg");
+  background-size: cover;
+  background-position: center;
+}
+
+.subHeroContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: 50px;
+  align-items: end;
+  padding: 86px 0 20px;
+}
+
+.subHero h1 {
+  max-width: 960px;
+  font-size: clamp(44px, 6vw, 84px);
+  line-height: 0.98;
+}
+
+.subHeroContent p {
+  max-width: 740px;
+}
+
+.statCard {
+  min-height: 250px;
+  display: grid;
+  align-content: end;
+  gap: 12px;
+  padding: 28px;
+  border-radius: 34px;
+}
+
+.statCard strong {
+  color: var(--forest);
+  font-family: "Fraunces", Georgia, serif;
+  font-size: 70px;
+  line-height: 0.9;
+}
+
+.statCard span {
+  color: var(--muted);
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+
+.detailGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 80px 0 60px;
+}
+
+.detailCard ul {
+  display: grid;
+  gap: 10px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.detailCard li {
+  position: relative;
+  padding-left: 22px;
+  color: var(--ink);
+  font-weight: 800;
+  line-height: 1.5;
+}
+
+.detailCard li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: var(--green);
+}
+
+.relatedSection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.9fr);
+  gap: 30px;
+  align-items: center;
+  padding: 48px;
+  margin-bottom: 90px;
+  border: 1px solid var(--line);
+  border-radius: 38px;
+  background: var(--paper);
+}
+
+.relatedLinks {
+  display: grid;
+  gap: 12px;
+}
+
+.relatedLinks a {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  border-radius: 18px;
+  color: var(--forest);
+  background: var(--pale);
+  font-weight: 900;
+}
+
+@media (max-width: 1080px) {
+  .nav {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .navLinks {
+    justify-content: flex-start;
+    border-radius: 24px;
+  }
+
+  .proofGrid,
+  .cardGrid,
+  .detailGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .splitSection,
+  .subHeroContent,
+  .relatedSection {
+    grid-template-columns: 1fr;
+  }
+
+  .lifecycleBand {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    transform: translateY(-26px);
+  }
+}
+
+@media (max-width: 720px) {
+  .hero {
+    min-height: auto;
+  }
+
+  .heroContent {
+    padding: 66px 0 96px;
+  }
+
+  .hero h1 {
+    font-size: clamp(42px, 14vw, 68px);
+  }
+
+  .proofGrid,
+  .cardGrid,
+  .detailGrid,
+  .lifecycleBand {
+    grid-template-columns: 1fr;
+  }
+
+  .section,
+  .splitSection {
+    padding: 46px 0;
+  }
+
+  .ctaSection,
+  .relatedSection {
+    padding: 32px;
+    border-radius: 30px;
+  }
+}
