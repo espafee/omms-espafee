@@ -33,6 +33,7 @@ body {
 }
 
 body {
+  overflow-x: hidden;
   color: var(--ink);
   font-family: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
@@ -372,11 +373,13 @@ textarea::placeholder {
 }
 
 .dashboard-shell {
+  width: min(100%, 1580px);
   min-height: 100vh;
+  margin: 0 auto;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 16px;
-  padding: 16px;
+  grid-template-columns: clamp(240px, 17vw, 300px) minmax(0, 1fr);
+  gap: clamp(14px, 1.4vw, 22px);
+  padding: clamp(14px, 1.6vw, 24px);
 }
 
 .sidebar {
@@ -478,6 +481,7 @@ textarea::placeholder {
 }
 
 .workspace {
+  min-width: 0;
   padding: 24px;
   border-radius: 12px;
   border: 1px solid var(--line);
@@ -530,7 +534,7 @@ textarea::placeholder {
 .summary-row {
   margin-top: 28px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 14px;
 }
 
@@ -582,6 +586,7 @@ textarea::placeholder {
 
 .module-card,
 .activity-card {
+  min-width: 0;
   padding: 18px;
 }
 
@@ -1236,12 +1241,16 @@ textarea::placeholder {
 }
 
 .asset-card-media {
+  min-width: 0;
   gap: 12px;
 }
 
 .asset-image {
   aspect-ratio: 4 / 3;
+  max-height: min(58vh, 560px);
   border-radius: 16px;
+  object-fit: contain;
+  background: var(--surface-soft);
 }
 
 .inline-link-button {

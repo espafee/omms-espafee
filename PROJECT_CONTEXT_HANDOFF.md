@@ -717,3 +717,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - `pytest.ini` excludes frontend, node, build, Playwright, media, and static artifact folders
   - Playwright reports, traces, videos, screenshots, and test results are frontend-scoped and gitignored
   - `TESTING.md` documents backend, frontend, and E2E commands as separate phases
+
+## Responsive UI Polish For VistaAi Embed
+
+- OMMS app shell was tuned for laptop and desktop embeds so dashboards can use wider available screens instead of feeling boxed inside a narrow viewport.
+- Dashboard shell now has a wider maximum working area, fluid sidebar width, safer content min-width handling, and responsive summary cards.
+- POE recent evidence images now cap their visual height and use contained image rendering, reducing oversized media cards on MacBook/laptop screens.
+- This supports the VistaAi `/omms/login` iframe wrapper, which was widened to better use 16-inch MacBook Pro and desktop browser widths.
