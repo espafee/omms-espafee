@@ -724,3 +724,9 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Dashboard shell now has a wider maximum working area, fluid sidebar width, safer content min-width handling, and responsive summary cards.
 - POE recent evidence images now cap their visual height and use contained image rendering, reducing oversized media cards on MacBook/laptop screens.
 - This supports the VistaAi `/omms/login` iframe wrapper, which was widened to better use 16-inch MacBook Pro and desktop browser widths.
+
+## VistaAi Portal Login Signal
+
+- OMMS frontend login now sends a safe parent-window login signal when used inside the VistaAi `/omms/login` iframe.
+- The VistaAi website uses this signal only for UX, allowing marketing navigation to show `Open App` after a successful embedded login.
+- The actual secure OMMS authentication remains inside the OMMS app JWT flow; VistaAi does not read or store the JWT.

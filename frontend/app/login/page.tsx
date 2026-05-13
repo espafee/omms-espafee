@@ -5,6 +5,23 @@ import { useRouter } from "next/navigation";
 
 import { getAccessToken, loginWithEmailPassword, storeAuthSession } from "@/lib/auth";
 
+const portalParentOrigins = [
+  "https://www.vistaaitech.com",
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://localhost:3010",
+];
+
+function notifyPortalLogin() {
+  if (typeof window === "undefined" || window.parent === window) {
+    return;
+  }
+
+  for (const origin of portalParentOrigins) {
+    window.parent.postMessage({ type: "omms:auth:success" }, origin);
+  }
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -21,6 +38,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (getAccessToken()) {
+      notifyPortalLogin();
       router.replace("/dashboard");
     }
   }, [router]);
@@ -33,6 +51,7 @@ export default function LoginPage() {
     try {
       const payload = await loginWithEmailPassword(email, password);
       storeAuthSession(payload);
+      notifyPortalLogin();
       router.push("/dashboard");
     } catch (submitError) {
       setError(getLoginErrorMessage(submitError));
