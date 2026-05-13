@@ -730,3 +730,23 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - OMMS frontend login now sends a safe parent-window login signal when used inside the VistaAi `/omms/login` iframe.
 - The VistaAi website uses this signal only for UX, allowing marketing navigation to show `Open App` after a successful embedded login.
 - The actual secure OMMS authentication remains inside the OMMS app JWT flow; VistaAi does not read or store the JWT.
+
+## Website QA And Training Module Sprint
+
+- In-app Training and Help Center added at `/training` for authenticated OMMS users.
+- Sidebar navigation now includes `Training` with stable Playwright test selectors across all major modules.
+- Training module publishes the master OMMS manual plus role-based PDF guides from `frontend/public/training`.
+- Role-based guide visibility is future-ready:
+  - admins, super admins, and owners can see all guides
+  - field, finance, operations, and inventory users see their relevant training material
+- Playwright smoke coverage expanded for:
+  - login invalid/success handling
+  - protected workflow routes
+  - sidebar navigation coverage
+  - Training page access
+  - Training PDF availability
+  - unauthenticated Training redirect
+- QA focus for this sprint:
+  - verify no broken Training routes or PDF links
+  - keep Training access inside the authenticated OMMS app
+  - preserve existing billing, campaign, booking, POE, operations, and notification workflows

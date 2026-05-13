@@ -577,7 +577,8 @@ textarea::placeholder {
 }
 
 .module-grid,
-.activity-strip {
+.activity-strip,
+.training-grid {
   margin-top: 18px;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -588,6 +589,16 @@ textarea::placeholder {
 .activity-card {
   min-width: 0;
   padding: 18px;
+}
+
+.training-card {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.training-download {
+  width: fit-content;
 }
 
 .module-card-highlight {
@@ -1958,6 +1969,7 @@ textarea::placeholder {
 
   .module-grid,
   .activity-strip,
+  .training-grid,
   .setup-form-grid,
   .inventory-layout,
   .campaign-layout,
@@ -2063,6 +2075,7 @@ textarea::placeholder {
   .summary-row,
   .module-grid,
   .activity-strip,
+  .training-grid,
   .setup-stepper,
   .setup-form-grid,
   .campaign-form-grid,

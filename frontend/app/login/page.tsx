@@ -29,10 +29,7 @@ export default function LoginPage() {
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function getLoginErrorMessage(errorValue: unknown) {
-    if (errorValue instanceof Error) {
-      console.error("Login failed:", errorValue.message);
-    }
+  function getLoginErrorMessage() {
     return "Invalid email or password. Please try again.";
   }
 
@@ -53,8 +50,8 @@ export default function LoginPage() {
       storeAuthSession(payload);
       notifyPortalLogin();
       router.push("/dashboard");
-    } catch (submitError) {
-      setError(getLoginErrorMessage(submitError));
+    } catch {
+      setError(getLoginErrorMessage());
     } finally {
       setIsSubmitting(false);
     }
