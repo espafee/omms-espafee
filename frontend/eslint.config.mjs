@@ -1,5 +1,7 @@
 import nextVitals from "eslint-config-next/core-web-vitals";
 
+const nextVitalsConfig = Array.isArray(nextVitals) ? nextVitals : [nextVitals];
+
 const eslintConfig = [
   {
     ignores: [
@@ -20,7 +22,7 @@ const eslintConfig = [
       "*.html",
     ],
   },
-  ...nextVitals,
+  ...nextVitalsConfig,
   {
     rules: {
       "@next/next/no-img-element": "off",
