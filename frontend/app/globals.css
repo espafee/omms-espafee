@@ -1542,6 +1542,100 @@ textarea::placeholder {
   grid-column: span 2;
 }
 
+.filter-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: 54px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  cursor: pointer;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.filter-toggle:hover {
+  border-color: rgba(6, 78, 59, 0.24);
+  background: var(--accent-soft);
+}
+
+.filter-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.filter-toggle-control {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: #e7ece8;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.filter-toggle-control::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 12px;
+  height: 12px;
+  content: "";
+  border-radius: 999px;
+  background: white;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+  transition: transform 160ms ease;
+}
+
+.filter-toggle input:checked + .filter-toggle-control {
+  border-color: var(--accent-strong);
+  background: var(--accent-strong);
+}
+
+.filter-toggle input:checked + .filter-toggle-control::after {
+  transform: translateX(14px);
+}
+
+.filter-toggle input:focus-visible + .filter-toggle-control {
+  outline: 2px solid rgba(15, 118, 110, 0.28);
+  outline-offset: 2px;
+}
+
+.filter-toggle-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.filter-toggle-copy strong,
+.filter-toggle-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filter-toggle-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.filter-toggle-copy small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .client-panel-preview {
   padding: 16px;
   border-radius: 18px;

@@ -535,9 +535,13 @@ export default function PoePage() {
               <label htmlFor="poe-filter-to">To</label>
               <input id="poe-filter-to" type="date" value={filters.toDate} onChange={(event) => updateFilter("toDate", event.target.value)} />
             </div>
-            <label className="field field-full">
-              <span>Suspicious only</span>
+            <label className="filter-toggle">
               <input type="checkbox" checked={filters.suspiciousOnly} onChange={(event) => updateFilter("suspiciousOnly", event.target.checked)} />
+              <span className="filter-toggle-control" aria-hidden="true" />
+              <span className="filter-toggle-copy">
+                <strong>Suspicious only</strong>
+                <small>Show flagged or rejected POE</small>
+              </span>
             </label>
           </div>
           <div className="inventory-table-wrap">
