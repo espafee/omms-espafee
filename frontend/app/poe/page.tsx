@@ -630,38 +630,43 @@ export default function PoePage() {
             <h2>Recent evidence</h2>
             <span>Media</span>
           </div>
-          <div className="asset-list">
+          <div className="asset-list poe-media-list">
             {recentMedia.map((media) => {
               const booking = bookingMap.get(media.bookingId);
               const unit = booking ? unitMap.get(booking.media_unit) : null;
               const site = unit ? siteMap.get(unit.siteId) : null;
               const mediaLink = media.image_url || media.media_url;
+              const previewUrl = media.image_url || (media.media_type === "image" ? media.media_url : null);
 
               return (
-                <article className="asset-card asset-card-media" key={media.id}>
-                  {media.image_url ? (
-                    <img className="asset-image" src={media.image_url} alt={media.note || "POE evidence"} />
-                  ) : (
-                    <div className="image-reference-empty asset-image-placeholder">
-                      <span>{media.media_type}</span>
-                    </div>
-                  )}
-                  <div className="asset-head">
-                    <div>
+                <article className="asset-card asset-card-media poe-media-card" key={media.id}>
+                  <div className="poe-media-thumb">
+                    {previewUrl ? (
+                      <img className="asset-image poe-media-image" src={previewUrl} alt={media.note || "POE evidence"} />
+                    ) : (
+                      <div className="image-reference-empty asset-image-placeholder poe-media-placeholder">
+                        <span>{media.media_type}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="poe-media-details">
+                    <div className="poe-media-summary">
                       <p className="site-code">{media.media_type}</p>
                       <h3>{formatDateTime(media.captured_at)}</h3>
                     </div>
-                    <span className={`status-pill status-${media.verificationStatus}`}>{media.verificationStatus}</span>
+                    <p className="site-copy poe-media-location">
+                      {(site?.name ?? "Unknown site") + " • " + (unit?.unitCode ?? "Unknown unit")}
+                    </p>
+                    <p className="site-copy">Executed on {formatDate(media.executedOn)}</p>
+                    {mediaLink ? (
+                      <a className="asset-link poe-media-link" href={mediaLink} rel="noreferrer" target="_blank">
+                        Open proof media
+                      </a>
+                    ) : null}
+                    <span className={`status-pill status-${media.verificationStatus} poe-media-status`}>
+                      {media.verificationStatus}
+                    </span>
                   </div>
-                  <p className="site-copy">
-                    {(site?.name ?? "Unknown site") + " • " + (unit?.unitCode ?? "Unknown unit")}
-                  </p>
-                  <p className="site-copy">{media.note || `Executed on ${formatDate(media.executedOn)}`}</p>
-                  {mediaLink ? (
-                    <a className="asset-link" href={mediaLink} rel="noreferrer" target="_blank">
-                      Open proof media
-                    </a>
-                  ) : null}
                 </article>
               );
             })}

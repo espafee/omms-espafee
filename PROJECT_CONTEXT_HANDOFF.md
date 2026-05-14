@@ -750,3 +750,9 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - verify no broken Training routes or PDF links
   - keep Training access inside the authenticated OMMS app
   - preserve existing billing, campaign, booking, POE, operations, and notification workflows
+
+## POE Review UI Alignment
+
+- POE recent evidence now uses dedicated compact media-review cards instead of the generic asset-card stack.
+- The right-side evidence panel keeps proof thumbnails at a uniform 4:3 ratio, places captured date/time first, then site/unit, executed date, proof link, and status, and keeps verified badges aligned without overlapping image content.
+- The persistent signed-in banner shown above the embedded dashboard is owned by the VistaAi TrustDial wrapper, not the OMMS frontend. The wrapper should be deployed together with this OMMS frontend update so the temporary toast behavior is visible in the embedded `/omms/login` experience.

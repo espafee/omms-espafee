@@ -758,6 +758,89 @@ textarea::placeholder {
   color: var(--accent);
 }
 
+.poe-media-list {
+  max-height: 720px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.poe-media-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: 132px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 14px;
+  padding: 12px;
+  border-radius: 16px;
+  background: white;
+}
+
+.poe-media-thumb {
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(68, 64, 60, 0.08);
+  background: #f5f5f4;
+}
+
+.poe-media-image,
+.poe-media-placeholder {
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 4 / 3;
+}
+
+.poe-media-image {
+  object-fit: cover;
+}
+
+.poe-media-placeholder {
+  border: 0;
+  border-radius: 0;
+  font-size: 12px;
+}
+
+.poe-media-details {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-content: start;
+}
+
+.poe-media-summary,
+.poe-media-location,
+.poe-media-link {
+  grid-column: 1 / 2;
+}
+
+.poe-media-summary {
+  min-width: 0;
+}
+
+.poe-media-summary h3 {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.poe-media-status {
+  grid-column: 2 / 3;
+  grid-row: 1 / 2;
+  align-self: start;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.poe-media-card .site-copy {
+  grid-column: 1 / -1;
+  line-height: 1.45;
+}
+
+.poe-media-link {
+  width: fit-content;
+  margin-top: 2px;
+}
+
 .inventory-table-wrap {
   overflow-x: auto;
   border-radius: 20px;
@@ -2015,6 +2098,11 @@ textarea::placeholder {
   .unit-upload-preview-grid {
     grid-template-columns: 1fr;
   }
+
+  .poe-media-list {
+    max-height: none;
+    padding-right: 0;
+  }
 }
 @media (max-width: 1023px) {
   .card-grid {
@@ -2113,6 +2201,27 @@ textarea::placeholder {
     min-width: 640px;
   }
 
+  .poe-media-card {
+    grid-template-columns: 1fr;
+  }
+
+  .poe-media-details {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .poe-media-summary,
+  .poe-media-location,
+  .poe-media-link,
+  .poe-media-status {
+    grid-column: 1 / -1;
+  }
+
+  .poe-media-status {
+    grid-row: auto;
+    justify-self: start;
+    order: 5;
+  }
+
   .asset-head,
   .campaign-detail-head,
   .module-head,
@@ -2156,5 +2265,9 @@ textarea::placeholder {
   .image-reference-empty,
   .asset-image-placeholder {
     min-height: 180px;
+  }
+
+  .poe-media-placeholder {
+    min-height: 0;
   }
 }

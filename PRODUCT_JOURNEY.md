@@ -1,0 +1,29 @@
+# Product Journey
+
+## Operational SaaS Infrastructure Phase - Celery and Beat Wiring
+
+OMMS now has production-oriented Celery configuration for background jobs while preserving current Django, DRF, frontend, observability, notification, POE, billing, and training workflows.
+
+The implementation keeps scheduled work intentionally small. Celery Beat registers only jobs with clear existing support or minimal safe behavior: overdue invoice status maintenance and expired public campaign access token deactivation. Redis-compatible broker and result backend settings are driven entirely through environment variables, with local defaults suitable for development and Docker.
+
+This keeps OMMS moving toward a reliable SaaS operating model without introducing speculative background behavior for notification retries, analytics refreshes, alert evaluation, exports, or imports before those flows have tenant-aware idempotency and dedicated tests.
+
+## Verification Pass - Repository and Test Discovery Alignment
+
+Before adding the next feature layer, OMMS was rechecked from the active repository at `/Users/macbook/Projects/OMMS`. The Celery/Beat wiring remained uncommitted but valid: Redis support is installed through the pinned backend requirements, Celery loads against the Django settings, and both safe scheduled tasks are registered.
+
+The apparent test-count mismatch was traced to repository context rather than a failing discovery path. This active OMMS checkout currently discovers and passes 96 backend tests under `apps`; the earlier approximately-200-test signal aligns with a different TrustDial backend checkout, not this OMMS repository. Likewise, Playwright reports `No tests found` because this OMMS frontend has no committed Playwright config or spec files. Playwright specs were found only in another local repository, so no replacement smoke tests were added during this verification pass.
+
+The result is a cleaner infrastructure baseline: Celery/Beat is ready to deploy once the uncommitted changes are reviewed and committed, while frontend smoke coverage remains a known follow-up that should be restored from the correct OMMS source rather than recreated blindly.
+
+## Frontend Smoke Test Foundation
+
+OMMS now has a minimal Playwright smoke suite for the active frontend checkout. The goal was not to redesign or expand product behavior, but to prevent the previous `No tests found` state from hiding frontend regressions.
+
+The smoke suite verifies the login page, unauthenticated protected-route guards, the authenticated app shell/navigation, and stable billing, inventory, and campaign route loads. Because no real test credentials are available, authenticated checks use localStorage session seeding and mocked read-only API responses. This gives the project a repeatable browser-test baseline while keeping true live-login and backend-integrated smoke tests as a later, credential-backed step.
+
+## POE Review Experience Polish
+
+The POE review surface has been tightened for a more enterprise SaaS feel. Recent evidence cards now use consistent horizontal media rows on desktop, uniform thumbnail ratios, predictable metadata ordering, and stable verified badge placement. On smaller screens the same content stacks cleanly without changing API behavior.
+
+The signed-in status message visible in the screenshot was traced to the TrustDial OMMS iframe wrapper rather than the OMMS frontend itself. It now behaves as a temporary session toast instead of a permanent floating banner, keeping the embedded dashboard clear after sign-in.
