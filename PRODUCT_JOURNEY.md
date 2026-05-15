@@ -27,3 +27,9 @@ The smoke suite verifies the login page, unauthenticated protected-route guards,
 The POE review surface has been tightened for a more enterprise SaaS feel. Recent evidence cards now use consistent horizontal media rows on desktop, uniform thumbnail ratios, predictable metadata ordering, and stable verified badge placement. On smaller screens the same content stacks cleanly without changing API behavior.
 
 The signed-in status message visible in the screenshot was traced to the TrustDial OMMS iframe wrapper rather than the OMMS frontend itself. It now behaves as a temporary session toast instead of a permanent floating banner, keeping the embedded dashboard clear after sign-in.
+
+## Inventory Import Preview Foundation
+
+OMMS now treats inventory import as a staged operational workflow rather than a direct upload action. The first safe phase is in place: teams can upload CSV or Excel inventory files, parse them, review validation results, inspect duplicates and warnings, and confirm that no records have been imported yet.
+
+This preview foundation preserves onboarding speed while reducing operational risk. It checks missing required fields, repeated rows, duplicate site/media unit codes, invalid pricing or dimensions, and suspicious coordinates without committing inventory records. The Operations screen now gives users compact summary counts, row-level warnings/errors, duplicate information, preview rows, and a disabled `Start Import` placeholder for the next confirmation/background-processing phase.

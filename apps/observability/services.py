@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 from datetime import timedelta
+from decimal import Decimal, InvalidOperation
 from io import StringIO
 from typing import Any
 
@@ -11,8 +13,9 @@ from django.core.files.base import ContentFile
 from django.db import connection, models
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
+from openpyxl import load_workbook
 
-from apps.inventory.models import MediaSite
+from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
 from apps.billing.models import Invoice, Payment
 from apps.issues.models import Issue
@@ -26,6 +29,20 @@ from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExpo
 
 
 SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret", "private_key", "file", "image"}
+IMPORT_ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xlsm"}
+IMPORT_MAX_BYTES = 5 * 1024 * 1024
+IMPORT_PREVIEW_LIMIT = 50
+IMPORT_REQUIRED_SITE_FIELDS = {"site_code", "site_name", "site_type", "address", "city", "state"}
+IMPORT_REQUIRED_UNIT_FIELDS = {"unit_code", "width", "height", "monthly_rate"}
+IMPORT_SITE_FIELD_ALIASES = {
+    "code": "site_code",
+    "name": "site_name",
+    "latitude": "site_latitude",
+    "longitude": "site_longitude",
+    "lat": "site_latitude",
+    "lng": "site_longitude",
+    "long": "site_longitude",
+}
 
 
 def get_company_name() -> str:
@@ -491,89 +508,229 @@ def export_inventory_sites_csv(*, actor=None) -> ImportExportJob:
     return job
 
 
-def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
+def _normalise_import_key(value: str) -> str:
+    return value.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _normalise_inventory_row(row: dict[str, Any]) -> dict[str, str]:
+    normalised: dict[str, str] = {}
+    for key, value in row.items():
+        if key is None:
+            continue
+        next_key = _normalise_import_key(str(key))
+        next_key = IMPORT_SITE_FIELD_ALIASES.get(next_key, next_key)
+        normalised[next_key] = "" if value is None else str(value).strip()
+    return normalised
+
+
+def _read_inventory_import_rows(file_obj) -> tuple[list[dict[str, str]], bytes, str]:
+    filename = getattr(file_obj, "name", "inventory-import.csv") or "inventory-import.csv"
+    lower_filename = filename.lower()
+    if not any(lower_filename.endswith(extension) for extension in IMPORT_ALLOWED_EXTENSIONS):
+        raise ValueError("Only CSV and Excel files are supported for inventory imports.")
     raw = file_obj.read()
-    text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
-    reader = csv.DictReader(StringIO(text))
-    required = {"code", "name", "site_type", "address", "city", "state"}
-    errors = []
-    warnings = []
-    preview = []
-    total = 0
-    for index, row in enumerate(reader, start=2):
-        total += 1
-        missing = [field for field in required if not (row.get(field) or "").strip()]
-        if missing:
-            errors.append({"row": index, "error": f"Missing required fields: {', '.join(sorted(missing))}"})
-        code = (row.get("code") or "").strip()
-        if code and MediaSite.objects.filter(code__iexact=code).exists():
-            errors.append({"row": index, "error": f"Duplicate site code already exists: {code}"})
-        if not (row.get("latitude") and row.get("longitude")):
-            warnings.append({"row": index, "warning": "Coordinates are empty and can be captured during first verified POE."})
-        if len(preview) < 20:
-            preview.append(row)
+    if len(raw) > getattr(settings, "OMMS_IMPORT_MAX_BYTES", IMPORT_MAX_BYTES):
+        raise ValueError("Import file is too large. Upload a file under 5 MB.")
+
+    if lower_filename.endswith(".csv"):
+        text = raw.decode("utf-8-sig")
+        rows = [_normalise_inventory_row(row) for row in csv.DictReader(StringIO(text))]
+        return rows, raw, filename
+
+    workbook = load_workbook(filename=ContentFile(raw), read_only=True, data_only=True)
+    sheet = workbook.active
+    rows_iter = sheet.iter_rows(values_only=True)
+    headers = next(rows_iter, None)
+    if not headers:
+        return [], raw, filename
+    keys = [_normalise_import_key(str(header or "")) for header in headers]
+    rows = []
+    for values in rows_iter:
+        rows.append(_normalise_inventory_row(dict(zip(keys, values))))
+    return rows, raw, filename
+
+
+def _parse_decimal(value: str, *, field: str, row_number: int, errors: list[dict[str, Any]], required: bool = False):
+    if value == "":
+        if required:
+            errors.append({"row": row_number, "error": f"{field} is required."})
+        return None
+    try:
+        parsed = Decimal(value)
+    except (InvalidOperation, ValueError):
+        errors.append({"row": row_number, "error": f"{field} must be a valid number."})
+        return None
+    if parsed < 0:
+        errors.append({"row": row_number, "error": f"{field} cannot be negative."})
+    return parsed
+
+
+def _parse_int(value: str, *, field: str, row_number: int, errors: list[dict[str, Any]], default: int = 1):
+    if value == "":
+        return default
+    try:
+        parsed = int(Decimal(value))
+    except (InvalidOperation, ValueError):
+        errors.append({"row": row_number, "error": f"{field} must be a whole number."})
+        return default
+    if parsed <= 0:
+        errors.append({"row": row_number, "error": f"{field} must be greater than zero."})
+    return parsed
+
+
+def _validate_inventory_row(
+    row: dict[str, str],
+    *,
+    row_number: int,
+    seen_unit_codes: set[str],
+    seen_site_codes: set[str],
+    seen_row_fingerprints: set[str],
+) -> dict[str, Any]:
+    errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    site_code = row.get("site_code", "")
+    unit_code = row.get("unit_code", "")
+    has_unit = any(row.get(field, "") for field in IMPORT_REQUIRED_UNIT_FIELDS)
+    row_fingerprint = hashlib.sha256("|".join(row.get(key, "") for key in sorted(row.keys())).encode("utf-8")).hexdigest()
+    if row_fingerprint in seen_row_fingerprints:
+        errors.append({"row": row_number, "error": "Repeated row in uploaded file."})
+    seen_row_fingerprints.add(row_fingerprint)
+
+    missing_site = [field for field in IMPORT_REQUIRED_SITE_FIELDS if not row.get(field, "")]
+    if missing_site:
+        errors.append({"row": row_number, "error": f"Missing required site fields: {', '.join(sorted(missing_site))}"})
+    if site_code:
+        site_key = site_code.lower()
+        if site_key in seen_site_codes:
+            warnings.append({"row": row_number, "warning": f"Repeated site code in file: {site_code}"})
+        seen_site_codes.add(site_key)
+
+    site_type = row.get("site_type", "")
+    if site_type and site_type not in {choice[0] for choice in MediaSite.SiteType.choices}:
+        errors.append({"row": row_number, "error": f"Invalid site_type: {site_type}"})
+
+    latitude = _parse_decimal(row.get("site_latitude", ""), field="site_latitude", row_number=row_number, errors=errors)
+    longitude = _parse_decimal(row.get("site_longitude", ""), field="site_longitude", row_number=row_number, errors=errors)
+    if latitude is None or longitude is None:
+        warnings.append({"row": row_number, "warning": "Coordinates are empty and can be verified later through POE."})
+    else:
+        if latitude < Decimal("-90") or latitude > Decimal("90") or longitude < Decimal("-180") or longitude > Decimal("180"):
+            errors.append({"row": row_number, "error": "Coordinates are outside valid latitude/longitude bounds."})
+        elif not (Decimal("6") <= latitude <= Decimal("38") and Decimal("68") <= longitude <= Decimal("98")):
+            warnings.append({"row": row_number, "warning": "Coordinates are outside the usual India operating range. Review before confirming."})
+
+    if has_unit:
+        missing_unit = [field for field in IMPORT_REQUIRED_UNIT_FIELDS if not row.get(field, "")]
+        if missing_unit:
+            errors.append({"row": row_number, "error": f"Missing required unit fields: {', '.join(sorted(missing_unit))}"})
+        if unit_code.lower() in seen_unit_codes:
+            errors.append({"row": row_number, "error": f"Repeated media unit code in file: {unit_code}"})
+        if unit_code:
+            seen_unit_codes.add(unit_code.lower())
+        if unit_code and MediaUnit.objects.filter(unit_code__iexact=unit_code).exists():
+            warnings.append({"row": row_number, "warning": f"Media unit already exists and will be skipped: {unit_code}"})
+        _parse_int(row.get("face_count", ""), field="face_count", row_number=row_number, errors=errors)
+        width = _parse_decimal(row.get("width", ""), field="width", row_number=row_number, errors=errors, required=True)
+        height = _parse_decimal(row.get("height", ""), field="height", row_number=row_number, errors=errors, required=True)
+        if width is not None and width <= 0:
+            errors.append({"row": row_number, "error": "width must be greater than zero."})
+        if height is not None and height <= 0:
+            errors.append({"row": row_number, "error": "height must be greater than zero."})
+        _parse_decimal(row.get("monthly_rate", ""), field="monthly_rate", row_number=row_number, errors=errors, required=True)
+        status = row.get("status", "") or MediaUnit.Status.AVAILABLE
+        if status not in {choice[0] for choice in MediaUnit.Status.choices}:
+            errors.append({"row": row_number, "error": f"Invalid media unit status: {status}"})
+        unit_site_type = row.get("unit_site_type", "") or row.get("media_unit_site_type", "") or row.get("unit_type", "")
+        if unit_site_type and unit_site_type not in {choice[0] for choice in MediaUnit.SiteType.choices}:
+            errors.append({"row": row_number, "error": f"Invalid unit_site_type: {unit_site_type}"})
+
+    duplicate_site = bool(site_code and MediaSite.objects.filter(code__iexact=site_code).exists())
+    if duplicate_site:
+        warnings.append({"row": row_number, "warning": f"Site already exists and will be updated safely: {site_code}"})
+
+    return {
+        "row": row_number,
+        "status": "failed" if errors else "warning" if warnings else "valid",
+        "action": "update_site" if duplicate_site else "create_site",
+        "site_code": site_code,
+        "site_name": row.get("site_name", ""),
+        "unit_code": unit_code,
+        "errors": errors,
+        "warnings": warnings,
+        "data": row,
+    }
+
+
+def _build_import_summary(preview_rows: list[dict[str, Any]]) -> dict[str, int]:
+    valid_rows = sum(1 for row in preview_rows if row["status"] == "valid")
+    warning_rows = sum(1 for row in preview_rows if row["status"] == "warning")
+    failed_rows = sum(1 for row in preview_rows if row["status"] == "failed")
+    duplicate_rows = sum(
+        1
+        for row in preview_rows
+        if any("already exists" in item.get("warning", "") or "Repeated" in item.get("warning", "") for item in row.get("warnings", []))
+        or any("Repeated" in item.get("error", "") for item in row.get("errors", []))
+    )
+    rows_to_import = valid_rows + warning_rows
+    return {
+        "valid_rows": valid_rows,
+        "warning_rows": warning_rows,
+        "failed_rows": failed_rows,
+        "duplicate_rows": duplicate_rows,
+        "rows_to_import": rows_to_import,
+        "rows_skipped": failed_rows,
+    }
+
+
+def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
+    rows, raw, filename = _read_inventory_import_rows(file_obj)
+    seen_unit_codes: set[str] = set()
+    seen_site_codes: set[str] = set()
+    seen_row_fingerprints: set[str] = set()
+    preview_rows = [
+        _validate_inventory_row(
+            row,
+            row_number=index,
+            seen_unit_codes=seen_unit_codes,
+            seen_site_codes=seen_site_codes,
+            seen_row_fingerprints=seen_row_fingerprints,
+        )
+        for index, row in enumerate(rows, start=2)
+    ]
+    errors = [item for row in preview_rows for item in row["errors"]]
+    warnings = [item for row in preview_rows for item in row["warnings"]]
+    summary = _build_import_summary(preview_rows)
+    import_hash = hashlib.sha256(raw).hexdigest()
+    status = ImportExportJob.Status.PREVIEWED
     job = ImportExportJob.objects.create(
         created_by=actor if getattr(actor, "is_authenticated", False) else None,
         company_name=get_company_name(),
         job_type=ImportExportJob.JobType.IMPORT,
         resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
-        status=ImportExportJob.Status.FAILED if errors else ImportExportJob.Status.PREVIEWED,
-        rows_total=total,
-        rows_success=0 if errors else total,
-        rows_failed=len(errors),
+        status=status,
+        rows_total=len(preview_rows),
+        rows_success=summary["rows_to_import"],
+        rows_failed=summary["failed_rows"],
         errors=errors,
-        filters={"warnings": warnings},
-        preview_rows=preview,
+        filters={
+            "warnings": warnings,
+            "summary": summary,
+            "import_hash": import_hash,
+            "no_records_imported": True,
+            "duplicate_handling": "Existing sites are updated; existing media units are skipped; repeated unit codes in the file are rejected.",
+        },
+        preview_rows=preview_rows[:IMPORT_PREVIEW_LIMIT],
     )
-    job.original_file.save(getattr(file_obj, "name", "inventory-sites.csv"), ContentFile(text.encode("utf-8")), save=True)
-    return job
-
-
-def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None) -> ImportExportJob:
-    if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
-        raise ValueError("Only inventory site import jobs can be confirmed here.")
-    if job.errors:
-        job.status = ImportExportJob.Status.FAILED
-        job.save(update_fields=["status", "updated_at"])
-        return job
-
-    job.status = ImportExportJob.Status.PROCESSING
-    job.save(update_fields=["status", "updated_at"])
-    success_count = 0
-    errors = []
-    valid_site_types = {choice[0] for choice in MediaSite.SiteType.choices}
-    if job.original_file:
-        raw = job.original_file.read()
-        text = raw.decode("utf-8-sig") if isinstance(raw, bytes) else raw
-        rows = list(csv.DictReader(StringIO(text)))
-    else:
-        rows = job.preview_rows
-    for index, row in enumerate(rows, start=2):
-        code = (row.get("code") or "").strip()
-        if not code or MediaSite.objects.filter(code__iexact=code).exists():
-            errors.append({"row": index, "error": f"Duplicate or missing site code: {code}"})
-            continue
-        site_type = (row.get("site_type") or "").strip()
-        if site_type not in valid_site_types:
-            errors.append({"row": index, "error": f"Invalid site type: {site_type}"})
-            continue
-        MediaSite.objects.create(
-            code=code,
-            name=(row.get("name") or "").strip(),
-            site_type=site_type,
-            address=(row.get("address") or "").strip(),
-            city=(row.get("city") or "").strip(),
-            state=(row.get("state") or "").strip(),
-            latitude=(row.get("latitude") or None),
-            longitude=(row.get("longitude") or None),
-            owner=actor if getattr(actor, "is_authenticated", False) else None,
-        )
-        success_count += 1
-    job.rows_success = success_count
-    job.rows_failed = len(errors)
-    job.errors = errors
-    job.status = ImportExportJob.Status.FAILED if errors else ImportExportJob.Status.COMPLETED
-    job.save(update_fields=["rows_success", "rows_failed", "errors", "status", "updated_at"])
+    job.original_file.save(filename, ContentFile(raw), save=True)
+    record_audit_event(
+        event_type="inventory.import.previewed",
+        entity_type="import_export_job",
+        entity_id=job.id,
+        actor=actor,
+        severity=AuditEvent.Severity.WARNING if errors or warnings else AuditEvent.Severity.INFO,
+        summary=f"Inventory import previewed: {summary['rows_to_import']} importable, {summary['failed_rows']} failed.",
+        metadata={"job_id": job.id, "summary": summary},
+    )
     return job
 
 

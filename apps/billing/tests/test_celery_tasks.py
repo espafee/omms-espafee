@@ -4,7 +4,7 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from apps.billing.models import Invoice
+from apps.billing.models import Invoice, Payment
 from apps.billing.tasks import mark_overdue_invoices
 from apps.campaigns.models import Campaign
 
@@ -36,12 +36,14 @@ class BillingCeleryTaskTests(TestCase):
             status=Campaign.Status.ACTIVE,
         )
 
-    def _create_invoice(self, *, status, due_date):
+    def _create_invoice(self, *, status, due_date, total_amount=Decimal("1000.00")):
         return Invoice.objects.create(
             campaign=self.campaign,
             invoice_date=date.today(),
             due_date=due_date,
             status=status,
+            total_amount=total_amount,
+            grand_total=total_amount,
         )
 
     def test_mark_overdue_invoices_updates_only_open_past_due_invoices(self):
@@ -56,6 +58,12 @@ class BillingCeleryTaskTests(TestCase):
         paid_past_due = self._create_invoice(
             status=Invoice.Status.PAID,
             due_date=date.today() - timedelta(days=1),
+        )
+        Payment.objects.create(
+            invoice=paid_past_due,
+            payment_date=date.today(),
+            amount=Decimal("1000.00"),
+            method=Payment.Method.BANK_TRANSFER,
         )
 
         result = mark_overdue_invoices()

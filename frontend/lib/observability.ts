@@ -83,10 +83,28 @@ export type ImportExportJob = {
   rows_success: number;
   rows_failed: number;
   errors: Array<{ row?: number; error: string }>;
-  filters: { warnings?: Array<{ row?: number; warning: string }> };
-  preview_rows: Array<Record<string, string>>;
+  filters: {
+    warnings?: Array<{ row?: number; warning: string }>;
+    summary?: Record<string, number>;
+    duplicate_handling?: string;
+    no_records_imported?: boolean;
+  };
+  preview_rows: Array<{
+    row?: number;
+    status?: string;
+    action?: string;
+    site_code?: string;
+    site_name?: string;
+    unit_code?: string;
+    errors?: Array<{ row?: number; error: string }>;
+    warnings?: Array<{ row?: number; warning: string }>;
+    message?: string;
+  }>;
+  original_file_url: string;
   output_file_url: string;
+  created_by_email?: string;
   created_at: string;
+  updated_at: string;
 };
 
 async function list<T>(path: string) {
@@ -127,13 +145,6 @@ export async function uploadInventorySiteImport(file: File) {
   return apiFetch<ImportExportJob>("observability/import-export-jobs/inventory-sites/import-preview/", {
     method: "POST",
     body: formData,
-  });
-}
-
-export async function confirmImportJob(id: number) {
-  return apiFetch<ImportExportJob>(`observability/import-export-jobs/${id}/confirm/`, {
-    method: "POST",
-    body: JSON.stringify({}),
   });
 }
 

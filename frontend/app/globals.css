@@ -1636,6 +1636,89 @@ textarea::placeholder {
   font-weight: 700;
 }
 
+.import-workbench,
+.import-review-panel,
+.import-upload-panel,
+.import-issue-list {
+  display: grid;
+  gap: 12px;
+}
+
+.import-workbench {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.import-schema {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.import-schema span,
+.import-issue-list span {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  padding: 6px 9px;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.import-review-panel {
+  margin-top: 16px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.import-preview-note {
+  margin: 0;
+  padding: 9px 10px;
+  border: 1px solid rgba(6, 78, 59, 0.14);
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--forest);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.import-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.import-confirm-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid rgba(6, 78, 59, 0.14);
+  border-radius: 8px;
+  background: var(--accent-soft);
+}
+
+.import-issue-list {
+  justify-items: start;
+  padding: 10px;
+  border-radius: 8px;
+  background: #fffbeb;
+}
+
+.import-issue-list-error {
+  background: #fef2f2;
+}
+
+.import-preview-table {
+  min-width: 640px;
+}
+
 .client-panel-preview {
   padding: 16px;
   border-radius: 18px;
@@ -2226,6 +2309,11 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .import-workbench,
+  .import-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .public-meta-grid,
   .public-evidence-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2276,6 +2364,16 @@ textarea::placeholder {
   .capture-preview-grid,
   .image-upload-form {
     grid-template-columns: 1fr;
+  }
+
+  .import-workbench,
+  .import-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .import-confirm-strip {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .public-shell {

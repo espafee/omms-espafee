@@ -302,6 +302,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.billing.tasks.mark_overdue_invoices",
         "schedule": crontab(hour=get_int("CELERY_OVERDUE_CHECK_HOUR", 1), minute=0),
     },
+    "deactivate-expired-campaign-access-tokens-nightly": {
+        "task": "apps.campaigns.tasks.deactivate_expired_campaign_access_tokens",
+        "schedule": crontab(hour=get_int("CELERY_EXPIRED_CAMPAIGN_LINK_CHECK_HOUR", 1), minute=30),
+    },
     "cleanup-api-request-logs-nightly": {
         "task": "apps.observability.tasks.cleanup_old_api_request_logs",
         "schedule": crontab(hour=get_int("CELERY_REQUEST_LOG_CLEANUP_HOUR", 2), minute=15),

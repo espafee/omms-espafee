@@ -665,12 +665,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - cooldown logic prevents duplicate alert spam
   - alert events create audit entries and internal operations notifications
 - Import/export:
-  - inventory site import is now preview + confirm
-  - duplicate site codes are detected during preview
-  - confirm import creates only valid rows
+  - inventory site import now has a safe preview-only foundation
+  - duplicate site codes, repeated rows/media unit codes, invalid pricing/dimensions, missing required fields, and suspicious coordinates are detected during preview
+  - confirmation/background processing remains intentionally disabled until the next import workflow phase
   - CSV exports added for campaigns, invoices, POE reports, client statements, and inventory sites
 - Operations UI:
-  - `/operations` now includes filters, compact bar charts, alert cards, diagnostics, import preview/confirm, and export actions
+  - `/operations` now includes filters, compact bar charts, alert cards, diagnostics, import preview cards/tables, disabled Start Import placeholder, and export actions
 - Notification preferences:
   - preferences now support `in_app_enabled` and `email_enabled`
   - notification center exposes event-type preferences and respects in-app opt-outs for user-targeted notifications
@@ -756,3 +756,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - POE recent evidence now uses dedicated compact media-review cards instead of the generic asset-card stack.
 - The right-side evidence panel keeps proof thumbnails at a uniform 4:3 ratio, places captured date/time first, then site/unit, executed date, proof link, and status, and keeps verified badges aligned without overlapping image content.
 - The persistent signed-in banner shown above the embedded dashboard is owned by the VistaAi TrustDial wrapper, not the OMMS frontend. The wrapper should be deployed together with this OMMS frontend update so the temporary toast behavior is visible in the embedded `/omms/login` experience.
+
+## Inventory Import Preview Foundation
+
+- Inventory imports now start with a preview-only flow in the Operations import/export workbench: upload CSV/Excel, parse rows, validate data, and show summary counts before any inventory records are committed.
+- Preview validation detects missing site fields, invalid site/unit choices, repeated rows, repeated media unit codes, existing site/unit duplicates, suspicious coordinates, invalid pricing, and invalid dimensions.
+- Latitude/longitude remains optional because OMMS GPS is captured from the first verified POE; missing coordinates produce a warning, not a failed row.
+- `ImportExportJob` stores the preview reference, normalized row data, row-level warnings/errors, duplicate handling notes, and a `no_records_imported` flag for the next confirmation phase.
+- Frontend UX now shows compact summary cards, warning/error lists, preview rows, duplicate counts, and the explicit message `No records have been imported yet`; `Start Import` is disabled until confirmation/background processing is implemented.

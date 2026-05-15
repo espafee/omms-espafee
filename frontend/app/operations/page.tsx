@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
-  confirmImportJob,
   createExportJob,
   fetchAuditEvents,
   fetchDiagnostics,
@@ -136,6 +135,8 @@ export default function OperationsPage() {
 
   const maxTrend = useMemo(() => Math.max(1, ...(summary?.poe.trends_by_date ?? []).map((item) => item.total)), [summary]);
   const maxSeverity = useMemo(() => Math.max(1, ...(summary?.audit_by_severity ?? []).map((item) => item.total)), [summary]);
+  const importSummary = importJob?.filters.summary ?? {};
+  const importWarnings = importJob?.filters.warnings ?? [];
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -150,17 +151,10 @@ export default function OperationsPage() {
     setError("");
     try {
       setImportJob(await uploadInventorySiteImport(file));
+      setMessage("Import preview is ready. No records have been imported yet.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to preview import file.");
     }
-  }
-
-  async function handleConfirmImport() {
-    if (!importJob) {
-      return;
-    }
-    setImportJob(await confirmImportJob(importJob.id));
-    setMessage("Import confirmation completed.");
   }
 
   async function handleExport(path: "campaigns" | "invoices" | "poe-reports" | "client-statements") {
@@ -292,12 +286,19 @@ export default function OperationsPage() {
       <section className="module-card">
         <div className="module-head">
           <h2>Import / export workbench</h2>
-          <span>CSV first</span>
+          <span>Staged CSV / Excel</span>
         </div>
-        <div className="site-form-grid">
-          <div className="field">
-            <label htmlFor="site-import">Inventory site CSV import preview</label>
-            <input id="site-import" type="file" accept=".csv" onChange={(event) => void handleImportUpload(event)} />
+        <div className="import-workbench">
+          <div className="import-upload-panel">
+            <div className="field">
+              <label htmlFor="site-import">Inventory import file</label>
+              <input id="site-import" type="file" accept=".csv,.xlsx,.xlsm" onChange={(event) => void handleImportUpload(event)} />
+              <p className="field-help">Upload CSV or Excel with site fields and optional media-unit columns. This phase validates and previews only.</p>
+            </div>
+            <div className="import-schema">
+              <span>Required site fields: site_code, site_name, site_type, address, city, state</span>
+              <span>Optional unit fields: unit_code, width, height, monthly_rate, status</span>
+            </div>
           </div>
           <div className="form-actions">
             <button className="ghost" type="button" onClick={() => void handleExport("campaigns")}>Export campaigns</button>
@@ -307,13 +308,73 @@ export default function OperationsPage() {
           </div>
         </div>
         {importJob ? (
-          <div className="module-stats">
-            <div className="module-stat"><p className="stat-label">Import status</p><p className="stat-value">{importJob.status}</p></div>
-            <div className="module-stat"><p className="stat-label">Rows</p><p className="stat-value">{importJob.rows_total}</p></div>
-            <div className="module-stat"><p className="stat-label">Errors</p><p className="stat-value">{importJob.rows_failed}</p></div>
-            <button className="submit" type="button" disabled={importJob.rows_failed > 0 || importJob.status === "completed"} onClick={() => void handleConfirmImport()}>
-              Confirm valid import
-            </button>
+          <div className="import-review-panel">
+            <div className="asset-head">
+              <div>
+                <p className="site-code">Import job #{importJob.id}</p>
+                <h3>{importJob.status === "previewed" ? "Preview ready" : importJob.status.replaceAll("_", " ")}</h3>
+                <p className="site-copy">{importJob.filters.duplicate_handling}</p>
+              </div>
+              <span className={`status-pill status-${importJob.status}`}>{importJob.status}</span>
+            </div>
+            <p className="import-preview-note">No records have been imported yet. Review the preview before enabling the confirmation workflow.</p>
+            <div className="import-summary-grid">
+              <div className="module-stat"><p className="stat-label">Total rows</p><p className="stat-value">{importJob.rows_total}</p></div>
+              <div className="module-stat"><p className="stat-label">Valid</p><p className="stat-value">{importSummary.valid_rows ?? 0}</p></div>
+              <div className="module-stat"><p className="stat-label">Warnings</p><p className="stat-value">{importSummary.warning_rows ?? importWarnings.length}</p></div>
+              <div className="module-stat"><p className="stat-label">Failed</p><p className="stat-value">{importJob.rows_failed}</p></div>
+              <div className="module-stat"><p className="stat-label">Duplicates</p><p className="stat-value">{importSummary.duplicate_rows ?? 0}</p></div>
+              <div className="module-stat"><p className="stat-label">Rows ready</p><p className="stat-value">{importSummary.rows_to_import ?? importJob.rows_success}</p></div>
+            </div>
+            {importJob.status === "previewed" ? (
+              <div className="import-confirm-strip">
+                <div>
+                  <strong>{importSummary.rows_to_import ?? importJob.rows_success} row(s) ready to import</strong>
+                  <p className="site-copy">{importSummary.rows_skipped ?? importJob.rows_failed} row(s) will be skipped until corrected.</p>
+                </div>
+                <button className="submit" type="button" disabled>
+                  Start Import
+                </button>
+              </div>
+            ) : null}
+            <p className="field-help">Start Import is intentionally disabled until the confirmation and background-processing phase is implemented.</p>
+            {importWarnings.length > 0 ? (
+              <div className="import-issue-list">
+                <p className="stat-label">Warnings</p>
+                {importWarnings.slice(0, 5).map((warning, index) => (
+                  <span key={`${warning.row ?? "row"}-${index}`}>Row {warning.row ?? "-"}: {warning.warning}</span>
+                ))}
+              </div>
+            ) : null}
+            {importJob.errors.length > 0 ? (
+              <div className="import-issue-list import-issue-list-error">
+                <p className="stat-label">Errors</p>
+                {importJob.errors.slice(0, 5).map((errorItem, index) => (
+                  <span key={`${errorItem.row ?? "row"}-${index}`}>Row {errorItem.row ?? "-"}: {errorItem.error}</span>
+                ))}
+              </div>
+            ) : null}
+            {importJob.preview_rows.length > 0 ? (
+              <div className="inventory-table-wrap">
+                <table className="inventory-table import-preview-table">
+                  <thead><tr><th>Row</th><th>Status</th><th>Site</th><th>Unit</th><th>Action</th></tr></thead>
+                  <tbody>
+                    {importJob.preview_rows.slice(0, 8).map((row, index) => (
+                      <tr key={`${row.row ?? index}-${row.site_code ?? ""}-${row.unit_code ?? ""}`}>
+                        <td>{row.row ?? "-"}</td>
+                        <td><span className={`status-pill status-${row.status ?? "pending"}`}>{row.status ?? "pending"}</span></td>
+                        <td>{row.site_code || row.site_name || "-"}</td>
+                        <td>{row.unit_code || "-"}</td>
+                        <td>{row.action?.replaceAll("_", " ") ?? row.message ?? "-"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : null}
+            {importJob.output_file_url ? (
+              <a className="asset-link" href={importJob.output_file_url} target="_blank" rel="noreferrer">Download import report</a>
+            ) : null}
           </div>
         ) : null}
         {exportJob ? <p className="section-copy">Latest export: {exportJob.resource_type} | {exportJob.rows_total} row(s) | status {exportJob.status}</p> : null}

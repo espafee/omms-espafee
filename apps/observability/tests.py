@@ -17,7 +17,6 @@ from apps.notifications.services import NotificationService
 from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 from apps.observability.services import (
     build_poe_analytics,
-    confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
     record_audit_event,
@@ -161,30 +160,78 @@ class ObservabilityFoundationTests(TestCase):
 
         job = validate_inventory_sites_import(upload, actor=self.admin)
 
-        self.assertEqual(job.status, ImportExportJob.Status.FAILED)
+        self.assertEqual(job.status, ImportExportJob.Status.PREVIEWED)
         self.assertEqual(job.rows_total, 1)
         self.assertEqual(job.rows_failed, 1)
+        self.assertEqual(job.filters["summary"]["failed_rows"], 1)
         self.assertEqual(MediaSite.objects.filter(name="Missing Code").count(), 0)
 
-    def test_inventory_site_import_preview_detects_duplicates(self):
+    def test_inventory_site_import_preview_detects_duplicates_as_warnings(self):
         upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-001,Duplicate,billboard,Road,Delhi,Delhi\n")
         upload.name = "sites.csv"
 
         job = validate_inventory_sites_import(upload, actor=self.admin)
 
-        self.assertEqual(job.status, ImportExportJob.Status.FAILED)
-        self.assertIn("Duplicate site code", job.errors[0]["error"])
+        self.assertEqual(job.status, ImportExportJob.Status.PREVIEWED)
+        self.assertEqual(job.rows_failed, 0)
+        self.assertEqual(job.filters["summary"]["duplicate_rows"], 1)
+        self.assertTrue(any("will be updated" in item["warning"] for item in job.filters["warnings"]))
 
-    def test_confirm_inventory_site_import_creates_valid_rows_only(self):
-        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-002,New Site,billboard,Road,Delhi,Delhi\n")
+    def test_inventory_site_import_preview_accepts_valid_rows_without_creating_sites(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,site_latitude,site_longitude,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-002,New Site,billboard,Road,Delhi,Delhi,28.61,77.20,OBS-UNIT-002,20,10,50000\n"
+        )
         upload.name = "sites.csv"
         job = validate_inventory_sites_import(upload, actor=self.admin)
 
-        confirmed = confirm_inventory_sites_import(job, actor=self.admin)
+        self.assertEqual(job.status, ImportExportJob.Status.PREVIEWED)
+        self.assertEqual(job.rows_total, 1)
+        self.assertEqual(job.rows_success, 1)
+        self.assertEqual(job.rows_failed, 0)
+        self.assertEqual(job.filters["summary"]["valid_rows"], 1)
+        self.assertFalse(MediaSite.objects.filter(code="OBS-SITE-002").exists())
+        self.assertFalse(MediaUnit.objects.filter(unit_code="OBS-UNIT-002").exists())
 
-        self.assertEqual(confirmed.status, ImportExportJob.Status.COMPLETED)
-        self.assertEqual(confirmed.rows_success, 1)
-        self.assertTrue(MediaSite.objects.filter(code="OBS-SITE-002").exists())
+    def test_inventory_site_import_preview_detects_repeated_rows_and_unit_codes(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-003,New Site,billboard,Road,Delhi,Delhi,OBS-UNIT-003,20,10,50000\n"
+            b"OBS-SITE-003,New Site,billboard,Road,Delhi,Delhi,OBS-UNIT-003,20,10,50000\n"
+        )
+        upload.name = "inventory.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        self.assertEqual(job.rows_failed, 1)
+        self.assertEqual(job.filters["summary"]["duplicate_rows"], 1)
+        error_messages = " ".join(item["error"] for item in job.errors)
+        self.assertIn("Repeated row", error_messages)
+        self.assertIn("Repeated media unit code", error_messages)
+        self.assertTrue(any("Repeated site code" in item["warning"] for item in job.filters["warnings"]))
+        self.assertFalse(MediaUnit.objects.filter(unit_code="OBS-UNIT-003").exists())
+
+    def test_inventory_site_import_preview_rejects_invalid_pricing(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-004,Invalid Price,billboard,Road,Delhi,Delhi,OBS-UNIT-004,0,10,-500\n"
+        )
+        upload.name = "inventory.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        self.assertEqual(job.rows_failed, 1)
+        self.assertTrue(any("monthly_rate cannot be negative" in item["error"] for item in job.errors))
+        self.assertTrue(any("width must be greater than zero" in item["error"] for item in job.errors))
+        self.assertFalse(MediaSite.objects.filter(code="OBS-SITE-004").exists())
+
+    def test_inventory_site_import_preview_allows_missing_coordinates_as_warning(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-005,No GPS,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        self.assertEqual(job.rows_failed, 0)
+        self.assertEqual(job.filters["summary"]["warning_rows"], 1)
+        self.assertTrue(any("Coordinates are empty" in item["warning"] for item in job.filters["warnings"]))
+        self.assertFalse(MediaSite.objects.filter(code="OBS-SITE-005").exists())
 
     def test_campaign_export_creates_completed_job(self):
         job = export_campaigns_csv(actor=self.admin, filters={"status": Campaign.Status.ACTIVE})

@@ -21,7 +21,6 @@ from .services import (
     build_operations_summary,
     build_poe_analytics,
     build_role_activity,
-    confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
     export_client_statement_csv,
@@ -87,7 +86,12 @@ class ImportExportJobViewSet(ServiceModelViewSet):
         upload = request.FILES.get("file")
         if not upload:
             return Response({"file": ["CSV file is required."]}, status=status.HTTP_400_BAD_REQUEST)
-        job = validate_inventory_sites_import(upload, actor=request.user)
+        try:
+            job = validate_inventory_sites_import(upload, actor=request.user)
+        except ValueError as exc:
+            return Response({"file": [str(exc)]}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"file": ["Unable to parse import file. Check the template and try again."]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["post"], url_path="inventory-sites/export")
@@ -97,8 +101,10 @@ class ImportExportJobViewSet(ServiceModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
-        job = confirm_inventory_sites_import(self.get_object(), actor=request.user)
-        return Response(self.get_serializer(job).data)
+        return Response(
+            {"detail": "Inventory import confirmation is not enabled in the preview phase."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
 
     @action(detail=False, methods=["post"], url_path="campaigns/export")
     def campaigns_export(self, request):
