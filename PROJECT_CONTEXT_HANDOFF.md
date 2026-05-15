@@ -782,3 +782,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `process_export_job_task` handles Celery execution; local/eager fallback generation remains available when background dispatch is unavailable.
 - Completion/failure writes audit events, and successful exports create an `Export completed` operations notification.
 - Operations UI now has an export type selector, optional status filter, Start Export action, recent export job list, progress chips, and download links for completed CSV files.
+
+## Operations Intelligence Dashboard Enhancements Phase 1
+
+- `/operations` now opens as an operational intelligence dashboard rather than only a raw tools page.
+- The operations summary API returns compact KPI cards, chart-ready aggregate datasets, a unified operational timeline, and a lightweight system health panel.
+- Filters now support date range, company/tenant, status, module/type, severity, user role, campaign, inventory/site, and notification type where the underlying data supports safe scoping.
+- Dashboard analytics cover import/export activity, failed and slow request trends, POE status/reviewer workload, billing and payment activity, notification volume, audit activity, and operational load distribution.
+- The unified timeline merges audit events, import/export jobs, and POE review signals with module/status badges, actor labels, and timestamps.
+- System health summarizes Celery mode, broker configuration, active/failed jobs, API failure rate, retry backlog, and the last successful import/export without requiring Render shell access.

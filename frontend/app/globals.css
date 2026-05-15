@@ -1752,6 +1752,108 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+.ops-kpi-card {
+  min-height: 112px;
+  display: grid;
+  align-content: space-between;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.ops-kpi-card strong {
+  color: var(--ink);
+  font-size: clamp(24px, 3vw, 34px);
+  line-height: 1;
+}
+
+.ops-kpi-card span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-bars,
+.ops-health-grid,
+.ops-timeline {
+  display: grid;
+  gap: 10px;
+}
+
+.ops-health-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ops-health-grid > div {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.ops-health-grid strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.compact-feed {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.ops-timeline {
+  max-height: 460px;
+  overflow: auto;
+}
+
+.ops-timeline-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.ops-timeline-row h3 {
+  margin: 3px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.ops-status-dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 999px;
+  background: var(--muted);
+}
+
+.ops-status-dot.status-info,
+.ops-status-dot.status-completed,
+.ops-status-dot.status-verified {
+  background: var(--forest);
+}
+
+.ops-status-dot.status-warning,
+.ops-status-dot.status-suspicious,
+.ops-status-dot.status-processing,
+.ops-status-dot.status-confirmed {
+  background: #d97706;
+}
+
+.ops-status-dot.status-error,
+.ops-status-dot.status-critical,
+.ops-status-dot.status-failed,
+.ops-status-dot.status-rejected {
+  background: var(--danger);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2370,7 +2472,8 @@ textarea::placeholder {
 
   .import-workbench,
   .import-summary-grid,
-  .export-control-panel {
+  .export-control-panel,
+  .ops-health-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2429,7 +2532,9 @@ textarea::placeholder {
   .import-workbench,
   .import-summary-grid,
   .export-control-panel,
-  .export-job-row {
+  .export-job-row,
+  .ops-health-grid,
+  .ops-timeline-row {
     grid-template-columns: 1fr;
   }
 

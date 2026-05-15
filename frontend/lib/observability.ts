@@ -25,6 +25,18 @@ export type PoeAnalytics = {
 
 export type OperationsSummary = {
   poe: PoeAnalytics;
+  kpis: {
+    active_jobs: number;
+    failed_jobs: number;
+    suspicious_poes: number;
+    pending_poe_reviews: number;
+    notifications_today: number;
+    failed_requests: number;
+    active_users_today: number;
+    campaigns_running: number;
+    invoice_collection_rate: number;
+    export_activity_today: number;
+  };
   slow_requests_count: number;
   audit_by_severity: Array<{ severity: string; total: number }>;
   notification_failures_count: number;
@@ -36,6 +48,37 @@ export type OperationsSummary = {
     severity: string;
     created_at: string;
   }>;
+  charts: {
+    job_activity: Array<{ day: string; imports: number; exports: number; failed: number }>;
+    request_activity: Array<{ day: string; total: number; failed: number; slow: number; failed_percentage: number }>;
+    poe_status: Array<{ verification_status: string; total: number }>;
+    reviewer_workload: Array<{ reviewer: string; total: number }>;
+    billing_activity: Array<{ day: string; invoices: number; paid: number; overdue: number }>;
+    payment_activity: Array<{ day: string; payments: number }>;
+    operations_activity: Array<{ day: string; events: number }>;
+    notification_activity: Array<{ day: string; notifications: number }>;
+    load_distribution: Array<{ entity_type: string; total: number }>;
+  };
+  timeline: Array<{
+    id: string;
+    kind: string;
+    module: string;
+    status: string;
+    summary: string;
+    actor: string;
+    created_at: string;
+  }>;
+  system_health: {
+    celery_mode: string;
+    broker_configured: boolean;
+    active_jobs: number;
+    failed_jobs: number;
+    api_failure_count: number;
+    api_failure_percentage: number;
+    last_successful_import: string | null;
+    last_successful_export: string | null;
+    notification_retries_due: number;
+  };
 };
 
 export type DiagnosticsPayload = {

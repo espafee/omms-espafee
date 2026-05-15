@@ -494,3 +494,79 @@ class ObservabilityFoundationTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["total_events"], 1)
+
+    def test_operations_summary_returns_kpis_charts_timeline_and_health(self):
+        ApiRequestLog.objects.create(
+            method="GET",
+            path="/api/v1/operations/",
+            status_code=500,
+            duration_ms=1500,
+            is_slow=True,
+            category=ApiRequestLog.Category.OBSERVABILITY,
+        )
+        Notification.objects.create(
+            recipient_role="operations",
+            event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+            title="Alert",
+            severity=Notification.Severity.WARNING,
+        )
+        record_audit_event(
+            event_type="billing.invoice",
+            entity_type="invoice",
+            actor=self.admin,
+            severity=AuditEvent.Severity.WARNING,
+            summary="Invoice activity.",
+        )
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("kpis", response.data)
+        self.assertIn("charts", response.data)
+        self.assertIn("timeline", response.data)
+        self.assertIn("system_health", response.data)
+        self.assertGreaterEqual(response.data["kpis"]["failed_requests"], 1)
+        self.assertTrue(response.data["charts"]["request_activity"])
+        self.assertTrue(response.data["timeline"])
+
+    def test_operations_summary_filters_audit_by_role_and_notification_type(self):
+        record_audit_event(
+            event_type="ops.admin",
+            entity_type="operations",
+            actor=self.admin,
+            summary="Admin operation.",
+        )
+        record_audit_event(
+            event_type="ops.operations",
+            entity_type="operations",
+            actor=self.operations,
+            summary="Operations action.",
+        )
+        Notification.objects.create(
+            recipient_role="operations",
+            event_type=EmailNotificationLog.NotificationType.EXPORT_COMPLETED,
+            title="Export completed",
+        )
+        Notification.objects.create(
+            recipient_role="operations",
+            event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+            title="Alert",
+        )
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(
+            reverse("observability-operations-summary"),
+            {"role": User.Role.OPERATIONS, "notification_type": EmailNotificationLog.NotificationType.EXPORT_COMPLETED},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(any(item["actor"] == self.operations.email for item in response.data["timeline"]))
+        self.assertEqual(response.data["kpis"]["notifications_today"], 1)
+
+    def test_operations_summary_is_permission_scoped(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

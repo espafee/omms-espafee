@@ -12,6 +12,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.db import connection, models, transaction
 from django.db.models import Count, Q, Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from openpyxl import load_workbook
 
@@ -19,9 +20,10 @@ from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
 from apps.billing.models import Invoice, Payment
 from apps.issues.models import Issue
-from apps.notifications.models import EmailNotificationLog
+from apps.notifications.models import EmailNotificationLog, Notification
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import resolve_review_sla_status
+from apps.users.models import User
 from core.repositories import BaseRepository
 from core.services import BaseService
 
@@ -378,31 +380,179 @@ def build_poe_analytics(filters: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
+def _apply_created_range(queryset, filters: dict[str, Any]):
+    if filters.get("date_from"):
+        queryset = queryset.filter(created_at__date__gte=filters["date_from"])
+    if filters.get("date_to"):
+        queryset = queryset.filter(created_at__date__lte=filters["date_to"])
+    return queryset
+
+
+def _daily_counts(queryset, *, date_field: str = "created_at", value_name: str = "total", extra_annotations: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    annotations = {"day": TruncDate(date_field)}
+    values = queryset.annotate(**annotations).values("day")
+    aggregate_kwargs = {value_name: Count("id")}
+    if extra_annotations:
+        aggregate_kwargs.update(extra_annotations)
+    return list(values.annotate(**aggregate_kwargs).order_by("day"))
+
+
+def _company_filter(queryset, filters: dict[str, Any]):
+    company = filters.get("company") or filters.get("tenant")
+    if company and hasattr(queryset.model, "company_name"):
+        return queryset.filter(company_name__icontains=company)
+    return queryset
+
+
 def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
     poe_payload = build_poe_analytics(filters)
-    request_queryset = ApiRequestLog.objects.all()
-    audit_queryset = AuditEvent.objects.all()
+    request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
+    audit_queryset = _company_filter(AuditEvent.objects.all(), filters)
     notification_queryset = EmailNotificationLog.objects.all()
+    inbox_queryset = _company_filter(Notification.objects.all(), filters)
+    job_queryset = _company_filter(ImportExportJob.objects.all(), filters)
     alert_queryset = AlertEvent.objects.select_related("rule")
-    if filters.get("date_from"):
-        request_queryset = request_queryset.filter(created_at__date__gte=filters["date_from"])
-        audit_queryset = audit_queryset.filter(created_at__date__gte=filters["date_from"])
-        notification_queryset = notification_queryset.filter(created_at__date__gte=filters["date_from"])
-        alert_queryset = alert_queryset.filter(created_at__date__gte=filters["date_from"])
-    if filters.get("date_to"):
-        request_queryset = request_queryset.filter(created_at__date__lte=filters["date_to"])
-        audit_queryset = audit_queryset.filter(created_at__date__lte=filters["date_to"])
-        notification_queryset = notification_queryset.filter(created_at__date__lte=filters["date_to"])
-        alert_queryset = alert_queryset.filter(created_at__date__lte=filters["date_to"])
+    request_queryset = _apply_created_range(request_queryset, filters)
+    audit_queryset = _apply_created_range(audit_queryset, filters)
+    notification_queryset = _apply_created_range(notification_queryset, filters)
+    inbox_queryset = _apply_created_range(inbox_queryset, filters)
+    job_queryset = _apply_created_range(job_queryset, filters)
+    alert_queryset = _apply_created_range(alert_queryset, filters)
     if filters.get("severity"):
         audit_queryset = audit_queryset.filter(severity=filters["severity"])
+        inbox_queryset = inbox_queryset.filter(severity=filters["severity"])
         alert_queryset = alert_queryset.filter(severity=filters["severity"])
     if filters.get("event_type"):
         audit_queryset = audit_queryset.filter(event_type=filters["event_type"])
+    if filters.get("module"):
+        request_queryset = request_queryset.filter(category=filters["module"])
+        audit_queryset = audit_queryset.filter(entity_type__icontains=filters["module"])
+    if filters.get("status"):
+        job_queryset = job_queryset.filter(status=filters["status"])
+    if filters.get("role"):
+        audit_queryset = audit_queryset.filter(actor__role=filters["role"])
+        inbox_queryset = inbox_queryset.filter(Q(recipient__role=filters["role"]) | Q(recipient_role=filters["role"]))
+    if filters.get("notification_type"):
+        notification_queryset = notification_queryset.filter(notification_type=filters["notification_type"])
+        inbox_queryset = inbox_queryset.filter(event_type=filters["notification_type"])
+
+    now = timezone.now()
+    today = timezone.localdate()
+    campaigns_running = Campaign.objects.filter(status=Campaign.Status.ACTIVE, start_date__lte=today, end_date__gte=today).count()
+    invoice_total = Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]).count()
+    invoice_paid = Invoice.objects.filter(status__in=[Invoice.Status.PAID, Invoice.Status.PARTIALLY_PAID]).count()
+    invoice_collection_rate = round((invoice_paid / invoice_total) * 100) if invoice_total else 0
+    active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING, ImportExportJob.Status.PENDING]
+    failed_request_count = request_queryset.filter(status_code__gte=500).count()
+    total_request_count = request_queryset.count()
+    active_users_today = User.objects.filter(last_login__date=today).count()
+    export_activity_today = job_queryset.filter(job_type=ImportExportJob.JobType.EXPORT, created_at__date=today).count()
+    latest_successful_import = job_queryset.filter(job_type=ImportExportJob.JobType.IMPORT, status=ImportExportJob.Status.COMPLETED).order_by("-completed_at", "-updated_at").first()
+    latest_successful_export = job_queryset.filter(job_type=ImportExportJob.JobType.EXPORT, status=ImportExportJob.Status.COMPLETED).order_by("-completed_at", "-updated_at").first()
+
+    job_activity = (
+        job_queryset.annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(
+            imports=Count("id", filter=Q(job_type=ImportExportJob.JobType.IMPORT)),
+            exports=Count("id", filter=Q(job_type=ImportExportJob.JobType.EXPORT)),
+            failed=Count("id", filter=Q(status=ImportExportJob.Status.FAILED)),
+        )
+        .order_by("day")
+    )
+    request_activity = (
+        request_queryset.annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(
+            total=Count("id"),
+            failed=Count("id", filter=Q(status_code__gte=500)),
+            slow=Count("id", filter=Q(is_slow=True)),
+        )
+        .order_by("day")
+    )
+    poe_queryset = ProofOfExecution.objects.all()
+    if filters.get("date_from"):
+        poe_queryset = poe_queryset.filter(captured_at__date__gte=filters["date_from"])
+    if filters.get("date_to"):
+        poe_queryset = poe_queryset.filter(captured_at__date__lte=filters["date_to"])
+    poe_status = list(poe_queryset.values("verification_status").annotate(total=Count("id")).order_by("verification_status"))
+    reviewer_workload = list(
+        poe_queryset.values("checked_by__email").annotate(total=Count("id")).order_by("-total")[:8]
+    )
+    billing_activity = (
+        Invoice.objects.annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(
+            invoices=Count("id"),
+            paid=Count("id", filter=Q(status=Invoice.Status.PAID)),
+            overdue=Count("id", filter=Q(status=Invoice.Status.OVERDUE)),
+        )
+        .order_by("day")
+    )
+    payment_activity = _daily_counts(Payment.objects.all(), date_field="payment_date", value_name="payments")
+    operations_activity = (
+        audit_queryset.annotate(day=TruncDate("created_at"))
+        .values("day")
+        .annotate(events=Count("id"))
+        .order_by("day")
+    )
+    notification_activity = _daily_counts(inbox_queryset, value_name="notifications")
+    load_distribution = list(audit_queryset.values("entity_type").annotate(total=Count("id")).order_by("-total")[:8])
+    audit_timeline = [
+        {
+            "id": f"audit-{event.id}",
+            "kind": "audit",
+            "module": event.entity_type,
+            "status": event.severity,
+            "summary": event.summary,
+            "actor": event.actor.email if event.actor else "System",
+            "created_at": event.created_at,
+        }
+        for event in audit_queryset.select_related("actor").order_by("-created_at")[:12]
+    ]
+    job_timeline = [
+        {
+            "id": f"job-{job.id}",
+            "kind": job.job_type,
+            "module": job.resource_type,
+            "status": job.status,
+            "summary": f"{job.job_type.title()} {job.resource_type.replace('_', ' ')} {job.status}",
+            "actor": job.created_by.email if job.created_by else "System",
+            "created_at": job.created_at,
+        }
+        for job in job_queryset.select_related("created_by").order_by("-created_at")[:8]
+    ]
+    poe_timeline = [
+        {
+            "id": f"poe-{record.id}",
+            "kind": "poe",
+            "module": "poe",
+            "status": record.verification_status,
+            "summary": f"{record.verification_status.title()} POE for {record.booking.campaign.name}",
+            "actor": record.checked_by.email if record.checked_by else "System",
+            "created_at": record.captured_at,
+        }
+        for record in poe_queryset.select_related("booking__campaign", "checked_by").filter(
+            verification_status__in=[ProofOfExecution.VerificationStatus.SUSPICIOUS, ProofOfExecution.VerificationStatus.REJECTED, ProofOfExecution.VerificationStatus.VERIFIED]
+        ).order_by("-captured_at")[:8]
+    ]
+    timeline = sorted([*audit_timeline, *job_timeline, *poe_timeline], key=lambda item: item["created_at"], reverse=True)[:20]
 
     return {
         "poe": poe_payload,
+        "kpis": {
+            "active_jobs": job_queryset.filter(status__in=active_job_statuses).count(),
+            "failed_jobs": job_queryset.filter(status=ImportExportJob.Status.FAILED).count(),
+            "suspicious_poes": poe_payload["suspicious_count"],
+            "pending_poe_reviews": poe_payload["pending_review_count"],
+            "notifications_today": inbox_queryset.filter(created_at__date=today).count(),
+            "failed_requests": failed_request_count,
+            "active_users_today": active_users_today,
+            "campaigns_running": campaigns_running,
+            "invoice_collection_rate": invoice_collection_rate,
+            "export_activity_today": export_activity_today,
+        },
         "slow_requests_count": request_queryset.filter(is_slow=True).count(),
         "audit_by_severity": list(audit_queryset.values("severity").annotate(total=Count("id")).order_by("severity")),
         "notification_failures_count": notification_queryset.filter(status=EmailNotificationLog.Status.FAILED).count(),
@@ -414,6 +564,35 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             alert_queryset.filter(severity__in=[AlertRule.Severity.CRITICAL, AlertRule.Severity.WARNING])
             .values("id", "metric", "summary", "severity", "created_at")[:10]
         ),
+        "charts": {
+            "job_activity": list(job_activity),
+            "request_activity": [
+                {
+                    **row,
+                    "failed_percentage": round((row["failed"] / row["total"]) * 100) if row["total"] else 0,
+                }
+                for row in request_activity
+            ],
+            "poe_status": poe_status,
+            "reviewer_workload": [{"reviewer": row["checked_by__email"] or "Unassigned", "total": row["total"]} for row in reviewer_workload],
+            "billing_activity": list(billing_activity),
+            "payment_activity": payment_activity,
+            "operations_activity": list(operations_activity),
+            "notification_activity": notification_activity,
+            "load_distribution": load_distribution,
+        },
+        "timeline": timeline,
+        "system_health": {
+            "celery_mode": "enabled" if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) else "disabled",
+            "broker_configured": bool(getattr(settings, "CELERY_BROKER_URL", "")),
+            "active_jobs": job_queryset.filter(status__in=active_job_statuses).count(),
+            "failed_jobs": job_queryset.filter(status=ImportExportJob.Status.FAILED).count(),
+            "api_failure_count": failed_request_count,
+            "api_failure_percentage": round((failed_request_count / total_request_count) * 100) if total_request_count else 0,
+            "last_successful_import": latest_successful_import.completed_at if latest_successful_import else None,
+            "last_successful_export": latest_successful_export.completed_at if latest_successful_export else None,
+            "notification_retries_due": notification_queryset.filter(status=EmailNotificationLog.Status.FAILED, next_retry_at__lte=now).count(),
+        },
     }
 
 

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useMemo, useState } from "react";
+import { type ChangeEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -35,6 +35,10 @@ const INITIAL_FILTERS = {
   site: "",
   field_agent: "",
   client: "",
+  company: "",
+  module: "",
+  role: "",
+  notification_type: "",
   status: "",
   severity: "",
   event_type: "",
@@ -60,6 +64,35 @@ function SimpleBar({ label, value, max }: { label: string; value: number; max: n
       <p className="site-copy">{value}</p>
     </div>
   );
+}
+
+function KpiCard({ label, value, hint, href }: { label: string; value: string | number; hint?: string; href?: string }) {
+  const content = (
+    <article className="ops-kpi-card">
+      <p className="stat-label">{label}</p>
+      <strong>{value}</strong>
+      {hint ? <span>{hint}</span> : null}
+    </article>
+  );
+  return href ? <Link href={href}>{content}</Link> : content;
+}
+
+function CompactBars({ rows, labelKey, valueKey }: { rows: Array<Record<string, unknown>>; labelKey: string; valueKey: string }) {
+  const max = Math.max(1, ...rows.map((row) => Number(row[valueKey] ?? 0)));
+  return (
+    <div className="ops-bars">
+      {rows.slice(-8).map((row, index) => {
+        const value = Number(row[valueKey] ?? 0);
+        const label = String(row[labelKey] ?? "-");
+        return <SimpleBar key={`${label}-${index}`} label={label} value={value} max={max} />;
+      })}
+      {rows.length === 0 ? <p className="empty-state">No data for this filter.</p> : null}
+    </div>
+  );
+}
+
+function StatusDot({ status }: { status: string }) {
+  return <span className={`ops-status-dot status-${status}`} aria-hidden="true" />;
 }
 
 export default function OperationsPage() {
@@ -149,8 +182,6 @@ export default function OperationsPage() {
     void loadInitial();
   }, [router]);
 
-  const maxTrend = useMemo(() => Math.max(1, ...(summary?.poe.trends_by_date ?? []).map((item) => item.total)), [summary]);
-  const maxSeverity = useMemo(() => Math.max(1, ...(summary?.audit_by_severity ?? []).map((item) => item.total)), [summary]);
   const importSummary = importJob?.filters.summary ?? {};
   const importWarnings = importJob?.filters.warnings ?? [];
   const importRowsReady = (importSummary.rows_to_import ?? importJob?.rows_success ?? 0) > 0;
@@ -277,7 +308,7 @@ export default function OperationsPage() {
           <button className="ghost" type="button" onClick={() => void load(filters)}>Apply filters</button>
         </div>
         <div className="site-form-grid">
-          {(["date_from", "date_to", "campaign", "site", "field_agent", "status", "severity", "event_type"] as const).map((field) => (
+          {(["date_from", "date_to", "company", "module", "role", "campaign", "site", "client", "field_agent", "status", "severity", "event_type", "notification_type"] as const).map((field) => (
             <div className="field" key={field}>
               <label htmlFor={`ops-${field}`}>{field.replaceAll("_", " ")}</label>
               <input
@@ -293,59 +324,94 @@ export default function OperationsPage() {
       </section>
 
       <section className="summary-row" aria-label="Operations intelligence">
-        <article className="summary-card">
-          <p className="stat-label">Suspicious POEs</p>
-          <p className="summary-value">{isLoading ? "..." : summary?.poe.suspicious_count ?? 0}</p>
+        <KpiCard label="Active jobs" value={isLoading ? "..." : summary?.kpis.active_jobs ?? 0} hint="imports / exports" />
+        <KpiCard label="Failed jobs" value={isLoading ? "..." : summary?.kpis.failed_jobs ?? 0} hint="needs review" />
+        <KpiCard label="Suspicious POEs" value={isLoading ? "..." : summary?.kpis.suspicious_poes ?? 0} href="/poe" />
+        <KpiCard label="Pending POE reviews" value={isLoading ? "..." : summary?.kpis.pending_poe_reviews ?? 0} />
+        <KpiCard label="Notifications today" value={isLoading ? "..." : summary?.kpis.notifications_today ?? 0} href="/notifications" />
+        <KpiCard label="Failed requests" value={isLoading ? "..." : summary?.kpis.failed_requests ?? 0} />
+        <KpiCard label="Active users today" value={isLoading ? "..." : summary?.kpis.active_users_today ?? 0} />
+        <KpiCard label="Campaigns running" value={isLoading ? "..." : summary?.kpis.campaigns_running ?? 0} href="/campaigns" />
+        <KpiCard label="Collection status" value={isLoading ? "..." : `${summary?.kpis.invoice_collection_rate ?? 0}%`} href="/billing" />
+        <KpiCard label="Exports today" value={isLoading ? "..." : summary?.kpis.export_activity_today ?? 0} />
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Import / export activity</h2>
+            <span>Daily jobs</span>
+          </div>
+          <CompactBars rows={summary?.charts.job_activity ?? []} labelKey="day" valueKey="exports" />
         </article>
-        <article className="summary-card">
-          <p className="stat-label">Slow requests</p>
-          <p className="summary-value">{isLoading ? "..." : summary?.slow_requests_count ?? 0}</p>
-        </article>
-        <article className="summary-card">
-          <p className="stat-label">Failed notifications</p>
-          <p className="summary-value">{isLoading ? "..." : summary?.notification_failures_count ?? 0}</p>
-        </article>
-        <article className="summary-card">
-          <p className="stat-label">Overdue reviews</p>
-          <p className="summary-value">{isLoading ? "..." : summary?.poe.overdue_review_count ?? 0}</p>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Request analytics</h2>
+            <span>Volume / failures</span>
+          </div>
+          <CompactBars rows={summary?.charts.request_activity ?? []} labelKey="day" valueKey="failed" />
         </article>
       </section>
 
       <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
-            <h2>Suspicious POE trend</h2>
+            <h2>POE intelligence</h2>
             <Link href="/poe">Open POE review</Link>
           </div>
-          <div className="module-stats">
-            {(summary?.poe.trends_by_date ?? []).slice(-7).map((item) => (
-              <SimpleBar key={item.day} label={item.day || "Unknown"} value={item.suspicious || item.total} max={maxTrend} />
-            ))}
-            {summary && summary.poe.trends_by_date.length === 0 ? <p className="empty-state">No POE trend data yet.</p> : null}
-          </div>
+          <CompactBars rows={summary?.charts.poe_status ?? []} labelKey="verification_status" valueKey="total" />
         </article>
 
         <article className="module-card">
           <div className="module-head">
-            <h2>Audit severity</h2>
-            <span>Timeline</span>
+            <h2>Reviewer workload</h2>
+            <span>POE reviews</span>
           </div>
-          <div className="module-stats">
-            {(summary?.audit_by_severity ?? []).map((item) => (
-              <SimpleBar key={item.severity} label={item.severity} value={item.total} max={maxSeverity} />
-            ))}
-            {summary && summary.audit_by_severity.length === 0 ? <p className="empty-state">Audit events will appear as workflows run.</p> : null}
-          </div>
+          <CompactBars rows={summary?.charts.reviewer_workload ?? []} labelKey="reviewer" valueKey="total" />
         </article>
       </section>
 
       <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Billing analytics</h2>
+            <Link href="/billing">Open billing</Link>
+          </div>
+          <CompactBars rows={summary?.charts.billing_activity ?? []} labelKey="day" valueKey="invoices" />
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Operational load</h2>
+            <span>Audit distribution</span>
+          </div>
+          <CompactBars rows={summary?.charts.load_distribution ?? []} labelKey="entity_type" valueKey="total" />
+        </article>
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>System health</h2>
+            <span>{diagnostics ? "Admin diagnostics" : "Operational"}</span>
+          </div>
+          <div className="ops-health-grid">
+            <div><p className="stat-label">Celery</p><strong>{summary?.system_health.celery_mode ?? "..."}</strong></div>
+            <div><p className="stat-label">Broker</p><strong>{summary?.system_health.broker_configured ? "Configured" : "Local"}</strong></div>
+            <div><p className="stat-label">API failures</p><strong>{summary?.system_health.api_failure_percentage ?? 0}%</strong></div>
+            <div><p className="stat-label">Retries due</p><strong>{summary?.system_health.notification_retries_due ?? 0}</strong></div>
+            <div><p className="stat-label">Last import</p><strong>{summary?.system_health.last_successful_import ? formatDateTime(summary.system_health.last_successful_import) : "-"}</strong></div>
+            <div><p className="stat-label">Last export</p><strong>{summary?.system_health.last_successful_export ? formatDateTime(summary.system_health.last_successful_export) : "-"}</strong></div>
+          </div>
+        </article>
+
         <article className="module-card">
           <div className="module-head">
             <h2>Recent critical alerts</h2>
             <span>{summary?.recent_critical_alerts.length ?? 0}</span>
           </div>
-          <div className="asset-list">
+          <div className="asset-list compact-feed">
             {(summary?.recent_critical_alerts ?? []).map((alert) => (
               <article className="asset-card" key={alert.id}>
                 <div className="asset-head">
@@ -359,18 +425,6 @@ export default function OperationsPage() {
               </article>
             ))}
             {summary && summary.recent_critical_alerts.length === 0 ? <p className="empty-state">No critical alerts right now.</p> : null}
-          </div>
-        </article>
-
-        <article className="module-card">
-          <div className="module-head">
-            <h2>Diagnostics</h2>
-            <span>{diagnostics ? "Admin" : "Admin only"}</span>
-          </div>
-          <div className="module-stats">
-            <div className="module-stat"><p className="stat-label">Database</p><p className="stat-value">{diagnostics?.database.ok ? "OK" : diagnostics ? "Check" : "Hidden"}</p></div>
-            <div className="module-stat"><p className="stat-label">Cache</p><p className="stat-value">{diagnostics?.cache.ok ? "OK" : diagnostics ? "Check" : "Hidden"}</p></div>
-            <div className="module-stat"><p className="stat-label">Background jobs</p><p className="stat-value">{diagnostics?.background_jobs.background_jobs_enabled ? "Enabled" : diagnostics ? "Off" : "Hidden"}</p></div>
           </div>
         </article>
       </section>
@@ -548,6 +602,27 @@ export default function OperationsPage() {
           </div>
         </div>
       ) : null}
+
+      <section className="module-card">
+        <div className="module-head">
+          <h2>Unified operational timeline</h2>
+          <span>{summary?.timeline.length ?? 0} signals</span>
+        </div>
+        <div className="ops-timeline">
+          {(summary?.timeline ?? []).map((item) => (
+            <article className="ops-timeline-row" key={item.id}>
+              <StatusDot status={item.status} />
+              <div>
+                <p className="site-code">{item.kind} / {item.module}</p>
+                <h3>{item.summary}</h3>
+                <p className="site-copy">{item.actor} | {formatDateTime(item.created_at)}</p>
+              </div>
+              <span className={`status-pill status-${item.status}`}>{item.status}</span>
+            </article>
+          ))}
+          {summary && summary.timeline.length === 0 ? <p className="empty-state">No operational activity for this filter.</p> : null}
+        </div>
+      </section>
 
       <section className="module-card">
         <div className="module-head">

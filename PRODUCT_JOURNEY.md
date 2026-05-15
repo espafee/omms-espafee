@@ -45,3 +45,9 @@ Once confirmed, OMMS queues the import for Celery processing, tracks progress on
 OMMS exports now use the same operational job backbone as imports. Inventory, campaign, POE, and invoice/payment exports can be started from the Operations workbench, queued for Celery processing, tracked with progress and duration, and downloaded after completion.
 
 This keeps exports safer for larger operational datasets: jobs are company-scoped, permission-protected, auditable, and represented in the notification inbox when complete. CSV remains the first supported format; richer Excel formatting can come later without changing the job lifecycle.
+
+## Operations Intelligence Dashboard Enhancements Phase 1
+
+The Operations page has moved from a task bench into a first-pass operational intelligence dashboard. Admin and operations users now get compact KPIs, filtered charts, a unified activity timeline, and lightweight system health signals in the same place they manage imports and exports.
+
+This phase focuses on visibility without risky data movement: analytics are aggregated server-side, scoped by company and role-aware filters where supported, and designed for quick operational decisions around jobs, request failures, POE review load, billing movement, notifications, and Celery-backed background activity.
