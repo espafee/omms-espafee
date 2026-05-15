@@ -129,9 +129,13 @@ class ImportExportJob(TimeStampedModel):
     filters = models.JSONField(default=dict, blank=True)
     rows_total = models.PositiveIntegerField(default=0)
     rows_success = models.PositiveIntegerField(default=0)
+    rows_updated = models.PositiveIntegerField(default=0)
+    rows_skipped = models.PositiveIntegerField(default=0)
     rows_failed = models.PositiveIntegerField(default=0)
     errors = models.JSONField(default=list, blank=True)
     preview_rows = models.JSONField(default=list, blank=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at"]

@@ -33,3 +33,9 @@ The signed-in status message visible in the screenshot was traced to the TrustDi
 OMMS now treats inventory import as a staged operational workflow rather than a direct upload action. The first safe phase is in place: teams can upload CSV or Excel inventory files, parse them, review validation results, inspect duplicates and warnings, and confirm that no records have been imported yet.
 
 This preview foundation preserves onboarding speed while reducing operational risk. It checks missing required fields, repeated rows, duplicate site/media unit codes, invalid pricing or dimensions, and suspicious coordinates without committing inventory records. The Operations screen now gives users compact summary counts, row-level warnings/errors, duplicate information, preview rows, and a disabled `Start Import` placeholder for the next confirmation/background-processing phase.
+
+## Inventory Import Confirmation Workflow
+
+The staged import flow now continues past preview into explicit confirmation and background-safe processing. Operators must confirm a previewed job before any inventory records are created, and the system rejects stale, completed, running, or cross-company jobs.
+
+Once confirmed, OMMS queues the import for Celery processing, tracks progress on the import job, imports only preview-ready rows, skips failed rows, avoids accidental overwrites, and reports imported, updated, skipped, and failed counts back to the Operations workbench. Completed imports now leave an audit trail and an operations notification titled `Inventory import completed`.

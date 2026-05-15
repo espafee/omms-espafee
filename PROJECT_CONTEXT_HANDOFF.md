@@ -763,4 +763,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Preview validation detects missing site fields, invalid site/unit choices, repeated rows, repeated media unit codes, existing site/unit duplicates, suspicious coordinates, invalid pricing, and invalid dimensions.
 - Latitude/longitude remains optional because OMMS GPS is captured from the first verified POE; missing coordinates produce a warning, not a failed row.
 - `ImportExportJob` stores the preview reference, normalized row data, row-level warnings/errors, duplicate handling notes, and a `no_records_imported` flag for the next confirmation phase.
-- Frontend UX now shows compact summary cards, warning/error lists, preview rows, duplicate counts, and the explicit message `No records have been imported yet`; `Start Import` is disabled until confirmation/background processing is implemented.
+- Frontend UX shows compact summary cards, warning/error lists, preview rows, duplicate counts, and the explicit message `No records have been imported yet` before confirmation.
+
+## Inventory Import Confirmation And Background Processing
+
+- Previewed inventory imports can now be explicitly confirmed with a `confirmed: true` request; non-previewed, cross-company, already completed/running, and empty-preview jobs are rejected.
+- Confirmed jobs move to `confirmed` as the queued state, then process through `process_inventory_import_job` when Celery is available; local/eager fallback processing remains safe for development and tests.
+- Processing imports only preview-ready rows, skips failed preview rows, updates existing sites only when preview marked the row as update-safe, skips existing media units, and writes partial-success result counts back to `ImportExportJob`.
+- `ImportExportJob` now tracks imported, updated, skipped, failed, started, completed, duration, progress, processed row states, and an optional CSV error report.
+- Completion/failure writes audit events and creates the `Inventory import completed` operations notification with summary counts.
+- Operations UI now enables `Start Import` for importable previews, requires a confirmation modal, polls queued/running jobs, and shows final imported/updated/skipped/failed/duration counts.

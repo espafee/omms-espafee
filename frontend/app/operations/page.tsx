@@ -7,9 +7,11 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
+  confirmImportJob,
   createExportJob,
   fetchAuditEvents,
   fetchDiagnostics,
+  fetchImportJob,
   fetchOperationsSummary,
   uploadInventorySiteImport,
   type AuditEvent,
@@ -65,6 +67,8 @@ export default function OperationsPage() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [importJob, setImportJob] = useState<ImportExportJob | null>(null);
   const [exportJob, setExportJob] = useState<ImportExportJob | null>(null);
+  const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
+  const [isStartingImport, setIsStartingImport] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -137,6 +141,23 @@ export default function OperationsPage() {
   const maxSeverity = useMemo(() => Math.max(1, ...(summary?.audit_by_severity ?? []).map((item) => item.total)), [summary]);
   const importSummary = importJob?.filters.summary ?? {};
   const importWarnings = importJob?.filters.warnings ?? [];
+  const importRowsReady = (importSummary.rows_to_import ?? importJob?.rows_success ?? 0) > 0;
+  const importCanStart = importJob?.status === "previewed" && importRowsReady;
+  const importIsActive = importJob?.status === "confirmed" || importJob?.status === "processing";
+
+  useEffect(() => {
+    if (!importJob || !importIsActive) {
+      return;
+    }
+    const timer = window.setInterval(async () => {
+      try {
+        setImportJob(await fetchImportJob(importJob.id));
+      } catch {
+        window.clearInterval(timer);
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [importIsActive, importJob]);
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -151,9 +172,29 @@ export default function OperationsPage() {
     setError("");
     try {
       setImportJob(await uploadInventorySiteImport(file));
+      setIsImportConfirmOpen(false);
       setMessage("Import preview is ready. No records have been imported yet.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to preview import file.");
+    }
+  }
+
+  async function handleConfirmImport() {
+    if (!importJob || !importCanStart) {
+      return;
+    }
+    setIsStartingImport(true);
+    setError("");
+    setMessage("");
+    try {
+      const nextJob = await confirmImportJob(importJob.id);
+      setImportJob(nextJob);
+      setIsImportConfirmOpen(false);
+      setMessage(nextJob.status === "completed" ? "Inventory import completed." : "Inventory import started.");
+    } catch (confirmError) {
+      setError(confirmError instanceof Error ? confirmError.message : "Unable to start inventory import.");
+    } finally {
+      setIsStartingImport(false);
     }
   }
 
@@ -317,14 +358,29 @@ export default function OperationsPage() {
               </div>
               <span className={`status-pill status-${importJob.status}`}>{importJob.status}</span>
             </div>
-            <p className="import-preview-note">No records have been imported yet. Review the preview before enabling the confirmation workflow.</p>
+            <p className="import-preview-note">
+              {importJob.status === "previewed"
+                ? "No records have been imported yet. Review the preview before starting."
+                : importJob.status === "completed"
+                  ? "Import completed. Final result counts are shown below."
+                  : "Import has been confirmed. Progress and results will update here."}
+            </p>
+            {importIsActive || importJob.status === "completed" || importJob.status === "failed" ? (
+              <div className="progress-track import-progress">
+                <span className="progress-fill" style={{ width: `${importJob.progress_percent}%` }} />
+              </div>
+            ) : null}
             <div className="import-summary-grid">
               <div className="module-stat"><p className="stat-label">Total rows</p><p className="stat-value">{importJob.rows_total}</p></div>
               <div className="module-stat"><p className="stat-label">Valid</p><p className="stat-value">{importSummary.valid_rows ?? 0}</p></div>
               <div className="module-stat"><p className="stat-label">Warnings</p><p className="stat-value">{importSummary.warning_rows ?? importWarnings.length}</p></div>
-              <div className="module-stat"><p className="stat-label">Failed</p><p className="stat-value">{importJob.rows_failed}</p></div>
+              <div className="module-stat"><p className="stat-label">Failed</p><p className="stat-value">{importJob.status === "previewed" ? importSummary.failed_rows ?? importJob.rows_failed : importJob.rows_failed}</p></div>
               <div className="module-stat"><p className="stat-label">Duplicates</p><p className="stat-value">{importSummary.duplicate_rows ?? 0}</p></div>
               <div className="module-stat"><p className="stat-label">Rows ready</p><p className="stat-value">{importSummary.rows_to_import ?? importJob.rows_success}</p></div>
+              <div className="module-stat"><p className="stat-label">Imported</p><p className="stat-value">{importSummary.imported_count ?? importJob.rows_success}</p></div>
+              <div className="module-stat"><p className="stat-label">Updated</p><p className="stat-value">{importSummary.updated_count ?? importJob.rows_updated}</p></div>
+              <div className="module-stat"><p className="stat-label">Skipped</p><p className="stat-value">{importSummary.skipped_count ?? importJob.rows_skipped}</p></div>
+              <div className="module-stat"><p className="stat-label">Duration</p><p className="stat-value">{importJob.duration_seconds === null ? "-" : `${importJob.duration_seconds}s`}</p></div>
             </div>
             {importJob.status === "previewed" ? (
               <div className="import-confirm-strip">
@@ -332,12 +388,15 @@ export default function OperationsPage() {
                   <strong>{importSummary.rows_to_import ?? importJob.rows_success} row(s) ready to import</strong>
                   <p className="site-copy">{importSummary.rows_skipped ?? importJob.rows_failed} row(s) will be skipped until corrected.</p>
                 </div>
-                <button className="submit" type="button" disabled>
+                <button className="submit" type="button" disabled={!importCanStart} onClick={() => setIsImportConfirmOpen(true)}>
                   Start Import
                 </button>
               </div>
             ) : null}
-            <p className="field-help">Start Import is intentionally disabled until the confirmation and background-processing phase is implemented.</p>
+            {importJob.status === "confirmed" ? <p className="field-help">Import is queued for background processing.</p> : null}
+            {importJob.status === "processing" ? <p className="field-help">Import is running. This panel refreshes automatically.</p> : null}
+            {importJob.status === "completed" ? <p className="field-help">Import completed. Review final counts and download the report if available.</p> : null}
+            {importJob.status === "failed" ? <p className="field-help">Import failed before any successful rows were committed. Review the errors below.</p> : null}
             {importWarnings.length > 0 ? (
               <div className="import-issue-list">
                 <p className="stat-label">Warnings</p>
@@ -379,6 +438,32 @@ export default function OperationsPage() {
         ) : null}
         {exportJob ? <p className="section-copy">Latest export: {exportJob.resource_type} | {exportJob.rows_total} row(s) | status {exportJob.status}</p> : null}
       </section>
+
+      {isImportConfirmOpen && importJob ? (
+        <div className="modal-backdrop" role="presentation">
+          <div className="modal-card import-confirm-modal" role="dialog" aria-modal="true" aria-labelledby="import-confirm-title">
+            <div className="module-head">
+              <div>
+                <p className="site-code">Import job #{importJob.id}</p>
+                <h2 id="import-confirm-title">Start inventory import?</h2>
+              </div>
+              <button className="ghost" type="button" onClick={() => setIsImportConfirmOpen(false)}>Close</button>
+            </div>
+            <p className="section-copy">This will import valid and warning rows in the background. Failed rows will be skipped.</p>
+            <div className="import-summary-grid">
+              <div className="module-stat"><p className="stat-label">Rows ready</p><p className="stat-value">{importSummary.rows_to_import ?? importJob.rows_success}</p></div>
+              <div className="module-stat"><p className="stat-label">Warnings</p><p className="stat-value">{importSummary.warning_rows ?? 0}</p></div>
+              <div className="module-stat"><p className="stat-label">Failed skipped</p><p className="stat-value">{importSummary.rows_skipped ?? importJob.rows_failed}</p></div>
+            </div>
+            <div className="form-actions">
+              <button className="ghost" type="button" onClick={() => setIsImportConfirmOpen(false)}>Cancel</button>
+              <button className="submit" type="button" disabled={isStartingImport} onClick={() => void handleConfirmImport()}>
+                {isStartingImport ? "Starting..." : "Confirm and start"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <section className="module-card">
         <div className="module-head">

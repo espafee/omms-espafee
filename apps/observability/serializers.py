@@ -26,6 +26,8 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
     created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
     original_file_url = serializers.SerializerMethodField()
     output_file_url = serializers.SerializerMethodField()
+    progress_percent = serializers.SerializerMethodField()
+    duration_seconds = serializers.SerializerMethodField()
 
     class Meta:
         model = ImportExportJob
@@ -38,9 +40,13 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
             "output_file",
             "rows_total",
             "rows_success",
+            "rows_updated",
+            "rows_skipped",
             "rows_failed",
             "errors",
             "preview_rows",
+            "started_at",
+            "completed_at",
             "created_at",
             "updated_at",
         ]
@@ -50,6 +56,22 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
 
     def get_output_file_url(self, obj):
         return obj.output_file.url if obj.output_file else ""
+
+    def get_progress_percent(self, obj):
+        if obj.status == ImportExportJob.Status.COMPLETED:
+            return 100
+        processed = obj.rows_success + obj.rows_updated + obj.rows_skipped + obj.rows_failed
+        if not obj.rows_total:
+            return 0
+        if obj.status in {ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING}:
+            return max(1, min(99, round((processed / obj.rows_total) * 100)))
+        return 0
+
+    def get_duration_seconds(self, obj):
+        if not obj.started_at:
+            return None
+        end = obj.completed_at or obj.updated_at
+        return max(0, int((end - obj.started_at).total_seconds()))
 
 
 class PoeAnalyticsSerializer(serializers.Serializer):

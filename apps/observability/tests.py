@@ -17,8 +17,10 @@ from apps.notifications.services import NotificationService
 from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 from apps.observability.services import (
     build_poe_analytics,
+    confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
+    process_inventory_sites_import,
     record_audit_event,
     validate_inventory_sites_import,
 )
@@ -232,6 +234,103 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(job.filters["summary"]["warning_rows"], 1)
         self.assertTrue(any("Coordinates are empty" in item["warning"] for item in job.filters["warnings"]))
         self.assertFalse(MediaSite.objects.filter(code="OBS-SITE-005").exists())
+
+    def test_inventory_import_confirm_requires_explicit_flag(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-006,Confirm Flag,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        with self.assertRaisesMessage(ValueError, "Explicit confirmation"):
+            confirm_inventory_sites_import(job, actor=self.admin, confirmed=False)
+
+    def test_inventory_import_confirm_only_allows_previewed_jobs(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-007,Status Guard,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+        job.status = ImportExportJob.Status.COMPLETED
+        job.save(update_fields=["status", "updated_at"])
+
+        with self.assertRaisesMessage(ValueError, "Only previewed"):
+            confirm_inventory_sites_import(job, actor=self.admin, confirmed=True)
+
+    def test_inventory_import_confirm_rejects_cross_company_job(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-008,Wrong Company,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+        job.company_name = "Other Company"
+        job.save(update_fields=["company_name", "updated_at"])
+
+        with self.assertRaisesMessage(ValueError, "active company"):
+            confirm_inventory_sites_import(job, actor=self.admin, confirmed=True)
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_confirmed_inventory_import_creates_inventory_and_counts_results(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,site_latitude,site_longitude,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-009,Imported Site,billboard,Road,Delhi,Delhi,28.61,77.20,OBS-UNIT-009,20,10,50000\n"
+        )
+        upload.name = "inventory.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        confirmed = confirm_inventory_sites_import(job, actor=self.admin, confirmed=True)
+
+        self.assertEqual(confirmed.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(confirmed.rows_success, 1)
+        self.assertEqual(confirmed.rows_updated, 0)
+        self.assertEqual(confirmed.rows_skipped, 0)
+        self.assertEqual(confirmed.rows_failed, 0)
+        self.assertTrue(MediaSite.objects.filter(code="OBS-SITE-009", latitude=Decimal("28.610000")).exists())
+        self.assertTrue(MediaUnit.objects.filter(unit_code="OBS-UNIT-009").exists())
+        self.assertTrue(AuditEvent.objects.filter(event_type="inventory.import.completed", entity_id=str(confirmed.id)).exists())
+        self.assertTrue(Notification.objects.filter(title="Inventory import completed").exists())
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_inventory_import_skips_failed_rows_and_imports_valid_rows(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-010,Valid Site,billboard,Road,Delhi,Delhi,OBS-UNIT-010,20,10,50000\n"
+            b",Broken Site,billboard,Road,Delhi,Delhi,OBS-UNIT-011,20,10,50000\n"
+        )
+        upload.name = "inventory.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        confirmed = confirm_inventory_sites_import(job, actor=self.admin, confirmed=True)
+
+        self.assertEqual(confirmed.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(confirmed.rows_success, 1)
+        self.assertEqual(confirmed.rows_failed, 1)
+        self.assertTrue(MediaSite.objects.filter(code="OBS-SITE-010").exists())
+        self.assertFalse(MediaUnit.objects.filter(unit_code="OBS-UNIT-011").exists())
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_repeated_confirmation_does_not_duplicate_inventory(self):
+        upload = BytesIO(b"code,name,site_type,address,city,state\nOBS-SITE-012,Once Only,billboard,Road,Delhi,Delhi\n")
+        upload.name = "sites.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+
+        confirmed = confirm_inventory_sites_import(job, actor=self.admin, confirmed=True)
+        with self.assertRaisesMessage(ValueError, "Only previewed"):
+            confirm_inventory_sites_import(confirmed, actor=self.admin, confirmed=True)
+
+        self.assertEqual(MediaSite.objects.filter(code="OBS-SITE-012").count(), 1)
+
+    def test_inventory_import_task_updates_result_counts(self):
+        upload = BytesIO(
+            b"site_code,site_name,site_type,address,city,state,unit_code,width,height,monthly_rate\n"
+            b"OBS-SITE-013,Task Site,billboard,Road,Delhi,Delhi,OBS-UNIT-013,20,10,50000\n"
+        )
+        upload.name = "inventory.csv"
+        job = validate_inventory_sites_import(upload, actor=self.admin)
+        job.status = ImportExportJob.Status.CONFIRMED
+        job.save(update_fields=["status", "updated_at"])
+
+        processed = process_inventory_sites_import(job, actor=self.admin)
+
+        self.assertEqual(processed.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(processed.rows_success, 1)
+        self.assertEqual(processed.filters["summary"]["imported_count"], 1)
+        self.assertIsNotNone(processed.started_at)
+        self.assertIsNotNone(processed.completed_at)
 
     def test_campaign_export_creates_completed_job(self):
         job = export_campaigns_csv(actor=self.admin, filters={"status": Campaign.Status.ACTIVE})

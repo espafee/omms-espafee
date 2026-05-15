@@ -1687,6 +1687,10 @@ textarea::placeholder {
   font-weight: 800;
 }
 
+.import-progress {
+  height: 8px;
+}
+
 .import-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1717,6 +1721,32 @@ textarea::placeholder {
 
 .import-preview-table {
   min-width: 640px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(10px);
+}
+
+.modal-card {
+  width: min(100%, 560px);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: var(--shadow-lg);
+}
+
+.import-confirm-modal .module-head {
+  align-items: start;
 }
 
 .client-panel-preview {

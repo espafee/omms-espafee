@@ -21,6 +21,7 @@ from .services import (
     build_operations_summary,
     build_poe_analytics,
     build_role_activity,
+    confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
     export_client_statement_csv,
@@ -101,10 +102,13 @@ class ImportExportJobViewSet(ServiceModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="confirm")
     def confirm(self, request, pk=None):
-        return Response(
-            {"detail": "Inventory import confirmation is not enabled in the preview phase."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        try:
+            job = confirm_inventory_sites_import(self.get_object(), actor=request.user, confirmed=bool(request.data.get("confirmed")))
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"detail": "Unable to start import. Please try again."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(job).data)
 
     @action(detail=False, methods=["post"], url_path="campaigns/export")
     def campaigns_export(self, request):

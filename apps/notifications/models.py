@@ -17,6 +17,7 @@ class EmailNotificationLog(TimeStampedModel):
         ISSUE_REPORTED = "issue_reported", "Issue Reported"
         ISSUE_ESCALATED = "issue_escalated", "Issue Escalated"
         ALERT_TRIGGERED = "alert_triggered", "Alert Triggered"
+        INVENTORY_IMPORT_COMPLETED = "inventory_import_completed", "Inventory Import Completed"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

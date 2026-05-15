@@ -10,7 +10,7 @@ from typing import Any
 from django.conf import settings
 from django.core.cache import cache
 from django.core.files.base import ContentFile
-from django.db import connection, models
+from django.db import connection, models, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from openpyxl import load_workbook
@@ -719,7 +719,7 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
             "no_records_imported": True,
             "duplicate_handling": "Existing sites are updated; existing media units are skipped; repeated unit codes in the file are rejected.",
         },
-        preview_rows=preview_rows[:IMPORT_PREVIEW_LIMIT],
+        preview_rows=preview_rows,
     )
     job.original_file.save(filename, ContentFile(raw), save=True)
     record_audit_event(
@@ -732,6 +732,238 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
         metadata={"job_id": job.id, "summary": summary},
     )
     return job
+
+
+def _parse_bool(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "y", "illuminated"}
+
+
+def _decimal_or_none(value: str):
+    if value == "":
+        return None
+    return Decimal(value)
+
+
+def _write_import_error_report(job: ImportExportJob, rows: list[dict[str, Any]]) -> None:
+    if not rows:
+        return
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["row", "site_code", "unit_code", "status", "message"])
+    for row in rows:
+        status = row.get("status", "")
+        messages = []
+        messages.extend(item.get("error", "") for item in row.get("errors", []))
+        messages.extend(item.get("warning", "") for item in row.get("warnings", []) if status in {"skipped", "failed"})
+        if row.get("message"):
+            messages.append(row["message"])
+        for message in messages or [""]:
+            writer.writerow([row.get("row", ""), row.get("site_code", ""), row.get("unit_code", ""), status, message])
+    filename = f"inventory-import-{job.id}-report.csv"
+    job.output_file.save(filename, ContentFile(output.getvalue().encode("utf-8")), save=False)
+
+
+def _import_ready_inventory_row(row: dict[str, Any], *, actor=None) -> tuple[str, dict[str, Any]]:
+    if row.get("errors"):
+        return "failed", {**row, "status": "failed", "message": "Row failed preview validation."}
+
+    data = row.get("data") or {}
+    site_code = data.get("site_code", "")
+    unit_code = data.get("unit_code", "")
+    site = MediaSite.objects.filter(code__iexact=site_code).first()
+    action = row.get("action") or "create_site"
+
+    if site and action != "update_site":
+        return "skipped", {**row, "status": "skipped", "message": f"Site already exists and was not marked update-safe: {site_code}"}
+    if not site and action == "update_site":
+        return "skipped", {**row, "status": "skipped", "message": f"Site no longer exists for update: {site_code}"}
+
+    site_defaults = {
+        "name": data.get("site_name", ""),
+        "site_type": data.get("site_type", ""),
+        "address": data.get("address", ""),
+        "city": data.get("city", ""),
+        "state": data.get("state", ""),
+        "owner": actor if getattr(actor, "is_authenticated", False) else None,
+    }
+    latitude = _decimal_or_none(data.get("site_latitude", ""))
+    longitude = _decimal_or_none(data.get("site_longitude", ""))
+    if latitude is not None and longitude is not None:
+        site_defaults["latitude"] = latitude
+        site_defaults["longitude"] = longitude
+        site_defaults["location_status"] = MediaSite.LocationStatus.PROVISIONAL
+        site_defaults["location_source"] = MediaSite.LocationSource.MANUAL
+
+    if site:
+        for field, value in site_defaults.items():
+            setattr(site, field, value)
+        site.save()
+        site_result = "updated"
+    else:
+        site = MediaSite.objects.create(code=site_code, **site_defaults)
+        site_result = "imported"
+
+    if unit_code:
+        if MediaUnit.objects.filter(unit_code__iexact=unit_code).exists():
+            return "skipped", {**row, "status": "skipped", "message": f"Media unit already exists and was skipped: {unit_code}"}
+        MediaUnit.objects.create(
+            site=site,
+            unit_code=unit_code,
+            face_count=_parse_int(data.get("face_count", ""), field="face_count", row_number=row.get("row", 0), errors=[]),
+            width=Decimal(data.get("width", "0")),
+            height=Decimal(data.get("height", "0")),
+            monthly_rate=Decimal(data.get("monthly_rate", "0")),
+            status=data.get("status") or MediaUnit.Status.AVAILABLE,
+            is_illuminated=_parse_bool(data.get("is_illuminated", "")),
+            facing_direction=data.get("facing_direction", ""),
+            site_type=data.get("unit_site_type", "") or data.get("media_unit_site_type", "") or data.get("unit_type", ""),
+        )
+
+    return site_result, {**row, "status": site_result}
+
+
+def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
+        raise ValueError("Only inventory site import jobs can be processed here.")
+    if job.company_name != get_company_name():
+        raise ValueError("Import job does not belong to the active company.")
+    if job.status == ImportExportJob.Status.COMPLETED:
+        return job
+    if job.status not in {ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING}:
+        raise ValueError("Only confirmed inventory import jobs can be processed.")
+
+    rows = list(job.preview_rows or [])
+    started_at = job.started_at or timezone.now()
+    job.status = ImportExportJob.Status.PROCESSING
+    job.started_at = started_at
+    job.rows_success = 0
+    job.rows_updated = 0
+    job.rows_skipped = 0
+    job.rows_failed = 0
+    job.errors = []
+    job.save(update_fields=["status", "started_at", "rows_success", "rows_updated", "rows_skipped", "rows_failed", "errors", "updated_at"])
+
+    imported_count = 0
+    updated_count = 0
+    skipped_count = 0
+    failed_rows: list[dict[str, Any]] = []
+    processed_rows: list[dict[str, Any]] = []
+
+    for row in rows:
+        try:
+            with transaction.atomic():
+                result, processed = _import_ready_inventory_row(row, actor=actor)
+        except Exception:
+            processed = {**row, "status": "failed", "message": "Row could not be imported.", "errors": [*row.get("errors", []), {"row": row.get("row"), "error": "Row could not be imported safely."}]}
+            result = "failed"
+
+        processed_rows.append(processed)
+        if result == "imported":
+            imported_count += 1
+        elif result == "updated":
+            updated_count += 1
+        elif result == "skipped":
+            skipped_count += 1
+        else:
+            failed_rows.extend(processed.get("errors") or [{"row": processed.get("row"), "error": processed.get("message", "Row failed.")}])
+
+        job.rows_success = imported_count
+        job.rows_updated = updated_count
+        job.rows_skipped = skipped_count
+        job.rows_failed = len(failed_rows)
+        job.preview_rows = processed_rows + rows[len(processed_rows):]
+        job.save(update_fields=["rows_success", "rows_updated", "rows_skipped", "rows_failed", "preview_rows", "updated_at"])
+
+    job.errors = failed_rows
+    job.preview_rows = processed_rows
+    job.completed_at = timezone.now()
+    job.status = ImportExportJob.Status.FAILED if failed_rows and not (imported_count or updated_count or skipped_count) else ImportExportJob.Status.COMPLETED
+    job.filters = {
+        **job.filters,
+        "no_records_imported": False,
+        "summary": {
+            **job.filters.get("summary", {}),
+            "imported_count": imported_count,
+            "updated_count": updated_count,
+            "skipped_count": skipped_count,
+            "failed_count": len(failed_rows),
+            "duration_seconds": max(0, int((job.completed_at - started_at).total_seconds())),
+        },
+    }
+    if failed_rows or skipped_count:
+        _write_import_error_report(job, processed_rows)
+    job.save(update_fields=["status", "rows_success", "rows_updated", "rows_skipped", "rows_failed", "errors", "preview_rows", "filters", "completed_at", "output_file", "updated_at"])
+
+    severity = AuditEvent.Severity.WARNING if job.rows_failed or job.rows_skipped else AuditEvent.Severity.INFO
+    record_audit_event(
+        event_type="inventory.import.completed" if job.status == ImportExportJob.Status.COMPLETED else "inventory.import.failed",
+        entity_type="import_export_job",
+        entity_id=job.id,
+        actor=actor,
+        severity=severity,
+        summary=f"Inventory import finished: {imported_count} imported, {updated_count} updated, {skipped_count} skipped, {len(failed_rows)} failed.",
+        metadata={"job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
+    )
+    try:
+        from apps.notifications.services import NotificationService
+
+        NotificationService().notify_operations(
+            event_type=EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED,
+            title="Inventory import completed",
+            message=f"{imported_count} imported, {updated_count} updated, {skipped_count} skipped, {len(failed_rows)} failed.",
+            severity="warning" if job.rows_failed or job.rows_skipped else "info",
+            metadata={"import_job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
+        )
+    except Exception:
+        pass
+    return job
+
+
+def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirmed: bool = False) -> ImportExportJob:
+    if not confirmed:
+        raise ValueError("Explicit confirmation is required to start the import.")
+    if job.company_name != get_company_name():
+        raise ValueError("Import job does not belong to the active company.")
+    if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
+        raise ValueError("Only inventory site import jobs can be confirmed here.")
+    if job.status != ImportExportJob.Status.PREVIEWED:
+        raise ValueError("Only previewed inventory import jobs can be confirmed.")
+    if (job.filters.get("summary", {}).get("rows_to_import") or job.rows_success) <= 0:
+        raise ValueError("There are no importable rows to start.")
+
+    job.status = ImportExportJob.Status.CONFIRMED
+    job.rows_success = 0
+    job.rows_updated = 0
+    job.rows_skipped = 0
+    job.rows_failed = 0
+    job.errors = []
+    job.filters = {
+        **job.filters,
+        "confirmed_at": timezone.now().isoformat(),
+        "confirmed_by": getattr(actor, "email", "") or getattr(actor, "username", ""),
+    }
+    job.save(update_fields=["status", "rows_success", "rows_updated", "rows_skipped", "rows_failed", "errors", "filters", "updated_at"])
+    record_audit_event(
+        event_type="inventory.import.confirmed",
+        entity_type="import_export_job",
+        entity_id=job.id,
+        actor=actor,
+        summary=f"Inventory import confirmed for {job.rows_total} row(s).",
+        metadata={"job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
+    )
+
+    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        try:
+            from .tasks import process_inventory_import_job
+
+            async_result = process_inventory_import_job.delay(job.id, actor_id=getattr(actor, "id", None))
+            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
+            job.save(update_fields=["filters", "updated_at"])
+            return job
+        except Exception as exc:
+            job.filters = {**job.filters, "dispatch_warning": str(exc)}
+            job.save(update_fields=["filters", "updated_at"])
+    return process_inventory_sites_import(job, actor=actor)
 
 
 def _create_csv_export_job(*, actor=None, resource_type: str, filename: str, header: list[str], rows: list[list[Any]], filters=None) -> ImportExportJob:
