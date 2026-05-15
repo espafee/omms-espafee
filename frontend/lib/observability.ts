@@ -155,6 +155,20 @@ export type ImportExportJob = {
   updated_at: string;
 };
 
+export type AlertRule = {
+  id: number;
+  name: string;
+  metric: string;
+  threshold: number;
+  window_minutes: number;
+  cooldown_minutes: number;
+  severity: string;
+  is_enabled: boolean;
+  current_value: number;
+  last_triggered_at: string | null;
+  updated_at: string;
+};
+
 async function list<T>(path: string) {
   const payload = await apiFetch<Paginated<T> | T[]>(path);
   return Array.isArray(payload) ? payload : payload.results;
@@ -215,5 +229,16 @@ export async function createExportJob(path: "inventory-sites" | "campaigns" | "i
   return apiFetch<ImportExportJob>(`observability/import-export-jobs/${path}/export/`, {
     method: "POST",
     body: JSON.stringify(filters),
+  });
+}
+
+export async function fetchAlertRules() {
+  return list<AlertRule>("observability/alert-rules/?page_size=20");
+}
+
+export async function updateAlertRule(id: number, input: Partial<Pick<AlertRule, "threshold" | "is_enabled" | "cooldown_minutes" | "window_minutes">>) {
+  return apiFetch<AlertRule>(`observability/alert-rules/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
   });
 }

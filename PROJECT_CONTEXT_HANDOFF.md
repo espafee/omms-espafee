@@ -799,3 +799,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `/notifications` now includes a compact grouped preferences panel with Inbox and Email toggles per category, save success/error feedback, and no change to existing inbox history.
 - In-app preferences now filter role-based inbox notifications for the current user, so muted operations categories do not continue appearing through shared role notifications.
 - Preference list reads default to the current user; privileged users can still query another user explicitly through the existing `user` filter.
+
+## Alert Thresholds Phase 1
+
+- The existing observability alert foundation now covers Phase 1 operational risk metrics: failed import/export jobs in 24h, suspicious POEs in 24h, overdue invoices, failed API requests in 24h, and slow API requests.
+- Alert evaluation remains Celery-ready through `evaluate_operational_alert_thresholds` and creates `AlertEvent`, `AuditEvent`, and operations inbox notifications when thresholds breach.
+- Cooldown protection prevents duplicate alert events and notifications for the same rule within the configured cooldown window.
+- Alert rules expose current value, threshold, enabled state, window, cooldown, severity, and last triggered time through the alert-rules API.
+- `/operations` now includes an Alert thresholds section; admins can enable/disable rules and adjust threshold values, while operations/finance users can view the risk state.

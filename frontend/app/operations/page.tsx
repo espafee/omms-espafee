@@ -9,11 +9,14 @@ import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } fro
 import {
   confirmImportJob,
   createExportJob,
+  fetchAlertRules,
   fetchAuditEvents,
   fetchDiagnostics,
   fetchExportJobs,
   fetchImportJob,
   fetchOperationsSummary,
+  updateAlertRule,
+  type AlertRule,
   uploadInventorySiteImport,
   type AuditEvent,
   type DiagnosticsPayload,
@@ -95,12 +98,17 @@ function StatusDot({ status }: { status: string }) {
   return <span className={`ops-status-dot status-${status}`} aria-hidden="true" />;
 }
 
+function formatMetricLabel(value: string) {
+  return value.replaceAll("_", " ");
+}
+
 export default function OperationsPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
   const [summary, setSummary] = useState<OperationsSummary | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [importJob, setImportJob] = useState<ImportExportJob | null>(null);
   const [exportJob, setExportJob] = useState<ImportExportJob | null>(null);
@@ -108,6 +116,7 @@ export default function OperationsPage() {
   const [exportType, setExportType] = useState<ExportType>("inventory-sites");
   const [exportStatusFilter, setExportStatusFilter] = useState("");
   const [isStartingExport, setIsStartingExport] = useState(false);
+  const [savingAlertRule, setSavingAlertRule] = useState<number | null>(null);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
   const [isStartingImport, setIsStartingImport] = useState(false);
   const [error, setError] = useState("");
@@ -120,14 +129,16 @@ export default function OperationsPage() {
     try {
       const profile = await fetchCurrentUser();
       setUser(profile);
-      const [summaryPayload, auditPayload, exportPayload] = await Promise.all([
+      const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
         fetchOperationsSummary(nextFilters),
         fetchAuditEvents({ severity: nextFilters.severity, event_type: nextFilters.event_type }),
         fetchExportJobs(),
+        fetchAlertRules(),
       ]);
       setSummary(summaryPayload);
       setAuditEvents(auditPayload);
       setExportJobs(exportPayload);
+      setAlertRules(alertRulePayload);
       if (profile.role === "admin") {
         setDiagnostics(await fetchDiagnostics());
       }
@@ -157,14 +168,16 @@ export default function OperationsPage() {
       try {
         const profile = await fetchCurrentUser();
         setUser(profile);
-        const [summaryPayload, auditPayload, exportPayload] = await Promise.all([
+        const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
           fetchOperationsSummary(INITIAL_FILTERS),
           fetchAuditEvents({ severity: "", event_type: "" }),
           fetchExportJobs(),
+          fetchAlertRules(),
         ]);
         setSummary(summaryPayload);
         setAuditEvents(auditPayload);
         setExportJobs(exportPayload);
+        setAlertRules(alertRulePayload);
         if (profile.role === "admin") {
           setDiagnostics(await fetchDiagnostics());
         }
@@ -282,6 +295,24 @@ export default function OperationsPage() {
       setError(exportError instanceof Error ? exportError.message : "Unable to start export.");
     } finally {
       setIsStartingExport(false);
+    }
+  }
+
+  async function handleAlertRuleUpdate(rule: AlertRule, input: Partial<Pick<AlertRule, "threshold" | "is_enabled">>) {
+    if (user?.role !== "admin") {
+      return;
+    }
+    setSavingAlertRule(rule.id);
+    setError("");
+    setMessage("");
+    try {
+      const updated = await updateAlertRule(rule.id, input);
+      setAlertRules((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+      setMessage("Alert threshold updated.");
+    } catch (updateError) {
+      setError(updateError instanceof Error ? updateError.message : "Unable to update alert threshold.");
+    } finally {
+      setSavingAlertRule(null);
     }
   }
 
@@ -427,6 +458,68 @@ export default function OperationsPage() {
             {summary && summary.recent_critical_alerts.length === 0 ? <p className="empty-state">No critical alerts right now.</p> : null}
           </div>
         </article>
+      </section>
+
+      <section className="module-card">
+        <div className="module-head">
+          <h2>Alert thresholds</h2>
+          <span>{alertRules.filter((rule) => rule.is_enabled).length} active</span>
+        </div>
+        <div className="alert-threshold-grid">
+          {alertRules.map((rule) => {
+            const breached = rule.current_value >= rule.threshold;
+            const canEdit = user?.role === "admin";
+            return (
+              <article className="alert-threshold-card" key={rule.id}>
+                <div>
+                  <p className="site-code">{formatMetricLabel(rule.metric)}</p>
+                  <h3>{rule.name}</h3>
+                  <p className="site-copy">{rule.current_value} current / {rule.threshold} threshold | {rule.window_minutes} min window</p>
+                  <p className="site-copy">Last triggered: {rule.last_triggered_at ? formatDateTime(rule.last_triggered_at) : "Never"}</p>
+                </div>
+                <div className="alert-threshold-controls">
+                  <span className={`status-pill status-${breached ? rule.severity : "completed"}`}>{breached ? "breached" : "normal"}</span>
+                  <label className="filter-toggle">
+                    <input
+                      type="checkbox"
+                      checked={rule.is_enabled}
+                      disabled={!canEdit || savingAlertRule === rule.id}
+                      onChange={(event) => void handleAlertRuleUpdate(rule, { is_enabled: event.target.checked })}
+                    />
+                    <span className="filter-toggle-control" />
+                    <span className="filter-toggle-copy">
+                      <strong>{rule.is_enabled ? "Enabled" : "Disabled"}</strong>
+                      <small>{canEdit ? "Alerting" : "Admin only"}</small>
+                    </span>
+                  </label>
+                  <div className="field">
+                    <label htmlFor={`alert-threshold-${rule.id}`}>Threshold</label>
+                    <input
+                      id={`alert-threshold-${rule.id}`}
+                      type="number"
+                      min="1"
+                      value={rule.threshold}
+                      disabled={!canEdit || savingAlertRule === rule.id}
+                      onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+                        if (Number.isInteger(nextValue) && nextValue > 0) {
+                          setAlertRules((current) => current.map((item) => (item.id === rule.id ? { ...item, threshold: nextValue } : item)));
+                        }
+                      }}
+                      onBlur={(event) => {
+                        const nextValue = Number(event.target.value);
+                        if (Number.isInteger(nextValue) && nextValue > 0) {
+                          void handleAlertRuleUpdate(rule, { threshold: nextValue });
+                        }
+                      }}
+                    />
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {!isLoading && alertRules.length === 0 ? <p className="empty-state">Alert thresholds will appear after alert rules are seeded.</p> : null}
+        </div>
       </section>
 
       <section className="module-card">

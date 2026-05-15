@@ -223,8 +223,10 @@ def notification_retry_job(limit: int = 50) -> int:
 
 def ensure_default_alert_rules() -> None:
     defaults = [
-        ("Slow requests in last hour", AlertRule.Metric.SLOW_REQUESTS, 10, 60, AlertRule.Severity.WARNING),
+        ("Slow API requests in last 24h", AlertRule.Metric.SLOW_REQUESTS, 25, 1440, AlertRule.Severity.WARNING),
+        ("Failed API requests in last 24h", AlertRule.Metric.FAILED_API_REQUESTS, 10, 1440, AlertRule.Severity.WARNING),
         ("Failed notifications in last hour", AlertRule.Metric.FAILED_NOTIFICATIONS, 3, 60, AlertRule.Severity.WARNING),
+        ("Failed import/export jobs in last 24h", AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS, 2, 1440, AlertRule.Severity.WARNING),
         ("Suspicious POEs today", AlertRule.Metric.SUSPICIOUS_POES, 5, 1440, AlertRule.Severity.WARNING),
         ("Overdue POE reviews", AlertRule.Metric.OVERDUE_POE_REVIEWS, 5, 1440, AlertRule.Severity.WARNING),
         ("Breached issues", AlertRule.Metric.BREACHED_ISSUES, 1, 1440, AlertRule.Severity.CRITICAL),
@@ -247,8 +249,12 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
     since = now - timedelta(minutes=rule.window_minutes)
     if rule.metric == AlertRule.Metric.SLOW_REQUESTS:
         return ApiRequestLog.objects.filter(is_slow=True, created_at__gte=since).count()
+    if rule.metric == AlertRule.Metric.FAILED_API_REQUESTS:
+        return ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
     if rule.metric == AlertRule.Metric.FAILED_NOTIFICATIONS:
         return EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED, updated_at__gte=since).count()
+    if rule.metric == AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS:
+        return ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since).count()
     if rule.metric == AlertRule.Metric.SUSPICIOUS_POES:
         return ProofOfExecution.objects.filter(
             verification_status__in=[ProofOfExecution.VerificationStatus.SUSPICIOUS, ProofOfExecution.VerificationStatus.REJECTED],

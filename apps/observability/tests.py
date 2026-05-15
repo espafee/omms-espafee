@@ -458,6 +458,102 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(len([event for event in second if event.rule_id == rule.id]), 0)
         self.assertEqual(AlertEvent.objects.filter(rule=rule).count(), 1)
 
+    def test_failed_import_export_threshold_creates_audit_and_notification(self):
+        rule = AlertRule.objects.create(
+            name="Failed jobs threshold",
+            metric=AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        ImportExportJob.objects.create(
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.FAILED,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in events if event.rule_id == rule.id]), 1)
+        self.assertTrue(AuditEvent.objects.filter(event_type="alert.triggered", entity_id=str(rule.id)).exists())
+        self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED, title__icontains=rule.name).exists())
+
+    def test_failed_api_request_threshold_uses_24h_window(self):
+        rule = AlertRule.objects.create(
+            name="Failed API threshold",
+            metric=AlertRule.Metric.FAILED_API_REQUESTS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        ApiRequestLog.objects.create(
+            method="GET",
+            path="/api/v1/billing/",
+            status_code=500,
+            duration_ms=200,
+            is_slow=False,
+            category=ApiRequestLog.Category.BILLING,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in events if event.rule_id == rule.id]), 1)
+
+    def test_disabled_alert_threshold_does_not_trigger(self):
+        AlertRule.objects.create(
+            name="Disabled failed jobs",
+            metric=AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+            is_enabled=False,
+        )
+        ImportExportJob.objects.create(
+            company_name="",
+            job_type=ImportExportJob.JobType.IMPORT,
+            resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
+            status=ImportExportJob.Status.FAILED,
+        )
+
+        self.assertEqual(evaluate_alert_thresholds(), [])
+        self.assertFalse(AlertEvent.objects.exists())
+
+    def test_alert_rule_api_exposes_current_value_and_allows_admin_updates(self):
+        rule = AlertRule.objects.create(
+            name="Failed API threshold",
+            metric=AlertRule.Metric.FAILED_API_REQUESTS,
+            threshold=3,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        ApiRequestLog.objects.create(
+            method="GET",
+            path="/api/v1/operations/",
+            status_code=500,
+            duration_ms=200,
+            is_slow=False,
+            category=ApiRequestLog.Category.OBSERVABILITY,
+        )
+        self.client.force_authenticate(self.admin)
+
+        list_response = self.client.get(reverse("observability-alert-rules-list"))
+        patch_response = self.client.patch(reverse("observability-alert-rules-detail", args=[rule.id]), {"threshold": 1, "is_enabled": False}, format="json")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_rule = next(item for item in list_response.data["results"] if item["id"] == rule.id)
+        self.assertEqual(listed_rule["current_value"], 1)
+        self.assertEqual(patch_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(patch_response.data["threshold"], 1)
+        self.assertFalse(patch_response.data["is_enabled"])
+
+    def test_client_cannot_access_alert_rules(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.get(reverse("observability-alert-rules-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     def test_notification_preferences_can_disable_in_app_notification_for_user(self):
         NotificationPreference.objects.create(
             user=self.operations,

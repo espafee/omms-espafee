@@ -93,10 +93,22 @@ class RoleActivitySerializer(serializers.Serializer):
 
 
 class AlertRuleSerializer(serializers.ModelSerializer):
+    current_value = serializers.SerializerMethodField()
+    last_triggered_at = serializers.SerializerMethodField()
+
     class Meta:
         model = AlertRule
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_current_value(self, obj):
+        from .services import get_alert_metric_value
+
+        return get_alert_metric_value(obj)
+
+    def get_last_triggered_at(self, obj):
+        latest_event = obj.events.order_by("-created_at").first()
+        return latest_event.created_at if latest_event else None
 
 
 class AlertEventSerializer(serializers.ModelSerializer):

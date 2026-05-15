@@ -151,7 +151,9 @@ class ImportExportJob(TimeStampedModel):
 class AlertRule(TimeStampedModel):
     class Metric(models.TextChoices):
         SLOW_REQUESTS = "slow_requests", "Slow Requests"
+        FAILED_API_REQUESTS = "failed_api_requests", "Failed API Requests"
         FAILED_NOTIFICATIONS = "failed_notifications", "Failed Notifications"
+        FAILED_IMPORT_EXPORT_JOBS = "failed_import_export_jobs", "Failed Import/Export Jobs"
         SUSPICIOUS_POES = "suspicious_poes", "Suspicious POEs"
         OVERDUE_POE_REVIEWS = "overdue_poe_reviews", "Overdue POE Reviews"
         BREACHED_ISSUES = "breached_issues", "Breached Issues"

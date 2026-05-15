@@ -57,3 +57,9 @@ This phase focuses on visibility without risky data movement: analytics are aggr
 OMMS users can now tune operational notifications from the Notification Center. The preference panel groups alerts into practical SaaS categories such as imports, exports, POE review, billing, system diagnostics, and campaigns, with separate controls for inbox and email delivery.
 
 The inbox remains intact for existing notifications, while future reads respect each user's muted in-app categories, including shared operations-role notifications. This gives teams more control over operational noise without weakening auditability or the notification infrastructure already used by imports, exports, billing, POE, and diagnostics.
+
+## Alert Thresholds Phase 1
+
+OMMS now has a first operational alert threshold layer for detecting risk without manual inspection. The system can evaluate failed imports/exports, suspicious POE spikes, overdue invoices, failed API requests, and slow API requests, then create an audit trail plus an operations inbox notification when a rule breaches.
+
+The Operations dashboard now shows alert thresholds alongside current values and last trigger times. Admins can tune thresholds or pause a rule, while cooldown handling prevents repeated notifications from becoming operational noise.
