@@ -164,7 +164,11 @@ export async function confirmImportJob(id: number) {
   });
 }
 
-export async function createExportJob(path: "campaigns" | "invoices" | "poe-reports" | "client-statements", filters: Record<string, string> = {}) {
+export async function fetchExportJobs() {
+  return list<ImportExportJob>("observability/import-export-jobs/?job_type=export&page_size=8");
+}
+
+export async function createExportJob(path: "inventory-sites" | "campaigns" | "invoices" | "poe-reports" | "client-statements", filters: Record<string, string> = {}) {
   return apiFetch<ImportExportJob>(`observability/import-export-jobs/${path}/export/`, {
     method: "POST",
     body: JSON.stringify(filters),

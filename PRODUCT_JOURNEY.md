@@ -39,3 +39,9 @@ This preview foundation preserves onboarding speed while reducing operational ri
 The staged import flow now continues past preview into explicit confirmation and background-safe processing. Operators must confirm a previewed job before any inventory records are created, and the system rejects stale, completed, running, or cross-company jobs.
 
 Once confirmed, OMMS queues the import for Celery processing, tracks progress on the import job, imports only preview-ready rows, skips failed rows, avoids accidental overwrites, and reports imported, updated, skipped, and failed counts back to the Operations workbench. Completed imports now leave an audit trail and an operations notification titled `Inventory import completed`.
+
+## Export System Expansion Phase 1
+
+OMMS exports now use the same operational job backbone as imports. Inventory, campaign, POE, and invoice/payment exports can be started from the Operations workbench, queued for Celery processing, tracked with progress and duration, and downloaded after completion.
+
+This keeps exports safer for larger operational datasets: jobs are company-scoped, permission-protected, auditable, and represented in the notification inbox when complete. CSV remains the first supported format; richer Excel formatting can come later without changing the job lifecycle.

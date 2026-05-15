@@ -773,3 +773,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `ImportExportJob` now tracks imported, updated, skipped, failed, started, completed, duration, progress, processed row states, and an optional CSV error report.
 - Completion/failure writes audit events and creates the `Inventory import completed` operations notification with summary counts.
 - Operations UI now enables `Start Import` for importable previews, requires a confirmation modal, polls queued/running jobs, and shows final imported/updated/skipped/failed/duration counts.
+
+## Export System Expansion Phase 1
+
+- Core operational exports now run through `ImportExportJob` instead of one-off synchronous responses.
+- CSV export coverage includes inventory sites, campaigns, POE reports, and invoice/payment rows; client statements remain supported through the same export processor.
+- Export jobs start in `confirmed` as the queued state, move to `processing`, then finish as `completed` or `failed`; progress, started/completed timestamps, duration, row counts, output file, and safe errors are tracked on the job.
+- `process_export_job_task` handles Celery execution; local/eager fallback generation remains available when background dispatch is unavailable.
+- Completion/failure writes audit events, and successful exports create an `Export completed` operations notification.
+- Operations UI now has an export type selector, optional status filter, Start Export action, recent export job list, progress chips, and download links for completed CSV files.

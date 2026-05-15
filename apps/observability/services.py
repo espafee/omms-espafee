@@ -159,6 +159,9 @@ class ImportExportJobRepository(BaseRepository):
     model = ImportExportJob
     select_related = ("created_by",)
 
+    def scope_queryset(self, queryset, user=None):
+        return queryset.filter(company_name=get_company_name())
+
 
 class ApiRequestLogService(BaseService):
     repository_class = ApiRequestLogRepository
@@ -482,30 +485,6 @@ def build_diagnostics_payload() -> dict[str, Any]:
             ).count(),
         },
     }
-
-
-def export_inventory_sites_csv(*, actor=None) -> ImportExportJob:
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["code", "name", "site_type", "address", "city", "state", "latitude", "longitude", "location_status"])
-    rows = MediaSite.objects.order_by("code").values_list(
-        "code", "name", "site_type", "address", "city", "state", "latitude", "longitude", "location_status"
-    )
-    row_count = 0
-    for row in rows:
-        writer.writerow(row)
-        row_count += 1
-    job = ImportExportJob.objects.create(
-        created_by=actor if getattr(actor, "is_authenticated", False) else None,
-        company_name=get_company_name(),
-        job_type=ImportExportJob.JobType.EXPORT,
-        resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
-        status=ImportExportJob.Status.COMPLETED,
-        rows_total=row_count,
-        rows_success=row_count,
-    )
-    job.output_file.save("inventory-sites.csv", ContentFile(output.getvalue().encode("utf-8")), save=True)
-    return job
 
 
 def _normalise_import_key(value: str) -> str:
@@ -966,26 +945,16 @@ def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirme
     return process_inventory_sites_import(job, actor=actor)
 
 
-def _create_csv_export_job(*, actor=None, resource_type: str, filename: str, header: list[str], rows: list[list[Any]], filters=None) -> ImportExportJob:
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(header)
-    writer.writerows(rows)
-    job = ImportExportJob.objects.create(
-        created_by=actor if getattr(actor, "is_authenticated", False) else None,
-        company_name=get_company_name(),
-        job_type=ImportExportJob.JobType.EXPORT,
-        resource_type=resource_type,
-        status=ImportExportJob.Status.COMPLETED,
-        rows_total=len(rows),
-        rows_success=len(rows),
-        filters=filters or {},
+def _inventory_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
+    rows = list(
+        MediaSite.objects.order_by("code").values_list(
+            "code", "name", "site_type", "address", "city", "state", "latitude", "longitude", "location_status"
+        )
     )
-    job.output_file.save(filename, ContentFile(output.getvalue().encode("utf-8")), save=True)
-    return job
+    return "inventory-sites.csv", ["code", "name", "site_type", "address", "city", "state", "latitude", "longitude", "location_status"], rows
 
 
-def export_campaigns_csv(*, actor=None, filters=None) -> ImportExportJob:
+def _campaign_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
     queryset = Campaign.objects.select_related("client", "account_manager").order_by("-created_at")
     if filters.get("status"):
@@ -996,38 +965,58 @@ def export_campaigns_csv(*, actor=None, filters=None) -> ImportExportJob:
         [item.code, item.name, item.status, item.client.email, item.start_date, item.end_date, item.budget]
         for item in queryset
     ]
-    return _create_csv_export_job(
-        actor=actor,
-        resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
-        filename="campaigns.csv",
-        header=["code", "name", "status", "client", "start_date", "end_date", "budget"],
-        rows=rows,
-        filters=filters,
-    )
+    return "campaigns.csv", ["code", "name", "status", "client", "start_date", "end_date", "budget"], rows
 
 
-def export_invoices_csv(*, actor=None, filters=None) -> ImportExportJob:
+def _invoice_payment_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
-    queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+    queryset = Invoice.objects.select_related("campaign", "campaign__client").prefetch_related("payments").order_by("-created_at")
     if filters.get("status"):
         queryset = queryset.filter(status=filters["status"])
     if filters.get("client"):
         queryset = queryset.filter(campaign__client_id=filters["client"])
-    rows = [
-        [item.invoice_number or item.id, item.campaign.name, item.campaign.client.email, item.status, item.invoice_date, item.due_date, item.total_amount, item.grand_total]
-        for item in queryset
-    ]
-    return _create_csv_export_job(
-        actor=actor,
-        resource_type=ImportExportJob.ResourceType.INVOICES,
-        filename="invoices.csv",
-        header=["invoice", "campaign", "client", "status", "invoice_date", "due_date", "total_amount", "grand_total"],
-        rows=rows,
-        filters=filters,
+    rows = []
+    for invoice in queryset:
+        payments = list(invoice.payments.all())
+        if not payments:
+            rows.append([
+                invoice.invoice_number or invoice.id,
+                invoice.campaign.name,
+                invoice.campaign.client.email,
+                invoice.status,
+                invoice.invoice_date,
+                invoice.due_date,
+                invoice.total_amount,
+                invoice.grand_total,
+                "",
+                "",
+                "",
+                "",
+            ])
+            continue
+        for payment in payments:
+            rows.append([
+                invoice.invoice_number or invoice.id,
+                invoice.campaign.name,
+                invoice.campaign.client.email,
+                invoice.status,
+                invoice.invoice_date,
+                invoice.due_date,
+                invoice.total_amount,
+                invoice.grand_total,
+                payment.payment_date,
+                payment.amount,
+                payment.method,
+                payment.reference_number,
+            ])
+    return (
+        "invoice-payments.csv",
+        ["invoice", "campaign", "client", "status", "invoice_date", "due_date", "total_amount", "grand_total", "payment_date", "payment_amount", "payment_method", "payment_reference"],
+        rows,
     )
 
 
-def export_poe_reports_csv(*, actor=None, filters=None) -> ImportExportJob:
+def _poe_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
     queryset = ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site", "checked_by").order_by("-captured_at")
     if filters.get("campaign"):
@@ -1047,17 +1036,10 @@ def export_poe_reports_csv(*, actor=None, filters=None) -> ImportExportJob:
         ]
         for item in queryset
     ]
-    return _create_csv_export_job(
-        actor=actor,
-        resource_type=ImportExportJob.ResourceType.POE_REPORTS,
-        filename="poe-report.csv",
-        header=["poe_id", "campaign", "site", "verification_status", "review_sla_status", "captured_at", "latitude", "longitude"],
-        rows=rows,
-        filters=filters,
-    )
+    return "poe-report.csv", ["poe_id", "campaign", "site", "verification_status", "review_sla_status", "captured_at", "latitude", "longitude"], rows
 
 
-def export_client_statement_csv(*, actor=None, filters=None) -> ImportExportJob:
+def _client_statement_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
     client_id = filters.get("client")
     queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
@@ -1068,11 +1050,156 @@ def export_client_statement_csv(*, actor=None, filters=None) -> ImportExportJob:
         paid = invoice.payments.aggregate(total=Sum("amount"))["total"] or 0
         total = invoice.grand_total or invoice.total_amount
         rows.append([invoice.campaign.client.email, invoice.invoice_number or invoice.id, invoice.status, total, paid, total - paid])
-    return _create_csv_export_job(
-        actor=actor,
-        resource_type=ImportExportJob.ResourceType.CLIENT_STATEMENTS,
-        filename="client-statement.csv",
-        header=["client", "invoice", "status", "total", "paid", "balance"],
-        rows=rows,
-        filters=filters,
+    return "client-statement.csv", ["client", "invoice", "status", "total", "paid", "balance"], rows
+
+
+EXPORT_PAYLOAD_BUILDERS = {
+    ImportExportJob.ResourceType.INVENTORY_SITES: _inventory_export_payload,
+    ImportExportJob.ResourceType.CAMPAIGNS: _campaign_export_payload,
+    ImportExportJob.ResourceType.POE_REPORTS: _poe_export_payload,
+    ImportExportJob.ResourceType.INVOICES: _invoice_payment_export_payload,
+    ImportExportJob.ResourceType.CLIENT_STATEMENTS: _client_statement_export_payload,
+}
+
+
+def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if job.job_type != ImportExportJob.JobType.EXPORT:
+        raise ValueError("Only export jobs can be processed here.")
+    if job.company_name != get_company_name():
+        raise ValueError("Export job does not belong to the active company.")
+    if job.status == ImportExportJob.Status.COMPLETED:
+        return job
+    if job.status not in {ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING}:
+        raise ValueError("Only queued export jobs can be processed.")
+
+    started_at = job.started_at or timezone.now()
+    job.status = ImportExportJob.Status.PROCESSING
+    job.started_at = started_at
+    job.rows_success = 0
+    job.rows_failed = 0
+    job.errors = []
+    job.save(update_fields=["status", "started_at", "rows_success", "rows_failed", "errors", "updated_at"])
+
+    try:
+        builder = EXPORT_PAYLOAD_BUILDERS[job.resource_type]
+        filename, header, rows = builder(job.filters.get("export_filters", {}))
+        output = StringIO()
+        writer = csv.writer(output)
+        writer.writerow(header)
+        job.rows_total = len(rows)
+        job.save(update_fields=["rows_total", "updated_at"])
+        for row in rows:
+            writer.writerow(row)
+            job.rows_success += 1
+            job.save(update_fields=["rows_success", "updated_at"])
+        job.output_file.save(filename, ContentFile(output.getvalue().encode("utf-8")), save=False)
+        job.completed_at = timezone.now()
+        job.status = ImportExportJob.Status.COMPLETED
+        job.filters = {
+            **job.filters,
+            "summary": {
+                "exported_count": job.rows_success,
+                "failed_count": 0,
+                "duration_seconds": max(0, int((job.completed_at - started_at).total_seconds())),
+            },
+        }
+        job.save(update_fields=["status", "rows_total", "rows_success", "output_file", "completed_at", "filters", "updated_at"])
+        record_audit_event(
+            event_type="export.completed",
+            entity_type="import_export_job",
+            entity_id=job.id,
+            actor=actor,
+            summary=f"{job.resource_type} export completed with {job.rows_success} row(s).",
+            metadata={"job_id": job.id, "resource_type": job.resource_type, "rows_success": job.rows_success},
+        )
+        try:
+            from apps.notifications.services import NotificationService
+
+            NotificationService().notify_operations(
+                event_type=EmailNotificationLog.NotificationType.EXPORT_COMPLETED,
+                title="Export completed",
+                message=f"{job.resource_type.replace('_', ' ')} export completed with {job.rows_success} row(s).",
+                severity="info",
+                metadata={"export_job_id": job.id, "resource_type": job.resource_type, "rows_success": job.rows_success},
+            )
+        except Exception:
+            pass
+        return job
+    except Exception:
+        job.status = ImportExportJob.Status.FAILED
+        job.completed_at = timezone.now()
+        job.rows_failed = 1
+        job.errors = [{"error": "Export could not be generated safely."}]
+        job.filters = {
+            **job.filters,
+            "summary": {
+                "exported_count": job.rows_success,
+                "failed_count": 1,
+                "duration_seconds": max(0, int((job.completed_at - started_at).total_seconds())),
+            },
+        }
+        job.save(update_fields=["status", "completed_at", "rows_failed", "errors", "filters", "updated_at"])
+        record_audit_event(
+            event_type="export.failed",
+            entity_type="import_export_job",
+            entity_id=job.id,
+            actor=actor,
+            severity=AuditEvent.Severity.ERROR,
+            summary=f"{job.resource_type} export failed.",
+            metadata={"job_id": job.id, "resource_type": job.resource_type},
+        )
+        return job
+
+
+def _start_csv_export_job(*, actor=None, resource_type: str, filters=None) -> ImportExportJob:
+    filters = filters or {}
+    if resource_type not in EXPORT_PAYLOAD_BUILDERS:
+        raise ValueError("Unsupported export type.")
+    job = ImportExportJob.objects.create(
+        created_by=actor if getattr(actor, "is_authenticated", False) else None,
+        company_name=get_company_name(),
+        job_type=ImportExportJob.JobType.EXPORT,
+        resource_type=resource_type,
+        status=ImportExportJob.Status.CONFIRMED,
+        filters={"export_filters": filters},
     )
+    record_audit_event(
+        event_type="export.queued",
+        entity_type="import_export_job",
+        entity_id=job.id,
+        actor=actor,
+        summary=f"{resource_type} export queued.",
+        metadata={"job_id": job.id, "resource_type": resource_type, "filters": filters},
+    )
+    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        try:
+            from .tasks import process_export_job_task
+
+            async_result = process_export_job_task.delay(job.id, actor_id=getattr(actor, "id", None))
+            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
+            job.save(update_fields=["filters", "updated_at"])
+            return job
+        except Exception as exc:
+            job.filters = {**job.filters, "dispatch_warning": str(exc)}
+            job.save(update_fields=["filters", "updated_at"])
+    return process_export_job(job, actor=actor)
+
+
+def export_inventory_sites_csv(*, actor=None, filters=None) -> ImportExportJob:
+    return _start_csv_export_job(actor=actor, resource_type=ImportExportJob.ResourceType.INVENTORY_SITES, filters=filters)
+
+
+def export_campaigns_csv(*, actor=None, filters=None) -> ImportExportJob:
+    return _start_csv_export_job(actor=actor, resource_type=ImportExportJob.ResourceType.CAMPAIGNS, filters=filters)
+
+
+def export_invoices_csv(*, actor=None, filters=None) -> ImportExportJob:
+    return _start_csv_export_job(actor=actor, resource_type=ImportExportJob.ResourceType.INVOICES, filters=filters)
+
+
+def export_poe_reports_csv(*, actor=None, filters=None) -> ImportExportJob:
+    return _start_csv_export_job(actor=actor, resource_type=ImportExportJob.ResourceType.POE_REPORTS, filters=filters)
+
+
+def export_client_statement_csv(*, actor=None, filters=None) -> ImportExportJob:
+    return _start_csv_export_job(actor=actor, resource_type=ImportExportJob.ResourceType.CLIENT_STATEMENTS, filters=filters)

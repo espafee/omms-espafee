@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 from io import BytesIO
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
@@ -9,6 +10,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from apps.billing.models import Invoice, Payment
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
@@ -20,10 +22,13 @@ from apps.observability.services import (
     confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
+    export_invoices_csv,
+    process_export_job,
     process_inventory_sites_import,
     record_audit_event,
     validate_inventory_sites_import,
 )
+from apps.observability.tasks import process_export_job_task
 from apps.poe.models import ProofOfExecution
 
 User = get_user_model()
@@ -332,6 +337,7 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIsNotNone(processed.started_at)
         self.assertIsNotNone(processed.completed_at)
 
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
     def test_campaign_export_creates_completed_job(self):
         job = export_campaigns_csv(actor=self.admin, filters={"status": Campaign.Status.ACTIVE})
 
@@ -339,6 +345,94 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(job.resource_type, ImportExportJob.ResourceType.CAMPAIGNS)
         self.assertEqual(job.rows_total, 1)
         self.assertTrue(job.output_file.name.endswith(".csv"))
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_invoice_payment_export_includes_payment_rows(self):
+        invoice = Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_number="INV-OBS-001",
+            invoice_date=date.today(),
+            due_date=date.today() + timedelta(days=10),
+            status=Invoice.Status.PAID,
+            total_amount=Decimal("1000.00"),
+            grand_total=Decimal("1000.00"),
+        )
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("1000.00"),
+            method=Payment.Method.BANK_TRANSFER,
+            reference_number="PAY-OBS-001",
+        )
+
+        job = export_invoices_csv(actor=self.admin, filters={"status": Invoice.Status.PAID})
+
+        self.assertEqual(job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(job.resource_type, ImportExportJob.ResourceType.INVOICES)
+        self.assertEqual(job.rows_success, 1)
+        self.assertIn("invoice-payments", job.output_file.name)
+
+    def test_export_job_list_is_company_scoped(self):
+        job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="Other Company",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.COMPLETED,
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(f"/api/v1/observability/import-export-jobs/{job.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_export_endpoint_enforces_operations_permissions(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.post("/api/v1/observability/import-export-jobs/campaigns/export/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_celery_export_task_writes_downloadable_file(self):
+        job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.CONFIRMED,
+        )
+
+        result = process_export_job_task(job.id, actor_id=self.admin.id)
+        job.refresh_from_db()
+
+        self.assertEqual(result["status"], ImportExportJob.Status.COMPLETED)
+        self.assertEqual(job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(job.rows_success, 1)
+        self.assertIn("campaigns", job.output_file.name)
+
+        self.client.force_authenticate(self.admin)
+        response = self.client.get(f"/api/v1/observability/import-export-jobs/{job.id}/download/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_failed_export_records_safe_error(self):
+        job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.CONFIRMED,
+        )
+
+        def broken_builder(filters=None):
+            raise RuntimeError("database secret detail")
+
+        with patch.dict("apps.observability.services.EXPORT_PAYLOAD_BUILDERS", {ImportExportJob.ResourceType.CAMPAIGNS: broken_builder}):
+            processed = process_export_job(job, actor=self.admin)
+
+        self.assertEqual(processed.status, ImportExportJob.Status.FAILED)
+        self.assertEqual(processed.rows_failed, 1)
+        self.assertEqual(processed.errors, [{"error": "Export could not be generated safely."}])
+        self.assertTrue(AuditEvent.objects.filter(event_type="export.failed", entity_id=str(processed.id)).exists())
 
     def test_alert_threshold_evaluation_respects_cooldown(self):
         rule = AlertRule.objects.create(

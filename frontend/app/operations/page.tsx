@@ -11,6 +11,7 @@ import {
   createExportJob,
   fetchAuditEvents,
   fetchDiagnostics,
+  fetchExportJobs,
   fetchImportJob,
   fetchOperationsSummary,
   uploadInventorySiteImport,
@@ -25,12 +26,15 @@ type StoredUser = {
   role?: string;
 };
 
+type ExportType = "inventory-sites" | "campaigns" | "poe-reports" | "invoices";
+
 const INITIAL_FILTERS = {
   date_from: "",
   date_to: "",
   campaign: "",
   site: "",
   field_agent: "",
+  client: "",
   status: "",
   severity: "",
   event_type: "",
@@ -67,6 +71,10 @@ export default function OperationsPage() {
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [importJob, setImportJob] = useState<ImportExportJob | null>(null);
   const [exportJob, setExportJob] = useState<ImportExportJob | null>(null);
+  const [exportJobs, setExportJobs] = useState<ImportExportJob[]>([]);
+  const [exportType, setExportType] = useState<ExportType>("inventory-sites");
+  const [exportStatusFilter, setExportStatusFilter] = useState("");
+  const [isStartingExport, setIsStartingExport] = useState(false);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
   const [isStartingImport, setIsStartingImport] = useState(false);
   const [error, setError] = useState("");
@@ -79,12 +87,14 @@ export default function OperationsPage() {
     try {
       const profile = await fetchCurrentUser();
       setUser(profile);
-      const [summaryPayload, auditPayload] = await Promise.all([
+      const [summaryPayload, auditPayload, exportPayload] = await Promise.all([
         fetchOperationsSummary(nextFilters),
         fetchAuditEvents({ severity: nextFilters.severity, event_type: nextFilters.event_type }),
+        fetchExportJobs(),
       ]);
       setSummary(summaryPayload);
       setAuditEvents(auditPayload);
+      setExportJobs(exportPayload);
       if (profile.role === "admin") {
         setDiagnostics(await fetchDiagnostics());
       }
@@ -114,12 +124,14 @@ export default function OperationsPage() {
       try {
         const profile = await fetchCurrentUser();
         setUser(profile);
-        const [summaryPayload, auditPayload] = await Promise.all([
+        const [summaryPayload, auditPayload, exportPayload] = await Promise.all([
           fetchOperationsSummary(INITIAL_FILTERS),
           fetchAuditEvents({ severity: "", event_type: "" }),
+          fetchExportJobs(),
         ]);
         setSummary(summaryPayload);
         setAuditEvents(auditPayload);
+        setExportJobs(exportPayload);
         if (profile.role === "admin") {
           setDiagnostics(await fetchDiagnostics());
         }
@@ -144,6 +156,7 @@ export default function OperationsPage() {
   const importRowsReady = (importSummary.rows_to_import ?? importJob?.rows_success ?? 0) > 0;
   const importCanStart = importJob?.status === "previewed" && importRowsReady;
   const importIsActive = importJob?.status === "confirmed" || importJob?.status === "processing";
+  const exportIsActive = exportJobs.some((job) => job.status === "confirmed" || job.status === "processing");
 
   useEffect(() => {
     if (!importJob || !importIsActive) {
@@ -158,6 +171,22 @@ export default function OperationsPage() {
     }, 3000);
     return () => window.clearInterval(timer);
   }, [importIsActive, importJob]);
+
+  useEffect(() => {
+    if (!exportIsActive) {
+      return;
+    }
+    const timer = window.setInterval(async () => {
+      try {
+        const nextJobs = await fetchExportJobs();
+        setExportJobs(nextJobs);
+        setExportJob(nextJobs[0] ?? null);
+      } catch {
+        window.clearInterval(timer);
+      }
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [exportIsActive]);
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -198,9 +227,31 @@ export default function OperationsPage() {
     }
   }
 
-  async function handleExport(path: "campaigns" | "invoices" | "poe-reports" | "client-statements") {
-    setExportJob(await createExportJob(path, filters));
-    setMessage("Export job completed. Use the generated file link from the job once storage exposes it.");
+  async function handleExport() {
+    setIsStartingExport(true);
+    setError("");
+    setMessage("");
+    const exportFilters: Record<string, string> = {};
+    if (exportStatusFilter) {
+      exportFilters.status = exportStatusFilter;
+    }
+    if (filters.campaign) {
+      exportFilters.campaign = filters.campaign;
+    }
+    if (filters.client) {
+      exportFilters.client = filters.client;
+    }
+    try {
+      const job = await createExportJob(exportType, exportFilters);
+      const nextJobs = [job, ...exportJobs.filter((item) => item.id !== job.id)].slice(0, 8);
+      setExportJob(job);
+      setExportJobs(nextJobs);
+      setMessage(job.status === "completed" ? "Export completed." : "Export queued.");
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to start export.");
+    } finally {
+      setIsStartingExport(false);
+    }
   }
 
   function handleLogout() {
@@ -341,11 +392,23 @@ export default function OperationsPage() {
               <span>Optional unit fields: unit_code, width, height, monthly_rate, status</span>
             </div>
           </div>
-          <div className="form-actions">
-            <button className="ghost" type="button" onClick={() => void handleExport("campaigns")}>Export campaigns</button>
-            <button className="ghost" type="button" onClick={() => void handleExport("invoices")}>Export invoices</button>
-            <button className="ghost" type="button" onClick={() => void handleExport("poe-reports")}>Export POE</button>
-            <button className="ghost" type="button" onClick={() => void handleExport("client-statements")}>Export statements</button>
+          <div className="export-control-panel">
+            <div className="field">
+              <label htmlFor="export-type">Export type</label>
+              <select id="export-type" value={exportType} onChange={(event) => setExportType(event.target.value as ExportType)}>
+                <option value="inventory-sites">Inventory</option>
+                <option value="campaigns">Campaigns</option>
+                <option value="poe-reports">POE reports</option>
+                <option value="invoices">Invoices / payments</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="export-status">Status filter</label>
+              <input id="export-status" value={exportStatusFilter} onChange={(event) => setExportStatusFilter(event.target.value)} placeholder="optional" />
+            </div>
+            <button className="submit" type="button" disabled={isStartingExport} onClick={() => void handleExport()}>
+              {isStartingExport ? "Starting..." : "Start Export"}
+            </button>
           </div>
         </div>
         {importJob ? (
@@ -434,6 +497,27 @@ export default function OperationsPage() {
             {importJob.output_file_url ? (
               <a className="asset-link" href={importJob.output_file_url} target="_blank" rel="noreferrer">Download import report</a>
             ) : null}
+          </div>
+        ) : null}
+        {exportJobs.length > 0 ? (
+          <div className="export-job-list">
+            {exportJobs.map((job) => (
+              <article className="export-job-row" key={job.id}>
+                <div>
+                  <p className="site-code">{job.resource_type.replaceAll("_", " ")}</p>
+                  <p className="site-copy">Job #{job.id} | {job.rows_success}/{job.rows_total || "?"} row(s) | {formatDateTime(job.created_at)}</p>
+                  {(job.status === "confirmed" || job.status === "processing") ? (
+                    <div className="progress-track import-progress">
+                      <span className="progress-fill" style={{ width: `${job.progress_percent}%` }} />
+                    </div>
+                  ) : null}
+                </div>
+                <div className="export-job-actions">
+                  <span className={`status-pill status-${job.status}`}>{job.status === "confirmed" ? "queued" : job.status}</span>
+                  {job.output_file_url ? <a className="asset-link" href={job.output_file_url} target="_blank" rel="noreferrer">Download CSV</a> : null}
+                </div>
+              </article>
+            ))}
           </div>
         ) : null}
         {exportJob ? <p className="section-copy">Latest export: {exportJob.resource_type} | {exportJob.rows_total} row(s) | status {exportJob.status}</p> : null}

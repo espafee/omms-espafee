@@ -1639,7 +1639,9 @@ textarea::placeholder {
 .import-workbench,
 .import-review-panel,
 .import-upload-panel,
-.import-issue-list {
+.import-issue-list,
+.export-control-panel,
+.export-job-list {
   display: grid;
   gap: 12px;
 }
@@ -1721,6 +1723,33 @@ textarea::placeholder {
 
 .import-preview-table {
   min-width: 640px;
+}
+
+.export-control-panel {
+  grid-template-columns: minmax(150px, 1fr) minmax(130px, 1fr) auto;
+  align-items: end;
+}
+
+.export-job-list {
+  margin-top: 16px;
+}
+
+.export-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.export-job-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
 }
 
 .modal-backdrop {
@@ -2340,7 +2369,8 @@ textarea::placeholder {
   }
 
   .import-workbench,
-  .import-summary-grid {
+  .import-summary-grid,
+  .export-control-panel {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2397,8 +2427,15 @@ textarea::placeholder {
   }
 
   .import-workbench,
-  .import-summary-grid {
+  .import-summary-grid,
+  .export-control-panel,
+  .export-job-row {
     grid-template-columns: 1fr;
+  }
+
+  .export-job-actions {
+    justify-content: space-between;
+    white-space: normal;
   }
 
   .import-confirm-strip {

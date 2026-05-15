@@ -97,7 +97,7 @@ class ImportExportJobViewSet(ServiceModelViewSet):
 
     @action(detail=False, methods=["post"], url_path="inventory-sites/export")
     def inventory_sites_export(self, request):
-        job = export_inventory_sites_csv(actor=request.user)
+        job = export_inventory_sites_csv(actor=request.user, filters=request.data)
         return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="confirm")
