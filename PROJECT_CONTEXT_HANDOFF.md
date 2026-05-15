@@ -807,3 +807,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Cooldown protection prevents duplicate alert events and notifications for the same rule within the configured cooldown window.
 - Alert rules expose current value, threshold, enabled state, window, cooldown, severity, and last triggered time through the alert-rules API.
 - `/operations` now includes an Alert thresholds section; admins can enable/disable rules and adjust threshold values, while operations/finance users can view the risk state.
+
+## Operational Alert Acknowledgement Milestone
+
+- Alert events now support explicit acknowledgement through `POST /api/v1/observability/alert-events/{id}/acknowledge/`.
+- Acknowledgement records who acknowledged the alert and when, then writes an `alert.acknowledged` audit event for operational traceability.
+- Alert rule API responses now include cooldown visibility (`cooldown_until` and `cooldown_remaining_minutes`) so operators can understand when the next notification for that condition can fire.
+- The Operations dashboard now shows acknowledgement state, acknowledgement actor/time, compact severity actions, and cooldown remaining text inside the alert sections.
+- Mobile parity review: current mobile admin alerts are synthetic field-operation alerts, not persisted `AlertEvent` records. No mobile API contract was changed in this milestone; mobile already uses matching warning/danger alert severity visuals from the OMMS mobile theme.

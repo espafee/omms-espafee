@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
+  acknowledgeAlertEvent,
   confirmImportJob,
   createExportJob,
   fetchAlertRules,
@@ -117,6 +118,7 @@ export default function OperationsPage() {
   const [exportStatusFilter, setExportStatusFilter] = useState("");
   const [isStartingExport, setIsStartingExport] = useState(false);
   const [savingAlertRule, setSavingAlertRule] = useState<number | null>(null);
+  const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<number | null>(null);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
   const [isStartingImport, setIsStartingImport] = useState(false);
   const [error, setError] = useState("");
@@ -316,6 +318,21 @@ export default function OperationsPage() {
     }
   }
 
+  async function handleAcknowledgeAlert(alertId: number) {
+    setError("");
+    setMessage("");
+    setAcknowledgingAlertId(alertId);
+    try {
+      await acknowledgeAlertEvent(alertId);
+      setMessage("Alert acknowledged.");
+      await load(filters);
+    } catch (ackError) {
+      setError(ackError instanceof Error ? ackError.message : "Unable to acknowledge alert.");
+    } finally {
+      setAcknowledgingAlertId(null);
+    }
+  }
+
   function handleLogout() {
     clearAuthSession();
     router.replace("/login");
@@ -443,18 +460,34 @@ export default function OperationsPage() {
             <span>{summary?.recent_critical_alerts.length ?? 0}</span>
           </div>
           <div className="asset-list compact-feed">
-            {(summary?.recent_critical_alerts ?? []).map((alert) => (
-              <article className="asset-card" key={alert.id}>
+            {(summary?.recent_critical_alerts ?? []).map((alert) => {
+              const isAcknowledged = Boolean(alert.acknowledged_at);
+              return (
+              <article className={`asset-card alert-event-card ${isAcknowledged ? "is-acknowledged" : ""}`} key={alert.id}>
                 <div className="asset-head">
                   <div>
                     <p className="site-code">{alert.metric}</p>
                     <h3>{alert.summary}</h3>
                     <p className="site-copy">{formatDateTime(alert.created_at)}</p>
+                    {isAcknowledged ? (
+                      <p className="site-copy">Acknowledged {formatDateTime(alert.acknowledged_at as string)} by {alert.acknowledged_by__email ?? "operations"}</p>
+                    ) : null}
                   </div>
-                  <span className={`status-pill status-${alert.severity}`}>{alert.severity}</span>
+                  <div className="alert-event-actions">
+                    <span className={`status-pill status-${alert.severity}`}>{alert.severity}</span>
+                    <button
+                      className="secondary-button compact"
+                      type="button"
+                      disabled={isAcknowledged || acknowledgingAlertId === alert.id}
+                      onClick={() => void handleAcknowledgeAlert(alert.id)}
+                    >
+                      {isAcknowledged ? "Acknowledged" : acknowledgingAlertId === alert.id ? "Saving..." : "Acknowledge"}
+                    </button>
+                  </div>
                 </div>
               </article>
-            ))}
+              );
+            })}
             {summary && summary.recent_critical_alerts.length === 0 ? <p className="empty-state">No critical alerts right now.</p> : null}
           </div>
         </article>
@@ -476,6 +509,7 @@ export default function OperationsPage() {
                   <h3>{rule.name}</h3>
                   <p className="site-copy">{rule.current_value} current / {rule.threshold} threshold | {rule.window_minutes} min window</p>
                   <p className="site-copy">Last triggered: {rule.last_triggered_at ? formatDateTime(rule.last_triggered_at) : "Never"}</p>
+                  <p className="site-copy">Cooldown: {rule.cooldown_remaining_minutes > 0 ? `${rule.cooldown_remaining_minutes} min remaining` : `${rule.cooldown_minutes} min window`}</p>
                 </div>
                 <div className="alert-threshold-controls">
                   <span className={`status-pill status-${breached ? rule.severity : "completed"}`}>{breached ? "breached" : "normal"}</span>

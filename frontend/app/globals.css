@@ -1886,6 +1886,44 @@ textarea::placeholder {
   align-items: end;
 }
 
+.alert-event-card {
+  border-left: 4px solid var(--forest);
+}
+
+.alert-event-card.is-acknowledged {
+  background: var(--surface-soft);
+  opacity: 0.86;
+}
+
+.alert-event-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.secondary-button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--forest);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.secondary-button.compact {
+  min-height: 34px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+
+.secondary-button:disabled {
+  cursor: not-allowed;
+  color: var(--muted);
+  background: var(--surface-soft);
+}
+
 .notification-preference-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: 16px;

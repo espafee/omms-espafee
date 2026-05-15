@@ -63,3 +63,9 @@ The inbox remains intact for existing notifications, while future reads respect 
 OMMS now has a first operational alert threshold layer for detecting risk without manual inspection. The system can evaluate failed imports/exports, suspicious POE spikes, overdue invoices, failed API requests, and slow API requests, then create an audit trail plus an operations inbox notification when a rule breaches.
 
 The Operations dashboard now shows alert thresholds alongside current values and last trigger times. Admins can tune thresholds or pause a rule, while cooldown handling prevents repeated notifications from becoming operational noise.
+
+## Operational Alert Acknowledgement
+
+The alert system now supports the next operational behavior: acknowledgement. Teams can mark a live alert as acknowledged directly from the Operations dashboard, preserving the alert history while making it clear that someone has seen and accepted ownership of the risk.
+
+Cooldown visibility is now part of the alert threshold experience as well. Instead of silently suppressing duplicate alerts, OMMS shows the remaining cooldown window so operations users understand why an alert has not repeated yet. This keeps alerting useful without turning the dashboard into noise.

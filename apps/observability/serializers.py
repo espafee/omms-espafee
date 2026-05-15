@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
@@ -95,11 +96,28 @@ class RoleActivitySerializer(serializers.Serializer):
 class AlertRuleSerializer(serializers.ModelSerializer):
     current_value = serializers.SerializerMethodField()
     last_triggered_at = serializers.SerializerMethodField()
+    cooldown_until = serializers.SerializerMethodField()
+    cooldown_remaining_minutes = serializers.SerializerMethodField()
 
     class Meta:
         model = AlertRule
-        fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = [
+            "id",
+            "name",
+            "metric",
+            "threshold",
+            "window_minutes",
+            "cooldown_minutes",
+            "severity",
+            "is_enabled",
+            "current_value",
+            "last_triggered_at",
+            "cooldown_until",
+            "cooldown_remaining_minutes",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "current_value", "last_triggered_at", "cooldown_until", "cooldown_remaining_minutes", "created_at", "updated_at"]
 
     def get_current_value(self, obj):
         from .services import get_alert_metric_value
@@ -110,11 +128,46 @@ class AlertRuleSerializer(serializers.ModelSerializer):
         latest_event = obj.events.order_by("-created_at").first()
         return latest_event.created_at if latest_event else None
 
+    def get_cooldown_until(self, obj):
+        latest_event = obj.events.order_by("-created_at").first()
+        if not latest_event:
+            return None
+        return latest_event.created_at + timezone.timedelta(minutes=obj.cooldown_minutes)
+
+    def get_cooldown_remaining_minutes(self, obj):
+        cooldown_until = self.get_cooldown_until(obj)
+        if not cooldown_until:
+            return 0
+        remaining = cooldown_until - timezone.now()
+        return max(0, int(remaining.total_seconds() // 60))
+
 
 class AlertEventSerializer(serializers.ModelSerializer):
     rule_name = serializers.CharField(source="rule.name", read_only=True)
+    acknowledged_by_email = serializers.EmailField(source="acknowledged_by.email", read_only=True)
+    is_acknowledged = serializers.SerializerMethodField()
 
     class Meta:
         model = AlertEvent
-        fields = "__all__"
+        fields = [
+            "id",
+            "rule",
+            "rule_name",
+            "metric",
+            "observed_value",
+            "threshold",
+            "severity",
+            "summary",
+            "metadata",
+            "acknowledged_at",
+            "acknowledged_by",
+            "acknowledged_by_email",
+            "is_acknowledged",
+            "resolved_at",
+            "created_at",
+            "updated_at",
+        ]
         read_only_fields = fields
+
+    def get_is_acknowledged(self, obj):
+        return obj.acknowledged_at is not None

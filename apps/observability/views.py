@@ -1,6 +1,8 @@
 from django.http import FileResponse
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.decorators import action
+from rest_framework.exceptions import MethodNotAllowed
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -28,6 +30,7 @@ from .services import (
     export_invoices_csv,
     export_inventory_sites_csv,
     export_poe_reports_csv,
+    record_audit_event,
     validate_inventory_sites_import,
 )
 
@@ -205,7 +208,28 @@ class AlertEventViewSet(ServiceModelViewSet):
     permission_classes = [RoleBasedPermission]
     service_class = AlertEventService
     allowed_roles = OBSERVABILITY_ROLES
-    http_method_names = ["get", "head", "options"]
+    http_method_names = ["get", "post", "head", "options"]
     filterset_fields = ["metric", "severity", "rule"]
     search_fields = ["summary"]
     ordering_fields = ["created_at", "observed_value", "severity"]
+
+    def create(self, request, *args, **kwargs):
+        raise MethodNotAllowed("POST")
+
+    @action(detail=True, methods=["post"], url_path="acknowledge")
+    def acknowledge(self, request, pk=None):
+        event = self.get_object()
+        if event.acknowledged_at is None:
+            event.acknowledged_at = timezone.now()
+            event.acknowledged_by = request.user
+            event.save(update_fields=["acknowledged_at", "acknowledged_by", "updated_at"])
+            record_audit_event(
+                actor=request.user,
+                event_type="alert.acknowledged",
+                entity_type="alert_event",
+                entity_id=event.id,
+                severity=event.severity,
+                summary=f"Alert acknowledged: {event.summary}",
+                metadata={"metric": event.metric, "alert_rule_id": event.rule_id},
+            )
+        return Response(self.get_serializer(event).data)

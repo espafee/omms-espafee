@@ -554,6 +554,82 @@ class ObservabilityFoundationTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_operations_can_acknowledge_alert_event(self):
+        rule = AlertRule.objects.create(
+            name="Failed API threshold",
+            metric=AlertRule.Metric.FAILED_API_REQUESTS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        event = AlertEvent.objects.create(
+            rule=rule,
+            metric=rule.metric,
+            observed_value=2,
+            threshold=1,
+            severity=AlertRule.Severity.WARNING,
+            summary="Failed API threshold: observed 2, threshold 1.",
+        )
+        self.client.force_authenticate(self.operations)
+
+        response = self.client.post(reverse("observability-alert-events-acknowledge", args=[event.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        event.refresh_from_db()
+        self.assertEqual(event.acknowledged_by, self.operations)
+        self.assertIsNotNone(event.acknowledged_at)
+        self.assertTrue(response.data["is_acknowledged"])
+        self.assertEqual(response.data["acknowledged_by_email"], self.operations.email)
+        self.assertTrue(AuditEvent.objects.filter(event_type="alert.acknowledged", entity_id=str(event.id)).exists())
+
+    def test_client_cannot_acknowledge_alert_event(self):
+        rule = AlertRule.objects.create(
+            name="Failed API threshold",
+            metric=AlertRule.Metric.FAILED_API_REQUESTS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        event = AlertEvent.objects.create(
+            rule=rule,
+            metric=rule.metric,
+            observed_value=2,
+            threshold=1,
+            severity=AlertRule.Severity.WARNING,
+            summary="Failed API threshold: observed 2, threshold 1.",
+        )
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.post(reverse("observability-alert-events-acknowledge", args=[event.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        event.refresh_from_db()
+        self.assertIsNone(event.acknowledged_at)
+
+    def test_alert_rule_api_exposes_cooldown_visibility(self):
+        rule = AlertRule.objects.create(
+            name="Failed API threshold",
+            metric=AlertRule.Metric.FAILED_API_REQUESTS,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        AlertEvent.objects.create(
+            rule=rule,
+            metric=rule.metric,
+            observed_value=2,
+            threshold=1,
+            severity=AlertRule.Severity.WARNING,
+            summary="Failed API threshold: observed 2, threshold 1.",
+        )
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("observability-alert-rules-detail", args=[rule.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.data["cooldown_until"])
+        self.assertGreaterEqual(response.data["cooldown_remaining_minutes"], 0)
+
     def test_notification_preferences_can_disable_in_app_notification_for_user(self):
         NotificationPreference.objects.create(
             user=self.operations,

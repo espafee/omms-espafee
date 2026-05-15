@@ -186,6 +186,14 @@ class AlertEvent(TimeStampedModel):
     severity = models.CharField(max_length=20, db_index=True)
     summary = models.CharField(max_length=255)
     metadata = models.JSONField(default=dict, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_by = models.ForeignKey(
+        "users.User",
+        related_name="acknowledged_alert_events",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
     resolved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:

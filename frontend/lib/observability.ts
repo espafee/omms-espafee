@@ -47,6 +47,8 @@ export type OperationsSummary = {
     summary: string;
     severity: string;
     created_at: string;
+    acknowledged_at: string | null;
+    acknowledged_by__email?: string | null;
   }>;
   charts: {
     job_activity: Array<{ day: string; imports: number; exports: number; failed: number }>;
@@ -166,7 +168,20 @@ export type AlertRule = {
   is_enabled: boolean;
   current_value: number;
   last_triggered_at: string | null;
+  cooldown_until: string | null;
+  cooldown_remaining_minutes: number;
   updated_at: string;
+};
+
+export type AlertEvent = {
+  id: number;
+  metric: string;
+  summary: string;
+  severity: string;
+  created_at: string;
+  acknowledged_at: string | null;
+  acknowledged_by_email?: string | null;
+  is_acknowledged: boolean;
 };
 
 async function list<T>(path: string) {
@@ -240,5 +255,11 @@ export async function updateAlertRule(id: number, input: Partial<Pick<AlertRule,
   return apiFetch<AlertRule>(`observability/alert-rules/${id}/`, {
     method: "PATCH",
     body: JSON.stringify(input),
+  });
+}
+
+export async function acknowledgeAlertEvent(id: number) {
+  return apiFetch<AlertEvent>(`observability/alert-events/${id}/acknowledge/`, {
+    method: "POST",
   });
 }

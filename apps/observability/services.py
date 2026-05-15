@@ -568,7 +568,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         ).count(),
         "recent_critical_alerts": list(
             alert_queryset.filter(severity__in=[AlertRule.Severity.CRITICAL, AlertRule.Severity.WARNING])
-            .values("id", "metric", "summary", "severity", "created_at")[:10]
+            .values("id", "metric", "summary", "severity", "created_at", "acknowledged_at", "acknowledged_by__email")[:10]
         ),
         "charts": {
             "job_activity": list(job_activity),
