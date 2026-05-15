@@ -791,3 +791,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Dashboard analytics cover import/export activity, failed and slow request trends, POE status/reviewer workload, billing and payment activity, notification volume, audit activity, and operational load distribution.
 - The unified timeline merges audit events, import/export jobs, and POE review signals with module/status badges, actor labels, and timestamps.
 - System health summarizes Celery mode, broker configuration, active/failed jobs, API failure rate, retry backlog, and the last successful import/export without requiring Render shell access.
+
+## Notification Preferences UI
+
+- Notification preferences now cover the operational categories needed by current SaaS workflows: import completed/failed, export completed/failed, POE suspicious/rejected/approved, invoice/payment, system diagnostics, and campaign alerts.
+- The preferences API returns grouped event metadata so the frontend can render category labels and short descriptions without hard-coding display-only business meaning.
+- `/notifications` now includes a compact grouped preferences panel with Inbox and Email toggles per category, save success/error feedback, and no change to existing inbox history.
+- In-app preferences now filter role-based inbox notifications for the current user, so muted operations categories do not continue appearing through shared role notifications.
+- Preference list reads default to the current user; privileged users can still query another user explicitly through the existing `user` filter.

@@ -26,6 +26,8 @@ export type NotificationPreference = {
 export type NotificationEventType = {
   value: string;
   label: string;
+  category: string;
+  description: string;
 };
 
 async function list<T>(path: string) {

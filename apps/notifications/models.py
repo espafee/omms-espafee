@@ -18,7 +18,12 @@ class EmailNotificationLog(TimeStampedModel):
         ISSUE_ESCALATED = "issue_escalated", "Issue Escalated"
         ALERT_TRIGGERED = "alert_triggered", "Alert Triggered"
         INVENTORY_IMPORT_COMPLETED = "inventory_import_completed", "Inventory Import Completed"
+        INVENTORY_IMPORT_FAILED = "inventory_import_failed", "Inventory Import Failed"
         EXPORT_COMPLETED = "export_completed", "Export Completed"
+        EXPORT_FAILED = "export_failed", "Export Failed"
+        POE_APPROVED = "poe_approved", "POE Approved"
+        POE_REJECTED = "poe_rejected", "POE Rejected"
+        SYSTEM_DIAGNOSTIC_ALERT = "system_diagnostic_alert", "System Diagnostic Alert"
 
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"

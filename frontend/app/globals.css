@@ -1854,6 +1854,57 @@ textarea::placeholder {
   background: var(--danger);
 }
 
+.notification-preference-grid,
+.notification-preference-list {
+  display: grid;
+  gap: 12px;
+}
+
+.notification-preference-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 16px;
+}
+
+.notification-preference-group {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.notification-preference-group h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.notification-preference-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, auto);
+  gap: 12px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+}
+
+.notification-preference-card h4 {
+  margin: 4px 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.notification-toggle-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.compact-message {
+  margin-top: 12px;
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;
@@ -2473,7 +2524,8 @@ textarea::placeholder {
   .import-workbench,
   .import-summary-grid,
   .export-control-panel,
-  .ops-health-grid {
+  .ops-health-grid,
+  .notification-preference-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -2534,7 +2586,10 @@ textarea::placeholder {
   .export-control-panel,
   .export-job-row,
   .ops-health-grid,
-  .ops-timeline-row {
+  .ops-timeline-row,
+  .notification-preference-grid,
+  .notification-preference-card,
+  .notification-toggle-row {
     grid-template-columns: 1fr;
   }
 

@@ -12,6 +12,24 @@ from core.repositories import BaseRepository
 from .models import EmailNotificationLog, Notification, NotificationPreference
 from .serializers import EmailNotificationLogSerializer, NotificationPreferenceSerializer, NotificationSerializer
 
+NOTIFICATION_EVENT_METADATA = {
+    EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED: ("Imports", "Inventory import completed successfully."),
+    EmailNotificationLog.NotificationType.INVENTORY_IMPORT_FAILED: ("Imports", "Inventory import failed or needs intervention."),
+    EmailNotificationLog.NotificationType.EXPORT_COMPLETED: ("Exports", "Operational export completed and is ready to download."),
+    EmailNotificationLog.NotificationType.EXPORT_FAILED: ("Exports", "Operational export failed or needs intervention."),
+    EmailNotificationLog.NotificationType.SUSPICIOUS_POE: ("POE review", "POE was flagged as suspicious."),
+    EmailNotificationLog.NotificationType.POE_REJECTED: ("POE review", "POE was rejected during review."),
+    EmailNotificationLog.NotificationType.POE_APPROVED: ("POE review", "POE was approved during review."),
+    EmailNotificationLog.NotificationType.INVOICE_ISSUED: ("Billing", "Invoice was issued."),
+    EmailNotificationLog.NotificationType.PAYMENT_RECORDED: ("Billing", "Payment was recorded."),
+    EmailNotificationLog.NotificationType.ALERT_TRIGGERED: ("System", "Operational alert threshold was triggered."),
+    EmailNotificationLog.NotificationType.SYSTEM_DIAGNOSTIC_ALERT: ("System", "System diagnostic health alert was raised."),
+    EmailNotificationLog.NotificationType.CAMPAIGN_BOOKED: ("Campaigns", "Campaign booking or campaign activity alert."),
+    EmailNotificationLog.NotificationType.POE_UPLOADED: ("POE review", "New proof media was uploaded."),
+    EmailNotificationLog.NotificationType.ISSUE_REPORTED: ("System", "Field issue was reported."),
+    EmailNotificationLog.NotificationType.ISSUE_ESCALATED: ("System", "Field issue was escalated."),
+}
+
 
 class EmailNotificationLogRepository(BaseRepository):
     model = EmailNotificationLog
@@ -35,9 +53,15 @@ class NotificationRepository(BaseRepository):
     def scope_queryset(self, queryset, user=None):
         if not user:
             return queryset.none()
+        muted_event_types = NotificationPreference.objects.filter(
+            user=user,
+            in_app_enabled=False,
+        ).values_list("notification_type", flat=True)
         if getattr(user, "is_superuser", False) or getattr(user, "role", None) in {ADMIN, FINANCE, OPERATIONS}:
-            return queryset.filter(Q(recipient=user) | Q(recipient__isnull=True, recipient_role__in=["", getattr(user, "role", "")]))
-        return queryset.filter(recipient=user)
+            queryset = queryset.filter(Q(recipient=user) | Q(recipient__isnull=True, recipient_role__in=["", getattr(user, "role", "")]))
+        else:
+            queryset = queryset.filter(recipient=user)
+        return queryset.exclude(event_type__in=muted_event_types)
 
 
 class EmailNotificationLogService(BaseService):
@@ -92,12 +116,23 @@ class NotificationPreferenceViewSet(ServiceModelViewSet):
     filterset_fields = ["user", "notification_type", "in_app_enabled", "email_enabled"]
     ordering_fields = ["notification_type", "updated_at"]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if "user" not in self.request.query_params:
+            queryset = queryset.filter(user=self.request.user)
+        return queryset
+
     @action(detail=False, methods=["get"], url_path="event-types")
     def event_types(self, request):
         return Response(
             {
                 "event_types": [
-                    {"value": value, "label": label}
+                    {
+                        "value": value,
+                        "label": label,
+                        "category": NOTIFICATION_EVENT_METADATA.get(value, ("Other", ""))[0],
+                        "description": NOTIFICATION_EVENT_METADATA.get(value, ("Other", ""))[1],
+                    }
                     for value, label in EmailNotificationLog.NotificationType.choices
                 ]
             }

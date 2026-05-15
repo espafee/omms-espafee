@@ -22,6 +22,8 @@ type StoredUser = {
   role?: string;
 };
 
+const CATEGORY_ORDER = ["Imports", "Exports", "POE review", "Billing", "System", "Campaigns", "Other"];
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
@@ -39,6 +41,9 @@ export default function NotificationsPage() {
   const [eventTypes, setEventTypes] = useState<NotificationEventType[]>([]);
   const [filter, setFilter] = useState({ severity: "", unreadOnly: false });
   const [error, setError] = useState("");
+  const [preferenceMessage, setPreferenceMessage] = useState("");
+  const [preferenceError, setPreferenceError] = useState("");
+  const [savingPreference, setSavingPreference] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -93,6 +98,19 @@ export default function NotificationsPage() {
     [filter, items],
   );
 
+  const preferenceGroups = useMemo(() => {
+    const grouped = eventTypes.reduce<Record<string, NotificationEventType[]>>((groups, eventType) => {
+      const category = eventType.category || "Other";
+      groups[category] = [...(groups[category] ?? []), eventType];
+      return groups;
+    }, {});
+    return Object.entries(grouped).sort(([left], [right]) => {
+      const leftIndex = CATEGORY_ORDER.indexOf(left);
+      const rightIndex = CATEGORY_ORDER.indexOf(right);
+      return (leftIndex === -1 ? CATEGORY_ORDER.length : leftIndex) - (rightIndex === -1 ? CATEGORY_ORDER.length : rightIndex);
+    });
+  }, [eventTypes]);
+
   async function handleMarkRead(id: number) {
     const updated = await markNotificationRead(id);
     setItems((current) => current.map((item) => (item.id === id ? updated : item)));
@@ -102,17 +120,30 @@ export default function NotificationsPage() {
     if (!user?.id) {
       return;
     }
+    setPreferenceMessage("");
+    setPreferenceError("");
+    setSavingPreference(`${eventType}-${field}`);
     const existing = preferences.find((item) => item.notification_type === eventType);
-    const updated = await saveNotificationPreference({
-      user: user.id,
-      notification_type: eventType,
-      in_app_enabled: field === "in_app_enabled" ? enabled : existing?.in_app_enabled ?? true,
-      email_enabled: field === "email_enabled" ? enabled : existing?.email_enabled ?? true,
-    });
-    setPreferences((current) => {
-      const others = current.filter((item) => item.notification_type !== eventType);
-      return [...others, updated].sort((a, b) => a.notification_type.localeCompare(b.notification_type));
-    });
+    try {
+      const updated = await saveNotificationPreference({
+        user: user.id,
+        notification_type: eventType,
+        in_app_enabled: field === "in_app_enabled" ? enabled : existing?.in_app_enabled ?? true,
+        email_enabled: field === "email_enabled" ? enabled : existing?.email_enabled ?? true,
+      });
+      setPreferences((current) => {
+        const others = current.filter((item) => item.notification_type !== eventType);
+        return [...others, updated].sort((a, b) => a.notification_type.localeCompare(b.notification_type));
+      });
+      if (field === "in_app_enabled") {
+        setItems(await fetchNotifications());
+      }
+      setPreferenceMessage("Notification preference saved.");
+    } catch (saveError) {
+      setPreferenceError(saveError instanceof Error ? saveError.message : "Unable to save notification preference.");
+    } finally {
+      setSavingPreference("");
+    }
   }
 
   function handleLogout() {
@@ -159,42 +190,64 @@ export default function NotificationsPage() {
       <section className="module-card">
         <div className="module-head">
           <h2>Preferences</h2>
-          <span>In-app now, email ready</span>
+          <span>{preferences.length} saved</span>
         </div>
-        <div className="inventory-table-wrap">
-          <table className="inventory-table">
-            <thead>
-              <tr>
-                <th>Event type</th>
-                <th>In-app</th>
-                <th>Email</th>
-              </tr>
-            </thead>
-            <tbody>
-              {eventTypes.map((eventType) => {
-                const preference = preferences.find((item) => item.notification_type === eventType.value);
-                return (
-                  <tr key={eventType.value}>
-                    <td>{eventType.label}</td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={preference?.in_app_enabled ?? true}
-                        onChange={(event) => void handlePreferenceToggle(eventType.value, "in_app_enabled", event.target.checked)}
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={preference?.email_enabled ?? true}
-                        onChange={(event) => void handlePreferenceToggle(eventType.value, "email_enabled", event.target.checked)}
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <p className="section-copy">Choose which operational events should appear in your inbox or be sent by email. Existing inbox history is preserved.</p>
+        {preferenceMessage ? <p className="success compact-message">{preferenceMessage}</p> : null}
+        {preferenceError ? <p className="error compact-message">{preferenceError}</p> : null}
+        <div className="notification-preference-grid">
+          {preferenceGroups.map(([category, categoryEvents]) => (
+            <article className="notification-preference-group" key={category}>
+              <div className="module-head">
+                <h3>{category}</h3>
+                <span>{categoryEvents.length} categories</span>
+              </div>
+              <div className="notification-preference-list">
+                {categoryEvents.map((eventType) => {
+                  const preference = preferences.find((item) => item.notification_type === eventType.value);
+                  const isSavingInApp = savingPreference === `${eventType.value}-in_app_enabled`;
+                  const isSavingEmail = savingPreference === `${eventType.value}-email_enabled`;
+                  return (
+                    <div className="notification-preference-card" key={eventType.value}>
+                      <div>
+                        <p className="site-code">{eventType.value.replaceAll("_", " ")}</p>
+                        <h4>{eventType.label}</h4>
+                        <p className="site-copy">{eventType.description || "Operational notification category."}</p>
+                      </div>
+                      <div className="notification-toggle-row">
+                        <label className="filter-toggle">
+                          <input
+                            type="checkbox"
+                            checked={preference?.in_app_enabled ?? true}
+                            disabled={Boolean(savingPreference)}
+                            onChange={(event) => void handlePreferenceToggle(eventType.value, "in_app_enabled", event.target.checked)}
+                          />
+                          <span className="filter-toggle-control" />
+                          <span className="filter-toggle-copy">
+                            <strong>Inbox</strong>
+                            <small>{isSavingInApp ? "Saving..." : (preference?.in_app_enabled ?? true) ? "On" : "Off"}</small>
+                          </span>
+                        </label>
+                        <label className="filter-toggle">
+                          <input
+                            type="checkbox"
+                            checked={preference?.email_enabled ?? true}
+                            disabled={Boolean(savingPreference)}
+                            onChange={(event) => void handlePreferenceToggle(eventType.value, "email_enabled", event.target.checked)}
+                          />
+                          <span className="filter-toggle-control" />
+                          <span className="filter-toggle-copy">
+                            <strong>Email</strong>
+                            <small>{isSavingEmail ? "Saving..." : (preference?.email_enabled ?? true) ? "On" : "Off"}</small>
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </article>
+          ))}
         </div>
       </section>
       <section className="module-card">

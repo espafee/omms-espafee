@@ -51,3 +51,9 @@ This keeps exports safer for larger operational datasets: jobs are company-scope
 The Operations page has moved from a task bench into a first-pass operational intelligence dashboard. Admin and operations users now get compact KPIs, filtered charts, a unified activity timeline, and lightweight system health signals in the same place they manage imports and exports.
 
 This phase focuses on visibility without risky data movement: analytics are aggregated server-side, scoped by company and role-aware filters where supported, and designed for quick operational decisions around jobs, request failures, POE review load, billing movement, notifications, and Celery-backed background activity.
+
+## Notification Preferences UI
+
+OMMS users can now tune operational notifications from the Notification Center. The preference panel groups alerts into practical SaaS categories such as imports, exports, POE review, billing, system diagnostics, and campaigns, with separate controls for inbox and email delivery.
+
+The inbox remains intact for existing notifications, while future reads respect each user's muted in-app categories, including shared operations-role notifications. This gives teams more control over operational noise without weakening auditability or the notification infrastructure already used by imports, exports, billing, POE, and diagnostics.

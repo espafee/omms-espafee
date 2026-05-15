@@ -5,13 +5,16 @@ from unittest.mock import patch
 
 from django.core import mail
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.urls import reverse
 from django.test import TestCase, override_settings
 from PIL import Image
+from rest_framework import status
+from rest_framework.test import APIClient
 
 from apps.bookings.models import Booking
 from apps.bookings.services import BookingService
 from apps.campaigns.models import Campaign
-from apps.notifications.models import EmailNotificationLog
+from apps.notifications.models import EmailNotificationLog, Notification, NotificationPreference
 from apps.notifications.services import NotificationService
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import ProofOfExecutionMediaService
@@ -210,3 +213,88 @@ class EmailNotificationTests(TestCase):
             EmailNotificationLog.objects.filter(notification_type=EmailNotificationLog.NotificationType.POE_UPLOADED).count(),
             1,
         )
+
+
+class NotificationPreferenceApiTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.admin = User.objects.create_user(email="admin-pref@example.com", username="admin-pref", password="x", role=User.Role.ADMIN)
+        self.operations = User.objects.create_user(email="ops-pref@example.com", username="ops-pref", password="x", role=User.Role.OPERATIONS)
+        self.client_user = User.objects.create_user(email="client-pref@example.com", username="client-pref", password="x", role=User.Role.CLIENT)
+
+    def test_user_can_save_and_read_own_notification_preference(self):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("notification-preferences-list"),
+            {
+                "user": self.operations.id,
+                "notification_type": EmailNotificationLog.NotificationType.EXPORT_COMPLETED,
+                "in_app_enabled": False,
+                "email_enabled": True,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.data["in_app_enabled"])
+
+        list_response = self.client.get(reverse("notification-preferences-list"))
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(list_response.data["results"]), 1)
+        self.assertEqual(list_response.data["results"][0]["user"], self.operations.id)
+
+    def test_non_admin_cannot_create_preference_for_another_user(self):
+        self.client.force_authenticate(user=self.client_user)
+
+        response = self.client.post(
+            reverse("notification-preferences-list"),
+            {
+                "user": self.operations.id,
+                "notification_type": EmailNotificationLog.NotificationType.INVOICE_ISSUED,
+                "in_app_enabled": False,
+                "email_enabled": False,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        preference = NotificationPreference.objects.get(notification_type=EmailNotificationLog.NotificationType.INVOICE_ISSUED)
+        self.assertEqual(preference.user, self.client_user)
+
+    def test_muted_in_app_preference_filters_role_notifications_from_inbox(self):
+        NotificationPreference.objects.create(
+            user=self.operations,
+            notification_type=EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED,
+            in_app_enabled=False,
+            email_enabled=True,
+        )
+        Notification.objects.create(
+            recipient_role=User.Role.OPERATIONS,
+            event_type=EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED,
+            title="Inventory import completed",
+        )
+        Notification.objects.create(
+            recipient_role=User.Role.OPERATIONS,
+            event_type=EmailNotificationLog.NotificationType.EXPORT_COMPLETED,
+            title="Export completed",
+        )
+
+        self.client.force_authenticate(user=self.operations)
+        response = self.client.get(reverse("notifications-inbox-list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        titles = [item["title"] for item in response.data["results"]]
+        self.assertNotIn("Inventory import completed", titles)
+        self.assertIn("Export completed", titles)
+
+    def test_event_types_include_group_metadata_for_preferences_ui(self):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.get(reverse("notification-preferences-event-types"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        export_failed = next(item for item in response.data["event_types"] if item["value"] == EmailNotificationLog.NotificationType.EXPORT_FAILED)
+        self.assertEqual(export_failed["category"], "Exports")
+        self.assertTrue(export_failed["description"])
