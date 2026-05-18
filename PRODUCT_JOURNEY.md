@@ -69,3 +69,9 @@ The Operations dashboard now shows alert thresholds alongside current values and
 The alert system now supports the next operational behavior: acknowledgement. Teams can mark a live alert as acknowledged directly from the Operations dashboard, preserving the alert history while making it clear that someone has seen and accepted ownership of the risk.
 
 Cooldown visibility is now part of the alert threshold experience as well. Instead of silently suppressing duplicate alerts, OMMS shows the remaining cooldown window so operations users understand why an alert has not repeated yet. This keeps alerting useful without turning the dashboard into noise.
+
+## Operational Auto-Refresh And Live Activity
+
+The Operations dashboard now behaves more like an active command surface. It quietly refreshes core operational signals in the background, keeps alert and timeline state current, and updates import/export progress without requiring manual reloads.
+
+The live layer is intentionally calm: a compact `Live` indicator, last-updated text, and subtle activity pulse communicate freshness without turning OMMS into a noisy wallboard. Browser tabs pause refresh when hidden, and running jobs use a focused refresh cadence so operators can watch progress while the system avoids unnecessary request load.

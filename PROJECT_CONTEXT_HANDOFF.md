@@ -815,3 +815,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Alert rule API responses now include cooldown visibility (`cooldown_until` and `cooldown_remaining_minutes`) so operators can understand when the next notification for that condition can fire.
 - The Operations dashboard now shows acknowledgement state, acknowledgement actor/time, compact severity actions, and cooldown remaining text inside the alert sections.
 - Mobile parity review: current mobile admin alerts are synthetic field-operation alerts, not persisted `AlertEvent` records. No mobile API contract was changed in this milestone; mobile already uses matching warning/danger alert severity visuals from the OMMS mobile theme.
+
+## Operational Auto-Refresh And Live Activity Layer
+
+- `/operations` now runs a calm live-refresh loop for operational summary, alerts, timeline, audit events, export jobs, notification counters, and dashboard health.
+- The default dashboard refresh interval is 45 seconds, with request de-duplication and automatic pause while the browser tab is hidden.
+- Active import/export jobs still refresh more frequently while queued or processing, now at a less aggressive 5-second interval.
+- A compact live strip shows `Live`/`Paused`, last updated relative time, active job count, export queue count, and a subtle refresh pulse without reloading the page.
+- The import/export workbench now includes an active background job monitor for import queue, export queue, and last completed export.
+- Mobile parity: the mobile admin operations dashboard now has a lightweight 60-second refresh loop while the app is active. Field assigned-work remains manual refresh to avoid unnecessary battery/network usage for field staff.

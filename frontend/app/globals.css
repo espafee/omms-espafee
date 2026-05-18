@@ -1640,6 +1640,7 @@ textarea::placeholder {
 .import-review-panel,
 .import-upload-panel,
 .import-issue-list,
+.ops-active-job-grid,
 .export-control-panel,
 .export-job-list {
   display: grid;
@@ -1750,6 +1751,110 @@ textarea::placeholder {
   align-items: center;
   gap: 10px;
   white-space: nowrap;
+}
+
+.ops-live-strip {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid rgba(6, 78, 59, 0.14);
+  border-radius: 8px;
+  background: linear-gradient(180deg, #ffffff 0%, #f7fbf8 100%);
+  box-shadow: var(--shadow-sm);
+}
+
+.ops-live-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ops-live-status div {
+  display: grid;
+  gap: 2px;
+}
+
+.ops-live-status strong {
+  color: var(--forest);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ops-live-status span,
+.ops-live-meta span,
+.ops-active-job-grid span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ops-live-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--forest);
+  box-shadow: 0 0 0 5px rgba(6, 78, 59, 0.09);
+}
+
+.ops-live-dot.is-refreshing {
+  animation: ops-live-pulse 1.2s ease-in-out infinite;
+}
+
+.ops-live-dot.is-paused {
+  background: var(--muted);
+  box-shadow: 0 0 0 5px rgba(71, 85, 105, 0.08);
+}
+
+.ops-live-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ops-live-meta span {
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+}
+
+.ops-active-job-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 14px;
+}
+
+.ops-active-job-grid article {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.ops-active-job-grid strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes ops-live-pulse {
+  0% {
+    box-shadow: 0 0 0 4px rgba(6, 78, 59, 0.08);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(6, 78, 59, 0.14);
+  }
+  100% {
+    box-shadow: 0 0 0 4px rgba(6, 78, 59, 0.08);
+  }
 }
 
 .ops-kpi-card {
@@ -2588,6 +2693,7 @@ textarea::placeholder {
   .import-workbench,
   .import-summary-grid,
   .export-control-panel,
+  .ops-active-job-grid,
   .ops-health-grid,
   .notification-preference-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2647,10 +2753,11 @@ textarea::placeholder {
 
   .import-workbench,
   .import-summary-grid,
-  .export-control-panel,
-  .export-job-row,
-  .ops-health-grid,
-  .ops-timeline-row,
+    .export-control-panel,
+    .export-job-row,
+    .ops-active-job-grid,
+    .ops-health-grid,
+    .ops-timeline-row,
   .notification-preference-grid,
   .notification-preference-card,
   .notification-toggle-row,
@@ -2662,6 +2769,15 @@ textarea::placeholder {
   .export-job-actions {
     justify-content: space-between;
     white-space: normal;
+  }
+
+  .ops-live-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ops-live-meta {
+    justify-content: flex-start;
   }
 
   .import-confirm-strip {

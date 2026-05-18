@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type ChangeEvent, useEffect, useState } from "react";
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -48,6 +48,12 @@ const INITIAL_FILTERS = {
   event_type: "",
 };
 
+type OperationsFilters = typeof INITIAL_FILTERS;
+
+const DASHBOARD_REFRESH_MS = 45_000;
+const ACTIVE_JOB_REFRESH_MS = 5_000;
+const LIVE_TICK_MS = 10_000;
+
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
@@ -55,6 +61,20 @@ function formatDateTime(value: string) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function formatRelativeRefresh(value: Date | null, now: number) {
+  if (!value) {
+    return "Waiting for first update";
+  }
+  const seconds = Math.max(0, Math.floor((now - value.getTime()) / 1000));
+  if (seconds < 5) {
+    return "Updated just now";
+  }
+  if (seconds < 60) {
+    return `Updated ${seconds}s ago`;
+  }
+  return `Updated ${Math.floor(seconds / 60)}m ago`;
 }
 
 function SimpleBar({ label, value, max }: { label: string; value: number; max: number }) {
@@ -105,6 +125,7 @@ function formatMetricLabel(value: string) {
 
 export default function OperationsPage() {
   const router = useRouter();
+  const loadInFlightRef = useRef(false);
   const [user, setUser] = useState<StoredUser | null>(null);
   const [summary, setSummary] = useState<OperationsSummary | null>(null);
   const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(null);
@@ -124,36 +145,60 @@ export default function OperationsPage() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isLiveRefreshing, setIsLiveRefreshing] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
+  const [liveTick, setLiveTick] = useState(() => Date.now());
+  const [isTabVisible, setIsTabVisible] = useState(true);
 
-  async function load(nextFilters = filters) {
-    setIsLoading(true);
-    setError("");
-    try {
-      const profile = await fetchCurrentUser();
-      setUser(profile);
-      const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
-        fetchOperationsSummary(nextFilters),
-        fetchAuditEvents({ severity: nextFilters.severity, event_type: nextFilters.event_type }),
-        fetchExportJobs(),
-        fetchAlertRules(),
-      ]);
-      setSummary(summaryPayload);
-      setAuditEvents(auditPayload);
-      setExportJobs(exportPayload);
-      setAlertRules(alertRulePayload);
-      if (profile.role === "admin") {
-        setDiagnostics(await fetchDiagnostics());
+  const load = useCallback(
+    async (nextFilters: OperationsFilters, options: { silent?: boolean } = {}) => {
+      if (loadInFlightRef.current) {
+        return;
       }
-    } catch (loadError) {
-      const nextMessage = loadError instanceof Error ? loadError.message : "Unable to load operations intelligence.";
-      setError(nextMessage);
-      if (nextMessage.includes("sign in again")) {
-        router.replace("/login");
+      loadInFlightRef.current = true;
+      if (options.silent) {
+        setIsLiveRefreshing(true);
+      } else {
+        setIsLoading(true);
       }
-    } finally {
-      setIsLoading(false);
-    }
-  }
+      setError("");
+      try {
+        const profile = await fetchCurrentUser();
+        setUser(profile);
+        const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
+          fetchOperationsSummary(nextFilters),
+          fetchAuditEvents({ severity: nextFilters.severity, event_type: nextFilters.event_type }),
+          fetchExportJobs(),
+          fetchAlertRules(),
+        ]);
+        setSummary(summaryPayload);
+        setAuditEvents(auditPayload);
+        setExportJobs(exportPayload);
+        setAlertRules(alertRulePayload);
+        if (profile.role === "admin") {
+          setDiagnostics(await fetchDiagnostics());
+        } else {
+          setDiagnostics(null);
+        }
+        const now = new Date();
+        setLastUpdatedAt(now);
+        setLiveTick(now.getTime());
+      } catch (loadError) {
+        const nextMessage = loadError instanceof Error ? loadError.message : "Unable to load operations intelligence.";
+        if (!options.silent) {
+          setError(nextMessage);
+        }
+        if (nextMessage.includes("sign in again")) {
+          router.replace("/login");
+        }
+      } finally {
+        loadInFlightRef.current = false;
+        setIsLoading(false);
+        setIsLiveRefreshing(false);
+      }
+    },
+    [router],
+  );
 
   useEffect(() => {
     if (!getAccessToken()) {
@@ -164,38 +209,8 @@ export default function OperationsPage() {
     if (storedUser) {
       setUser(storedUser);
     }
-    async function loadInitial() {
-      setIsLoading(true);
-      setError("");
-      try {
-        const profile = await fetchCurrentUser();
-        setUser(profile);
-        const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
-          fetchOperationsSummary(INITIAL_FILTERS),
-          fetchAuditEvents({ severity: "", event_type: "" }),
-          fetchExportJobs(),
-          fetchAlertRules(),
-        ]);
-        setSummary(summaryPayload);
-        setAuditEvents(auditPayload);
-        setExportJobs(exportPayload);
-        setAlertRules(alertRulePayload);
-        if (profile.role === "admin") {
-          setDiagnostics(await fetchDiagnostics());
-        }
-      } catch (loadError) {
-        const nextMessage = loadError instanceof Error ? loadError.message : "Unable to load operations intelligence.";
-        setError(nextMessage);
-        if (nextMessage.includes("sign in again")) {
-          router.replace("/login");
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    void loadInitial();
-  }, [router]);
+    void load(INITIAL_FILTERS);
+  }, [load, router]);
 
   const importSummary = importJob?.filters.summary ?? {};
   const importWarnings = importJob?.filters.warnings ?? [];
@@ -203,6 +218,9 @@ export default function OperationsPage() {
   const importCanStart = importJob?.status === "previewed" && importRowsReady;
   const importIsActive = importJob?.status === "confirmed" || importJob?.status === "processing";
   const exportIsActive = exportJobs.some((job) => job.status === "confirmed" || job.status === "processing");
+  const activeExportJobs = exportJobs.filter((job) => job.status === "confirmed" || job.status === "processing");
+  const latestCompletedExport = exportJobs.find((job) => job.status === "completed");
+  const liveStatusLabel = isTabVisible ? "Live" : "Paused";
 
   useEffect(() => {
     if (!importJob || !importIsActive) {
@@ -214,7 +232,7 @@ export default function OperationsPage() {
       } catch {
         window.clearInterval(timer);
       }
-    }, 3000);
+    }, ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [importIsActive, importJob]);
 
@@ -230,9 +248,33 @@ export default function OperationsPage() {
       } catch {
         window.clearInterval(timer);
       }
-    }, 3000);
+    }, ACTIVE_JOB_REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [exportIsActive]);
+
+  useEffect(() => {
+    const tick = window.setInterval(() => setLiveTick(Date.now()), LIVE_TICK_MS);
+    return () => window.clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      setIsTabVisible(document.visibilityState === "visible");
+    }
+    handleVisibilityChange();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (!getAccessToken() || !isTabVisible) {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void load(filters, { silent: true });
+    }, DASHBOARD_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [filters, isTabVisible, load]);
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -349,6 +391,21 @@ export default function OperationsPage() {
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}
       {message ? <p className="success">{message}</p> : null}
+
+      <section className="ops-live-strip" aria-label="Live operations refresh status">
+        <div className="ops-live-status">
+          <span className={`ops-live-dot ${isLiveRefreshing ? "is-refreshing" : ""} ${isTabVisible ? "" : "is-paused"}`} aria-hidden="true" />
+          <div>
+            <strong>{liveStatusLabel}</strong>
+            <span>{formatRelativeRefresh(lastUpdatedAt, liveTick)} · refreshes every {DASHBOARD_REFRESH_MS / 1000}s</span>
+          </div>
+        </div>
+        <div className="ops-live-meta">
+          <span>{summary?.system_health.active_jobs ?? 0} active job(s)</span>
+          <span>{activeExportJobs.length} export running/queued</span>
+          {isLiveRefreshing ? <span>Refreshing...</span> : null}
+        </div>
+      </section>
 
       <section className="module-card">
         <div className="module-head">
@@ -560,6 +617,23 @@ export default function OperationsPage() {
         <div className="module-head">
           <h2>Import / export workbench</h2>
           <span>Staged CSV / Excel</span>
+        </div>
+        <div className="ops-active-job-grid" aria-label="Active background job monitoring">
+          <article>
+            <p className="stat-label">Import queue</p>
+            <strong>{importIsActive ? importJob?.status.replaceAll("_", " ") : "No active import"}</strong>
+            <span>{importJob ? `Job #${importJob.id} · ${importJob.progress_percent}%` : "Upload a file to stage an import"}</span>
+          </article>
+          <article>
+            <p className="stat-label">Export queue</p>
+            <strong>{activeExportJobs.length} active</strong>
+            <span>{activeExportJobs[0] ? `Job #${activeExportJobs[0].id} · ${activeExportJobs[0].progress_percent}%` : "No queued export jobs"}</span>
+          </article>
+          <article>
+            <p className="stat-label">Last completed export</p>
+            <strong>{latestCompletedExport ? latestCompletedExport.resource_type.replaceAll("_", " ") : "-"}</strong>
+            <span>{latestCompletedExport ? formatDateTime(latestCompletedExport.updated_at) : "No completed export in recent history"}</span>
+          </article>
         </div>
         <div className="import-workbench">
           <div className="import-upload-panel">
