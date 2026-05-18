@@ -852,3 +852,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The existing `overdue_invoices` alert metric now uses effective due-date/balance calculations instead of relying only on stored invoice status, and overdue alerts notify admin and finance role inboxes in addition to the operational alert trail.
 - `/operations` adds overdue invoice/value KPIs, collection efficiency, overdue age buckets, payment trend, and top overdue clients. `/billing` adds escalation badges and payment-risk hints to invoice rows.
 - Mobile parity: mobile admin overview receives high-level overdue invoice count, overdue value, and collection efficiency KPI cards. Field staff mobile screens remain finance-free.
+
+## Campaign Performance Analytics Foundation
+
+- Campaign analytics now calculate active campaigns, campaigns ending soon, booked site count, approved/missing POE sites, POE completion percentage, suspicious POE count, billing status, payment collection status, and campaign risk classification.
+- Risk classification is analytics-only and does not mutate campaign lifecycle status. Computed values are `on_track`, `needs_attention`, `poe_risk`, `billing_risk`, and `critical`.
+- Billing-sensitive campaign fields are hidden for non-admin/non-finance users while operational POE risk remains visible to operations roles.
+- Operations summary now includes campaign ending-soon, POE risk, billing risk, risk distribution, and a compact campaign performance list.
+- Alert thresholds now include `campaigns_at_risk`; critical campaign risk creates alert/audit records and notifies admin and operations inbox roles with existing cooldown protection.
+- `/campaigns` now shows performance badges/cards for POE completion, missing POE, risk status, billing status, and overdue exposure where permitted.
+- Mobile parity: mobile admin overview receives high-level active campaign, campaigns-at-risk, and campaigns-ending-soon KPIs. Field staff screens remain focused on assigned execution work.

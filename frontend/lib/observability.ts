@@ -63,6 +63,9 @@ export type OperationsSummary = {
     failed_requests: number;
     active_users_today: number;
     campaigns_running: number;
+    campaigns_ending_soon: number;
+    campaigns_poe_risk: number;
+    campaigns_billing_risk: number;
     invoice_collection_rate: number;
     overdue_invoices: number;
     overdue_invoice_value: string;
@@ -79,6 +82,32 @@ export type OperationsSummary = {
     overdue_age_buckets: Array<{ bucket: string; label: string; count: number; amount: string }>;
     top_overdue_clients: Array<{ client: string; count: number; amount: string; oldest_days_overdue: number }>;
     payment_trend: Array<{ day: string; amount: string; payments: number }>;
+  };
+  campaign_performance: {
+    active_campaigns: number;
+    ending_soon_count: number;
+    poe_risk_count: number;
+    billing_risk_count: number;
+    at_risk_count: number;
+    critical_count: number;
+    can_view_billing: boolean;
+    risk_distribution: Array<{ risk: string; total: number }>;
+    campaigns: Array<{
+      campaign_id: number;
+      campaign_name: string;
+      campaign_code: string;
+      risk_status: string;
+      poe_completion_percentage: number;
+      booked_sites_count: number;
+      sites_with_approved_poe: number;
+      sites_missing_poe: number;
+      suspicious_poe_count: number;
+      billing_status: string;
+      payment_collection_status: string;
+      pending_amount: string;
+      overdue_amount: string;
+      is_ending_soon: boolean;
+    }>;
   };
   slow_requests_count: number;
   audit_by_severity: Array<{ severity: string; total: number }>;
@@ -111,6 +140,7 @@ export type OperationsSummary = {
     operations_activity: Array<{ day: string; events: number }>;
     notification_activity: Array<{ day: string; notifications: number }>;
     load_distribution: Array<{ entity_type: string; total: number }>;
+    campaign_risk_distribution: Array<{ risk: string; total: number }>;
   };
   timeline: Array<{
     id: string;

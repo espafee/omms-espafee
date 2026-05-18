@@ -3,6 +3,7 @@ from rest_framework import serializers
 from apps.inventory.serializers import AbsoluteMediaUrlMixin
 
 from .models import Campaign, CampaignAccessToken, CampaignAsset
+from .services import build_campaign_performance_analytics
 
 
 class CampaignSummarySerializer(serializers.Serializer):
@@ -15,6 +16,10 @@ class CampaignSummarySerializer(serializers.Serializer):
     total_bookings = serializers.IntegerField()
     live_bookings = serializers.IntegerField()
     approved_assets = serializers.IntegerField()
+    ending_soon_count = serializers.IntegerField()
+    campaigns_at_risk = serializers.IntegerField()
+    campaigns_poe_risk = serializers.IntegerField()
+    campaigns_billing_risk = serializers.IntegerField()
 
 
 class CampaignAssetSerializer(serializers.ModelSerializer):
@@ -26,11 +31,17 @@ class CampaignAssetSerializer(serializers.ModelSerializer):
 
 class CampaignSerializer(serializers.ModelSerializer):
     assets = CampaignAssetSerializer(many=True, read_only=True)
+    performance = serializers.SerializerMethodField()
 
     class Meta:
         model = Campaign
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def get_performance(self, obj):
+        user = self.context.get("request").user if self.context.get("request") else None
+        payload = build_campaign_performance_analytics(user=user, queryset=Campaign.objects.filter(id=obj.id))
+        return payload["campaigns"][0] if payload["campaigns"] else None
 
 
 class CampaignAccessTokenSerializer(serializers.ModelSerializer):

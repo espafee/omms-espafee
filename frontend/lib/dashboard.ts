@@ -10,6 +10,10 @@ export type CampaignSummary = {
   total_bookings: number;
   live_bookings: number;
   approved_assets: number;
+  ending_soon_count: number;
+  campaigns_at_risk: number;
+  campaigns_poe_risk: number;
+  campaigns_billing_risk: number;
 };
 
 export type BookingSummary = {

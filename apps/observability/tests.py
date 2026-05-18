@@ -18,6 +18,7 @@ from apps.notifications.models import EmailNotificationLog, Notification, Notifi
 from apps.notifications.services import NotificationService
 from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 from apps.observability.services import (
+    build_campaign_performance_analytics,
     build_poe_sla_intelligence,
     build_poe_analytics,
     confirm_inventory_sites_import,
@@ -233,6 +234,64 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(bucket["count"], 1)
         self.assertEqual(bucket["amount"], Decimal("750.00"))
         self.assertEqual(payload["collection_efficiency_percentage"], 25)
+
+    def test_campaign_performance_calculates_poe_completion_and_risk(self):
+        second_site = MediaSite.objects.create(
+            name="Second Campaign Site",
+            code="OBS-SITE-002",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Ring Road",
+            city="Delhi",
+            state="Delhi",
+        )
+        second_unit = MediaUnit.objects.create(
+            site=second_site,
+            unit_code="OBS-UNIT-002",
+            width=Decimal("20.00"),
+            height=Decimal("10.00"),
+            monthly_rate=Decimal("50000.00"),
+        )
+        Booking.objects.create(
+            campaign=self.campaign,
+            media_unit=second_unit,
+            start_date=date.today(),
+            end_date=date.today() + timedelta(days=2),
+            booked_rate=Decimal("50000.00"),
+            status=Booking.Status.CONFIRMED,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+            reviewed_at=timezone.now(),
+        )
+
+        payload = build_campaign_performance_analytics(user=self.admin, queryset=Campaign.objects.filter(id=self.campaign.id))
+        row = payload["campaigns"][0]
+
+        self.assertEqual(row["booked_sites_count"], 2)
+        self.assertEqual(row["sites_with_approved_poe"], 1)
+        self.assertEqual(row["sites_missing_poe"], 1)
+        self.assertEqual(row["poe_completion_percentage"], 50)
+        self.assertIn(row["risk_status"], {"poe_risk", "critical"})
+
+    def test_campaign_performance_hides_billing_for_operations_role(self):
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_date=date.today() - timedelta(days=20),
+            due_date=date.today() - timedelta(days=10),
+            total_amount=Decimal("1000.00"),
+            grand_total=Decimal("1000.00"),
+            status=Invoice.Status.ISSUED,
+        )
+
+        payload = build_campaign_performance_analytics(user=self.operations, queryset=Campaign.objects.filter(id=self.campaign.id))
+        row = payload["campaigns"][0]
+
+        self.assertFalse(payload["can_view_billing"])
+        self.assertEqual(row["billing_status"], "hidden")
+        self.assertEqual(row["overdue_amount"], Decimal("0.00"))
 
     def test_diagnostics_are_admin_only(self):
         self.client.force_authenticate(self.client_user)
@@ -772,6 +831,30 @@ class ObservabilityFoundationTests(TestCase):
         self.assertTrue(Notification.objects.filter(recipient_role="finance", title__icontains=rule.name).exists())
         self.assertTrue(Notification.objects.filter(recipient_role="admin", title__icontains=rule.name).exists())
 
+    def test_campaign_risk_threshold_notifies_admin_and_operations(self):
+        rule = AlertRule.objects.create(
+            name="Critical campaign risk threshold",
+            metric=AlertRule.Metric.CAMPAIGNS_AT_RISK,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+            severity=AlertRule.Severity.CRITICAL,
+        )
+        self.campaign.end_date = date.today() + timedelta(days=1)
+        self.campaign.save(update_fields=["end_date", "updated_at"])
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in events if event.rule_id == rule.id]), 1)
+        self.assertTrue(Notification.objects.filter(recipient_role="admin", title__icontains=rule.name).exists())
+        self.assertTrue(Notification.objects.filter(recipient_role="operations", title__icontains=rule.name).exists())
+
     def test_failed_api_request_threshold_uses_24h_window(self):
         rule = AlertRule.objects.create(
             name="Failed API threshold",
@@ -994,6 +1077,8 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIn("poe_sla", response.data)
         self.assertIn("poe_sla_warnings", response.data["kpis"])
         self.assertIn("billing_intelligence", response.data)
+        self.assertIn("campaign_performance", response.data)
+        self.assertIn("campaigns_poe_risk", response.data["kpis"])
         self.assertGreaterEqual(response.data["kpis"]["failed_requests"], 1)
         self.assertTrue(response.data["charts"]["request_activity"])
         self.assertTrue(response.data["timeline"])

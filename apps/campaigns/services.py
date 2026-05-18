@@ -1,4 +1,4 @@
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
 from django.db.models import Count, DecimalField, Q, Sum
@@ -8,12 +8,164 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from apps.bookings.models import Booking
+from apps.billing.models import Invoice, Payment
+from apps.poe.models import ProofOfExecution
 from core.services import BaseService
 
 from .models import Campaign, CampaignAccessToken
 from .repositories import CampaignAccessTokenRepository, CampaignAssetRepository, CampaignRepository
 
 SUMMARY_DECIMAL_FIELD = DecimalField(max_digits=14, decimal_places=2)
+ZERO = Decimal("0.00")
+
+
+def _can_view_campaign_billing(user=None) -> bool:
+    return bool(
+        user is None
+        or getattr(user, "is_superuser", False)
+        or getattr(user, "role", None) in {"admin", "finance"}
+    )
+
+
+def _invoice_balance(invoice) -> Decimal:
+    paid = invoice.payments.aggregate(total=Coalesce(Sum("amount"), ZERO, output_field=SUMMARY_DECIMAL_FIELD))["total"]
+    total = invoice.grand_total or invoice.total_amount or ZERO
+    return max(total - paid, ZERO)
+
+
+def build_campaign_performance_analytics(*, user=None, queryset=None, today=None) -> dict:
+    today = today or timezone.localdate()
+    can_view_billing = _can_view_campaign_billing(user)
+    queryset = queryset or Campaign.objects.all()
+    campaigns = list(
+        queryset.select_related("client").prefetch_related(
+            "bookings__poe_records",
+            "bookings__media_unit",
+            "invoices__payments",
+        )
+    )
+    ending_soon_cutoff = today + timedelta(days=7)
+    rows = []
+    risk_distribution = {"on_track": 0, "needs_attention": 0, "poe_risk": 0, "billing_risk": 0, "critical": 0}
+    active_count = 0
+    ending_soon_count = 0
+    poe_risk_count = 0
+    billing_risk_count = 0
+    at_risk_count = 0
+
+    for campaign in campaigns:
+        bookings = [booking for booking in campaign.bookings.all() if booking.status != Booking.Status.CANCELLED]
+        booked_sites = len({booking.media_unit_id for booking in bookings})
+        approved_poe_sites = 0
+        suspicious_poe_count = 0
+        missing_poe_sites = 0
+        for booking in bookings:
+            if booking.poe_records.filter(verification_status=ProofOfExecution.VerificationStatus.VERIFIED).exists():
+                approved_poe_sites += 1
+            else:
+                missing_poe_sites += 1
+            suspicious_poe_count += booking.poe_records.filter(
+                verification_status__in=[
+                    ProofOfExecution.VerificationStatus.SUSPICIOUS,
+                    ProofOfExecution.VerificationStatus.REJECTED,
+                ]
+            ).count()
+
+        poe_completion = round((approved_poe_sites / booked_sites) * 100) if booked_sites else 0
+        is_active = campaign.status == Campaign.Status.ACTIVE or (campaign.start_date <= today <= campaign.end_date)
+        is_ending_soon = is_active and today <= campaign.end_date <= ending_soon_cutoff
+        if is_active:
+            active_count += 1
+        if is_ending_soon:
+            ending_soon_count += 1
+
+        invoices = list(campaign.invoices.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]))
+        total_invoiced = sum((invoice.grand_total or invoice.total_amount or ZERO for invoice in invoices), ZERO)
+        total_collected = sum((payment.amount for invoice in invoices for payment in invoice.payments.all()), ZERO)
+        pending_amount = max(total_invoiced - total_collected, ZERO)
+        overdue_balance = ZERO
+        overdue_invoice_count = 0
+        for invoice in invoices:
+            balance = _invoice_balance(invoice)
+            if invoice.due_date and invoice.due_date < today and balance > ZERO:
+                overdue_invoice_count += 1
+                overdue_balance += balance
+
+        has_poe_risk = (booked_sites > 0 and missing_poe_sites > 0 and is_active) or suspicious_poe_count > 0
+        has_billing_risk = can_view_billing and overdue_balance > ZERO
+        if has_poe_risk:
+            poe_risk_count += 1
+        if has_billing_risk:
+            billing_risk_count += 1
+
+        if has_billing_risk and (suspicious_poe_count > 0 or is_ending_soon):
+            risk = "critical"
+        elif suspicious_poe_count > 0 and is_ending_soon:
+            risk = "critical"
+        elif has_billing_risk:
+            risk = "billing_risk"
+        elif has_poe_risk:
+            risk = "poe_risk"
+        elif is_ending_soon and pending_amount > ZERO and can_view_billing:
+            risk = "needs_attention"
+        elif is_ending_soon and booked_sites > approved_poe_sites:
+            risk = "needs_attention"
+        else:
+            risk = "on_track"
+
+        risk_distribution[risk] += 1
+        if risk != "on_track":
+            at_risk_count += 1
+
+        billing_status = "hidden"
+        payment_collection_status = "hidden"
+        if can_view_billing:
+            if not invoices:
+                billing_status = "no_invoice"
+            elif overdue_balance > ZERO:
+                billing_status = "overdue"
+            elif pending_amount <= ZERO and total_invoiced > ZERO:
+                billing_status = "collected"
+            elif total_collected > ZERO:
+                billing_status = "partially_collected"
+            else:
+                billing_status = "pending_collection"
+            payment_collection_status = billing_status
+
+        rows.append(
+            {
+                "campaign_id": campaign.id,
+                "campaign_name": campaign.name,
+                "campaign_code": campaign.code,
+                "status": campaign.status,
+                "start_date": campaign.start_date,
+                "end_date": campaign.end_date,
+                "is_active": is_active,
+                "is_ending_soon": is_ending_soon,
+                "booked_sites_count": booked_sites,
+                "sites_with_approved_poe": approved_poe_sites,
+                "sites_missing_poe": missing_poe_sites,
+                "poe_completion_percentage": poe_completion,
+                "suspicious_poe_count": suspicious_poe_count,
+                "billing_status": billing_status,
+                "payment_collection_status": payment_collection_status,
+                "pending_amount": pending_amount if can_view_billing else ZERO,
+                "overdue_amount": overdue_balance if can_view_billing else ZERO,
+                "risk_status": risk,
+            }
+        )
+
+    return {
+        "active_campaigns": active_count,
+        "ending_soon_count": ending_soon_count,
+        "poe_risk_count": poe_risk_count,
+        "billing_risk_count": billing_risk_count,
+        "at_risk_count": at_risk_count,
+        "critical_count": risk_distribution["critical"],
+        "risk_distribution": [{"risk": key, "total": value} for key, value in risk_distribution.items()],
+        "campaigns": sorted(rows, key=lambda row: (row["risk_status"] == "on_track", row["end_date"], row["campaign_id"]))[:12],
+        "can_view_billing": can_view_billing,
+    }
 
 
 class CampaignService(BaseService):
@@ -43,6 +195,11 @@ class CampaignService(BaseService):
             live_bookings=Count("bookings", filter=Q(bookings__status=Booking.Status.LIVE), distinct=True),
             approved_assets=Count("assets", filter=Q(assets__is_approved=True), distinct=True),
         )
+        performance = build_campaign_performance_analytics(user=user, queryset=queryset)
+        summary["ending_soon_count"] = performance["ending_soon_count"]
+        summary["campaigns_at_risk"] = performance["at_risk_count"]
+        summary["campaigns_poe_risk"] = performance["poe_risk_count"]
+        summary["campaigns_billing_risk"] = performance["billing_risk_count"]
         cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
         return summary
 

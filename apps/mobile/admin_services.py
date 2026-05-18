@@ -8,6 +8,7 @@ from django.utils import timezone
 from apps.bookings.models import Assignment, Booking
 from apps.billing.services import build_collection_efficiency_analytics
 from apps.campaigns.models import Campaign
+from apps.campaigns.services import build_campaign_performance_analytics
 from apps.issues.models import Issue
 from apps.issues.services import sync_issue_sla_status
 from apps.observability.services import build_poe_sla_intelligence
@@ -118,8 +119,11 @@ class MobileAdminOperationsService:
         bookings = _base_booking_queryset()
         poe_sla = build_poe_sla_intelligence()
         billing = build_collection_efficiency_analytics()
+        campaigns = build_campaign_performance_analytics()
         return {
             "active_campaigns": _active_campaign_queryset(today).count(),
+            "campaigns_at_risk": campaigns["at_risk_count"],
+            "campaigns_ending_soon": campaigns["ending_soon_count"],
             "poe_pending": sum(1 for booking in bookings if _is_poe_pending(booking)),
             "poe_completed_today": ProofOfExecution.objects.filter(
                 captured_at__date=today,

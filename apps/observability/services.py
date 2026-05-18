@@ -18,6 +18,7 @@ from openpyxl import load_workbook
 
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
+from apps.campaigns.services import build_campaign_performance_analytics
 from apps.billing.models import Invoice, Payment
 from apps.billing.services import build_collection_efficiency_analytics
 from apps.issues.models import Issue
@@ -229,6 +230,7 @@ def ensure_default_alert_rules() -> None:
         ("Suspicious POEs today", AlertRule.Metric.SUSPICIOUS_POES, 5, 1440, AlertRule.Severity.WARNING),
         ("Overdue POE reviews", AlertRule.Metric.OVERDUE_POE_REVIEWS, 5, 1440, AlertRule.Severity.WARNING),
         ("POE SLA breaches", AlertRule.Metric.POE_SLA_BREACHES, 1, 1440, AlertRule.Severity.CRITICAL),
+        ("Critical campaign risk", AlertRule.Metric.CAMPAIGNS_AT_RISK, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Breached issues", AlertRule.Metric.BREACHED_ISSUES, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Overdue invoices", AlertRule.Metric.OVERDUE_INVOICES, 5, 1440, AlertRule.Severity.WARNING),
     ]
@@ -264,6 +266,8 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
         return ProofOfExecution.objects.filter(reviewed_at__isnull=True, review_due_at__lt=now).count()
     if rule.metric == AlertRule.Metric.POE_SLA_BREACHES:
         return build_poe_sla_intelligence(now=now)["breach_count"]
+    if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
+        return build_campaign_performance_analytics()["critical_count"]
     if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
         return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
     if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
@@ -316,6 +320,16 @@ def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
                         recipient_role=role,
                         event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
                         title=f"Billing risk alert: {rule.name}",
+                        message=summary,
+                        severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                    )
+            if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
+                for role in ("admin", "operations"):
+                    NotificationService().create_internal_notification(
+                        recipient_role=role,
+                        event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                        title=f"Campaign risk alert: {rule.name}",
                         message=summary,
                         severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
                         metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
@@ -521,6 +535,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     )
     poe_payload = build_poe_analytics(filters)
     poe_sla = build_poe_sla_intelligence(filters)
+    campaign_performance = build_campaign_performance_analytics(user=user)
     request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
     audit_queryset = _company_filter(AuditEvent.objects.all(), filters)
     notification_queryset = EmailNotificationLog.objects.all()
@@ -677,6 +692,9 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "failed_requests": failed_request_count,
             "active_users_today": active_users_today,
             "campaigns_running": campaigns_running,
+            "campaigns_ending_soon": campaign_performance["ending_soon_count"],
+            "campaigns_poe_risk": campaign_performance["poe_risk_count"],
+            "campaigns_billing_risk": campaign_performance["billing_risk_count"],
             "invoice_collection_rate": invoice_collection_rate,
             "overdue_invoices": billing_intelligence["overdue_invoice_count"],
             "overdue_invoice_value": billing_intelligence["overdue_amount"],
@@ -710,8 +728,10 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "operations_activity": list(operations_activity),
             "notification_activity": notification_activity,
             "load_distribution": load_distribution,
+            "campaign_risk_distribution": campaign_performance["risk_distribution"],
         },
         "poe_sla": poe_sla,
+        "campaign_performance": campaign_performance,
         "billing_intelligence": billing_intelligence,
         "timeline": timeline,
         "system_health": {

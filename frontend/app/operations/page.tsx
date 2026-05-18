@@ -476,10 +476,52 @@ export default function OperationsPage() {
         <KpiCard label="Failed requests" value={isLoading ? "..." : summary?.kpis.failed_requests ?? 0} />
         <KpiCard label="Active users today" value={isLoading ? "..." : summary?.kpis.active_users_today ?? 0} />
         <KpiCard label="Campaigns running" value={isLoading ? "..." : summary?.kpis.campaigns_running ?? 0} href="/campaigns" />
+        <KpiCard label="Ending soon" value={isLoading ? "..." : summary?.kpis.campaigns_ending_soon ?? 0} hint="campaigns" href="/campaigns" />
+        <KpiCard label="Campaign POE risk" value={isLoading ? "..." : summary?.kpis.campaigns_poe_risk ?? 0} href="/campaigns" />
+        <KpiCard label="Campaign billing risk" value={isLoading ? "..." : summary?.kpis.campaigns_billing_risk ?? 0} href="/campaigns" />
         <KpiCard label="Collection status" value={isLoading ? "..." : `${summary?.kpis.invoice_collection_rate ?? 0}%`} href="/billing" />
         <KpiCard label="Overdue invoices" value={isLoading ? "..." : summary?.kpis.overdue_invoices ?? 0} hint="billing risk" href="/billing" />
         <KpiCard label="Overdue value" value={isLoading ? "..." : formatCurrency(summary?.kpis.overdue_invoice_value ?? "0.00")} href="/billing" />
         <KpiCard label="Exports today" value={isLoading ? "..." : summary?.kpis.export_activity_today ?? 0} />
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Campaign performance</h2>
+            <Link href="/campaigns">Open campaigns</Link>
+          </div>
+          <div className="asset-list compact-feed">
+            {(summary?.campaign_performance.campaigns ?? []).slice(0, 6).map((campaign) => (
+              <article className="asset-card" key={campaign.campaign_id}>
+                <div className="asset-head">
+                  <div>
+                    <p className="site-code">{campaign.campaign_code}</p>
+                    <h3>{campaign.campaign_name}</h3>
+                  </div>
+                  <span className={`status-pill status-${campaign.risk_status}`}>{campaign.risk_status.replaceAll("_", " ")}</span>
+                </div>
+                <p className="site-copy">
+                  POE {campaign.poe_completion_percentage}% · {campaign.sites_with_approved_poe}/{campaign.booked_sites_count} approved · {campaign.suspicious_poe_count} suspicious
+                </p>
+                {summary?.campaign_performance.can_view_billing ? (
+                  <p className="site-copy">
+                    Billing {campaign.billing_status.replaceAll("_", " ")} · overdue {formatCurrency(campaign.overdue_amount)}
+                  </p>
+                ) : null}
+              </article>
+            ))}
+            {(summary?.campaign_performance.campaigns ?? []).length === 0 ? <p className="empty-state">No campaign performance risk for this view.</p> : null}
+          </div>
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Campaign risk mix</h2>
+            <span>Classification</span>
+          </div>
+          <CompactBars rows={summary?.charts.campaign_risk_distribution ?? []} labelKey="risk" valueKey="total" />
+        </article>
       </section>
 
       <section className="module-grid">

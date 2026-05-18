@@ -93,3 +93,9 @@ The Operations dashboard now summarizes POE SLA warnings, breaches, oldest pendi
 OMMS now surfaces receivables risk before revenue delays become invisible backlog. Billing intelligence calculates overdue value, age buckets, collection efficiency, payment trends, average payment delay, and the clients carrying the largest overdue exposure.
 
 The Operations dashboard adds a compact billing risk panel for admin and finance users, while Billing invoice rows now carry escalation labels and payment-risk hints. Overdue invoice alerts continue through the existing cooldown-protected alert system and now notify finance/admin inboxes for clearer ownership.
+
+## Campaign Performance Analytics Foundation
+
+OMMS now connects campaign delivery, POE completion, and commercial risk into one campaign performance layer. Campaigns receive a computed risk label without changing their lifecycle state, so owners can see which campaigns are on track, need attention, have POE risk, have billing risk, or are critical.
+
+The Operations dashboard now includes campaign risk distribution and a compact performance table, while the Campaigns page shows POE completion, missing proof counts, billing status, and risk badges per campaign. Mobile admin gets high-level campaign risk KPIs without exposing field staff to finance detail.

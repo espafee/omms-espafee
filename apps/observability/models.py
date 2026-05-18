@@ -166,6 +166,7 @@ class AlertRule(TimeStampedModel):
         SUSPICIOUS_POES = "suspicious_poes", "Suspicious POEs"
         OVERDUE_POE_REVIEWS = "overdue_poe_reviews", "Overdue POE Reviews"
         POE_SLA_BREACHES = "poe_sla_breaches", "POE SLA Breaches"
+        CAMPAIGNS_AT_RISK = "campaigns_at_risk", "Campaigns At Risk"
         BREACHED_ISSUES = "breached_issues", "Breached Issues"
         OVERDUE_INVOICES = "overdue_invoices", "Overdue Invoices"
 

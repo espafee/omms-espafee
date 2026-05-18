@@ -187,6 +187,8 @@ export default function CampaignsPage() {
     return [
       { label: "Total campaigns", value: String(campaignData.summary.total_campaigns) },
       { label: "Active campaigns", value: String(campaignData.summary.active_campaigns) },
+      { label: "Ending soon", value: String(campaignData.summary.ending_soon_count) },
+      { label: "Campaigns at risk", value: String(campaignData.summary.campaigns_at_risk) },
       { label: "Live bookings", value: String(campaignData.summary.live_bookings) },
       { label: "Approved assets", value: String(campaignData.summary.approved_assets) },
     ];
@@ -611,6 +613,7 @@ export default function CampaignsPage() {
                   <th>Campaign</th>
                   <th>Timeline</th>
                   <th>Status</th>
+                  <th>Performance</th>
                   <th>Budget</th>
                   <th>Assets</th>
                   <th>Objective</th>
@@ -629,6 +632,16 @@ export default function CampaignsPage() {
                     <td>{formatDateRange(campaign.start_date, campaign.end_date)}</td>
                     <td>
                       <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
+                    </td>
+                    <td>
+                      <div className="table-primary">
+                        <strong>
+                          <span className={`status-pill status-${campaign.performance?.risk_status ?? "on_track"}`}>
+                            {(campaign.performance?.risk_status ?? "on_track").replaceAll("_", " ")}
+                          </span>
+                        </strong>
+                        <span>POE {campaign.performance?.poe_completion_percentage ?? 0}%</span>
+                      </div>
                     </td>
                     <td>{formatCurrency(campaign.budget)}</td>
                     <td>{campaign.assets.length}</td>
@@ -655,6 +668,22 @@ export default function CampaignsPage() {
                 </div>
                 <span className={`status-pill status-${selectedCampaign.status}`}>{selectedCampaign.status}</span>
               </div>
+              {selectedCampaign.performance ? (
+                <div className="module-stats">
+                  <div className="module-stat">
+                    <p className="stat-label">POE completion</p>
+                    <p className="stat-value">{selectedCampaign.performance.poe_completion_percentage}%</p>
+                  </div>
+                  <div className="module-stat">
+                    <p className="stat-label">Missing POE</p>
+                    <p className="stat-value">{selectedCampaign.performance.sites_missing_poe}</p>
+                  </div>
+                  <div className="module-stat">
+                    <p className="stat-label">Risk</p>
+                    <p className="stat-value">{selectedCampaign.performance.risk_status.replaceAll("_", " ")}</p>
+                  </div>
+                </div>
+              ) : null}
               <div className="campaign-detail-grid">
                 <div>
                   <p className="stat-label">Timeline</p>
@@ -668,6 +697,15 @@ export default function CampaignsPage() {
                   <p className="stat-label">Assets</p>
                   <p className="site-copy">{selectedCampaign.assets.length}</p>
                 </div>
+                {selectedCampaign.performance ? (
+                  <div>
+                    <p className="stat-label">Billing</p>
+                    <p className="site-copy">
+                      {selectedCampaign.performance.billing_status.replaceAll("_", " ")}
+                      {selectedCampaign.performance.overdue_amount !== "0.00" ? ` · ${formatCurrency(selectedCampaign.performance.overdue_amount)} overdue` : ""}
+                    </p>
+                  </div>
+                ) : null}
               </div>
               <div>
                 <p className="stat-label">Objective</p>

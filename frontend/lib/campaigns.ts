@@ -29,6 +29,22 @@ export type Campaign = {
   status: string;
   objective: string;
   assets: CampaignAsset[];
+  performance?: {
+    campaign_id: number;
+    campaign_name: string;
+    campaign_code: string;
+    risk_status: string;
+    poe_completion_percentage: number;
+    booked_sites_count: number;
+    sites_with_approved_poe: number;
+    sites_missing_poe: number;
+    suspicious_poe_count: number;
+    billing_status: string;
+    payment_collection_status: string;
+    pending_amount: string;
+    overdue_amount: string;
+    is_ending_soon: boolean;
+  } | null;
   created_at: string;
   updated_at: string;
 };

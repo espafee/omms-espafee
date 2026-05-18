@@ -37,6 +37,8 @@ class MobilePoeSubmitResponseSerializer(serializers.Serializer):
 
 class MobileAdminOverviewSerializer(serializers.Serializer):
     active_campaigns = serializers.IntegerField()
+    campaigns_at_risk = serializers.IntegerField()
+    campaigns_ending_soon = serializers.IntegerField()
     poe_pending = serializers.IntegerField()
     poe_completed_today = serializers.IntegerField()
     suspicious_poe = serializers.IntegerField()
