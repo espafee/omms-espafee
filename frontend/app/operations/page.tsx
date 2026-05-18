@@ -16,6 +16,7 @@ import {
   fetchExportJobs,
   fetchImportJob,
   fetchOperationsSummary,
+  retryImportExportJob,
   updateAlertRule,
   type AlertRule,
   uploadInventorySiteImport,
@@ -142,6 +143,7 @@ export default function OperationsPage() {
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<number | null>(null);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
   const [isStartingImport, setIsStartingImport] = useState(false);
+  const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -339,6 +341,31 @@ export default function OperationsPage() {
       setError(exportError instanceof Error ? exportError.message : "Unable to start export.");
     } finally {
       setIsStartingExport(false);
+    }
+  }
+
+  async function handleRetryJob(job: ImportExportJob) {
+    if (job.status !== "failed") {
+      return;
+    }
+    setRetryingJobId(job.id);
+    setError("");
+    setMessage("");
+    try {
+      const retryJob = await retryImportExportJob(job.id);
+      if (retryJob.job_type === "import") {
+        setImportJob(retryJob);
+      } else {
+        const nextJobs = [retryJob, ...exportJobs.filter((item) => item.id !== retryJob.id)].slice(0, 8);
+        setExportJob(retryJob);
+        setExportJobs(nextJobs);
+      }
+      setMessage(`Retry started for job #${job.id}.`);
+      void load(filters, { silent: true });
+    } catch (retryError) {
+      setError(retryError instanceof Error ? retryError.message : "Unable to retry job.");
+    } finally {
+      setRetryingJobId(null);
     }
   }
 
@@ -715,6 +742,19 @@ export default function OperationsPage() {
             {importJob.status === "processing" ? <p className="field-help">Import is running. This panel refreshes automatically.</p> : null}
             {importJob.status === "completed" ? <p className="field-help">Import completed. Review final counts and download the report if available.</p> : null}
             {importJob.status === "failed" ? <p className="field-help">Import failed before any successful rows were committed. Review the errors below.</p> : null}
+            {importJob.status === "failed" ? (
+              <div className="import-confirm-strip">
+                <div>
+                  <strong>Retry available</strong>
+                  <p className="site-copy">
+                    {importJob.retry_count > 0 ? `${importJob.retry_count} retry attempt(s). Last retry ${importJob.last_retry_at ? formatDateTime(importJob.last_retry_at) : "not recorded"}.` : "This creates a linked retry job and preserves the failed history."}
+                  </p>
+                </div>
+                <button className="submit" type="button" disabled={retryingJobId === importJob.id} onClick={() => void handleRetryJob(importJob)}>
+                  {retryingJobId === importJob.id ? "Retrying..." : "Retry Import"}
+                </button>
+              </div>
+            ) : null}
             {importWarnings.length > 0 ? (
               <div className="import-issue-list">
                 <p className="stat-label">Warnings</p>
@@ -770,7 +810,15 @@ export default function OperationsPage() {
                 <div className="export-job-actions">
                   <span className={`status-pill status-${job.status}`}>{job.status === "confirmed" ? "queued" : job.status}</span>
                   {job.output_file_url ? <a className="asset-link" href={job.output_file_url} target="_blank" rel="noreferrer">Download CSV</a> : null}
+                  {job.status === "failed" ? (
+                    <button className="secondary-button compact" type="button" disabled={retryingJobId === job.id} onClick={() => void handleRetryJob(job)}>
+                      {retryingJobId === job.id ? "Retrying..." : "Retry"}
+                    </button>
+                  ) : null}
                 </div>
+                {job.retry_count > 0 || job.retry_of_id ? (
+                  <p className="site-copy">Retry {job.retry_of_id ? `of #${job.retry_of_id}` : `attempts: ${job.retry_count}`} {job.last_retry_at ? `· last ${formatDateTime(job.last_retry_at)}` : ""}</p>
+                ) : null}
               </article>
             ))}
           </div>

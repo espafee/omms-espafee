@@ -75,3 +75,9 @@ Cooldown visibility is now part of the alert threshold experience as well. Inste
 The Operations dashboard now behaves more like an active command surface. It quietly refreshes core operational signals in the background, keeps alert and timeline state current, and updates import/export progress without requiring manual reloads.
 
 The live layer is intentionally calm: a compact `Live` indicator, last-updated text, and subtle activity pulse communicate freshness without turning OMMS into a noisy wallboard. Browser tabs pause refresh when hidden, and running jobs use a focused refresh cadence so operators can watch progress while the system avoids unnecessary request load.
+
+## Failed Import/Export Retry Workflow
+
+OMMS can now recover from failed operational jobs without losing history. Failed imports and exports expose a controlled retry action in the Operations workbench, creating a linked retry job while preserving the original failure record and report.
+
+Inventory retries remain safe by reusing the import preview metadata and idempotent import rules, so retrying a failed import does not blindly duplicate sites or media units. Export retries regenerate the requested CSV from the original filters. Each retry request is audited, and completion or failure continues to flow through the notification system.

@@ -127,6 +127,15 @@ class ImportExportJob(TimeStampedModel):
     original_file = models.FileField(upload_to="imports/", blank=True, null=True, max_length=500)
     output_file = models.FileField(upload_to="exports/", blank=True, null=True, max_length=500)
     filters = models.JSONField(default=dict, blank=True)
+    retry_of = models.ForeignKey(
+        "self",
+        related_name="retry_attempts",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+    )
+    retry_count = models.PositiveIntegerField(default=0)
+    last_retry_at = models.DateTimeField(null=True, blank=True)
     rows_total = models.PositiveIntegerField(default=0)
     rows_success = models.PositiveIntegerField(default=0)
     rows_updated = models.PositiveIntegerField(default=0)

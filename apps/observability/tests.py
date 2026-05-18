@@ -26,6 +26,7 @@ from apps.observability.services import (
     process_export_job,
     process_inventory_sites_import,
     record_audit_event,
+    retry_import_export_job,
     validate_inventory_sites_import,
 )
 from apps.observability.tasks import process_export_job_task
@@ -319,6 +320,112 @@ class ObservabilityFoundationTests(TestCase):
 
         self.assertEqual(MediaSite.objects.filter(code="OBS-SITE-012").count(), 1)
 
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_retry_only_allows_failed_jobs(self):
+        job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.COMPLETED,
+        )
+
+        with self.assertRaisesMessage(ValueError, "Only failed"):
+            retry_import_export_job(job, actor=self.admin)
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_import_retry_creates_linked_job_and_preserves_failed_history(self):
+        failed_job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.IMPORT,
+            resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
+            status=ImportExportJob.Status.FAILED,
+            rows_total=1,
+            rows_failed=1,
+            preview_rows=[
+                {
+                    "row": 2,
+                    "action": "create_site",
+                    "site_code": "OBS-SITE-RETRY",
+                    "unit_code": "OBS-UNIT-RETRY",
+                    "data": {
+                        "site_code": "OBS-SITE-RETRY",
+                        "site_name": "Retry Site",
+                        "site_type": MediaSite.SiteType.BILLBOARD,
+                        "address": "Road",
+                        "city": "Delhi",
+                        "state": "Delhi",
+                        "unit_code": "OBS-UNIT-RETRY",
+                        "width": "20",
+                        "height": "10",
+                        "monthly_rate": "50000",
+                    },
+                    "status": "failed",
+                    "message": "Transient failure.",
+                    "errors": [{"row": 2, "error": "Row could not be imported safely."}],
+                    "warnings": [],
+                }
+            ],
+            errors=[{"row": 2, "error": "Row could not be imported safely."}],
+        )
+
+        retry_job = retry_import_export_job(failed_job, actor=self.admin)
+        failed_job.refresh_from_db()
+
+        self.assertEqual(retry_job.retry_of, failed_job)
+        self.assertEqual(retry_job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(retry_job.rows_success, 1)
+        self.assertEqual(failed_job.status, ImportExportJob.Status.FAILED)
+        self.assertEqual(failed_job.retry_count, 1)
+        self.assertIsNotNone(failed_job.last_retry_at)
+        self.assertTrue(MediaSite.objects.filter(code="OBS-SITE-RETRY").exists())
+        self.assertTrue(AuditEvent.objects.filter(event_type="inventory.import.retry_requested", entity_id=str(failed_job.id)).exists())
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_import_retry_idempotency_skips_existing_inventory(self):
+        MediaSite.objects.create(
+            name="Existing Retry Site",
+            code="OBS-SITE-RETRY-IDEMP",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Road",
+            city="Delhi",
+            state="Delhi",
+            owner=self.admin,
+        )
+        failed_job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.IMPORT,
+            resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
+            status=ImportExportJob.Status.FAILED,
+            rows_total=1,
+            rows_failed=1,
+            preview_rows=[
+                {
+                    "row": 2,
+                    "action": "create_site",
+                    "site_code": "OBS-SITE-RETRY-IDEMP",
+                    "data": {
+                        "site_code": "OBS-SITE-RETRY-IDEMP",
+                        "site_name": "Existing Retry Site",
+                        "site_type": MediaSite.SiteType.BILLBOARD,
+                        "address": "Road",
+                        "city": "Delhi",
+                        "state": "Delhi",
+                    },
+                    "status": "failed",
+                    "errors": [{"row": 2, "error": "Transient failure."}],
+                }
+            ],
+        )
+
+        retry_job = retry_import_export_job(failed_job, actor=self.admin)
+
+        self.assertEqual(retry_job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(retry_job.rows_skipped, 1)
+        self.assertEqual(MediaSite.objects.filter(code="OBS-SITE-RETRY-IDEMP").count(), 1)
+
     def test_inventory_import_task_updates_result_counts(self):
         upload = BytesIO(
             b"site_code,site_name,site_type,address,city,state,unit_code,width,height,monthly_rate\n"
@@ -433,6 +540,50 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(processed.rows_failed, 1)
         self.assertEqual(processed.errors, [{"error": "Export could not be generated safely."}])
         self.assertTrue(AuditEvent.objects.filter(event_type="export.failed", entity_id=str(processed.id)).exists())
+        self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.EXPORT_FAILED).exists())
+
+    @override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False)
+    def test_export_retry_regenerates_file_and_records_audit(self):
+        failed_job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.FAILED,
+            rows_failed=1,
+            errors=[{"error": "Export could not be generated safely."}],
+            filters={"export_filters": {"status": Campaign.Status.ACTIVE}},
+        )
+
+        retry_job = retry_import_export_job(failed_job, actor=self.admin)
+        failed_job.refresh_from_db()
+
+        self.assertEqual(retry_job.retry_of, failed_job)
+        self.assertEqual(retry_job.status, ImportExportJob.Status.COMPLETED)
+        self.assertEqual(retry_job.rows_success, 1)
+        self.assertTrue(retry_job.output_file.name.endswith(".csv"))
+        self.assertEqual(failed_job.retry_count, 1)
+        self.assertTrue(AuditEvent.objects.filter(event_type="export.retry_requested", entity_id=str(failed_job.id)).exists())
+        self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.EXPORT_COMPLETED, title="Export completed").exists())
+
+    def test_retry_endpoint_enforces_permissions_and_returns_retry_job(self):
+        failed_job = ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.FAILED,
+        )
+        self.client.force_authenticate(self.client_user)
+        forbidden_response = self.client.post(reverse("observability-import-export-jobs-retry", args=[failed_job.id]))
+        self.assertEqual(forbidden_response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.client.force_authenticate(self.admin)
+        with override_settings(OMMS_ENABLE_BACKGROUND_JOBS=False):
+            response = self.client.post(reverse("observability-import-export-jobs-retry", args=[failed_job.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["retry_of"], failed_job.id)
 
     def test_alert_threshold_evaluation_respects_cooldown(self):
         rule = AlertRule.objects.create(

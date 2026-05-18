@@ -150,6 +150,9 @@ export type ImportExportJob = {
   }>;
   original_file_url: string;
   output_file_url: string;
+  retry_of_id?: number | null;
+  retry_count: number;
+  last_retry_at: string | null;
   created_by_email?: string;
   progress_percent: number;
   duration_seconds: number | null;
@@ -233,6 +236,12 @@ export async function confirmImportJob(id: number) {
   return apiFetch<ImportExportJob>(`observability/import-export-jobs/${id}/confirm/`, {
     method: "POST",
     body: JSON.stringify({ confirmed: true }),
+  });
+}
+
+export async function retryImportExportJob(id: number) {
+  return apiFetch<ImportExportJob>(`observability/import-export-jobs/${id}/retry/`, {
+    method: "POST",
   });
 }
 

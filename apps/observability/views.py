@@ -31,6 +31,7 @@ from .services import (
     export_inventory_sites_csv,
     export_poe_reports_csv,
     record_audit_event,
+    retry_import_export_job,
     validate_inventory_sites_import,
 )
 
@@ -112,6 +113,16 @@ class ImportExportJobViewSet(ServiceModelViewSet):
         except Exception:
             return Response({"detail": "Unable to start import. Please try again."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(job).data)
+
+    @action(detail=True, methods=["post"], url_path="retry")
+    def retry(self, request, pk=None):
+        try:
+            job = retry_import_export_job(self.get_object(), actor=request.user)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception:
+            return Response({"detail": "Unable to retry job. Please try again."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["post"], url_path="campaigns/export")
     def campaigns_export(self, request):

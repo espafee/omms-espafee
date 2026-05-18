@@ -824,3 +824,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - A compact live strip shows `Live`/`Paused`, last updated relative time, active job count, export queue count, and a subtle refresh pulse without reloading the page.
 - The import/export workbench now includes an active background job monitor for import queue, export queue, and last completed export.
 - Mobile parity: the mobile admin operations dashboard now has a lightweight 60-second refresh loop while the app is active. Field assigned-work remains manual refresh to avoid unnecessary battery/network usage for field staff.
+
+## Failed Import/Export Retry Workflow
+
+- Failed `ImportExportJob` records can now be retried through `POST /api/v1/observability/import-export-jobs/{id}/retry/`.
+- Retry is allowed only for failed jobs and creates a linked retry job through `retry_of`, preserving the original failed job, failed report, retry count, and last retry time.
+- Inventory import retries reuse the saved preview metadata and existing idempotent import processing, so already-created sites/units are skipped rather than duplicated.
+- Export retries reuse the original export filters and regenerate the output CSV through the same background-safe export processor.
+- Retry requests create audit events (`inventory.import.retry_requested` or `export.retry_requested`); retry completion/failure uses existing import/export notifications, including failed export notifications.
+- The Operations dashboard now shows retry metadata and Retry actions for eligible failed import/export jobs.
+- Mobile parity review: mobile admin remains read-only for operational job control. Retry actions stay web-only because they mutate import/export state and require the richer Operations workbench context.

@@ -25,6 +25,7 @@ class AuditEventSerializer(serializers.ModelSerializer):
 
 class ImportExportJobSerializer(serializers.ModelSerializer):
     created_by_email = serializers.EmailField(source="created_by.email", read_only=True)
+    retry_of_id = serializers.IntegerField(source="retry_of.id", read_only=True)
     original_file_url = serializers.SerializerMethodField()
     output_file_url = serializers.SerializerMethodField()
     progress_percent = serializers.SerializerMethodField()
@@ -39,6 +40,9 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
             "company_name",
             "status",
             "output_file",
+            "retry_of",
+            "retry_count",
+            "last_retry_at",
             "rows_total",
             "rows_success",
             "rows_updated",

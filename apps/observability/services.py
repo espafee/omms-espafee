@@ -927,6 +927,18 @@ def _write_import_error_report(job: ImportExportJob, rows: list[dict[str, Any]])
     job.output_file.save(filename, ContentFile(output.getvalue().encode("utf-8")), save=False)
 
 
+def _reset_preview_row_for_retry(row: dict[str, Any]) -> dict[str, Any]:
+    reset = {**row}
+    reset.pop("status", None)
+    reset.pop("message", None)
+    # Processing failures add generic row errors. Preview validation errors should
+    # remain rare here because only importable preview rows can be confirmed, but
+    # keeping row data/warnings intact lets the idempotent importer decide safely.
+    if reset.get("data"):
+        reset["errors"] = []
+    return reset
+
+
 def _import_ready_inventory_row(row: dict[str, Any], *, actor=None) -> tuple[str, dict[str, Any]]:
     if row.get("errors"):
         return "failed", {**row, "status": "failed", "message": "Row failed preview validation."}
@@ -997,6 +1009,8 @@ def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> Impor
         raise ValueError("Only confirmed inventory import jobs can be processed.")
 
     rows = list(job.preview_rows or [])
+    if not job.filters.get("source_preview_rows"):
+        job.filters = {**job.filters, "source_preview_rows": rows}
     started_at = job.started_at or timezone.now()
     job.status = ImportExportJob.Status.PROCESSING
     job.started_at = started_at
@@ -1005,7 +1019,7 @@ def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> Impor
     job.rows_skipped = 0
     job.rows_failed = 0
     job.errors = []
-    job.save(update_fields=["status", "started_at", "rows_success", "rows_updated", "rows_skipped", "rows_failed", "errors", "updated_at"])
+    job.save(update_fields=["status", "started_at", "rows_success", "rows_updated", "rows_skipped", "rows_failed", "errors", "filters", "updated_at"])
 
     imported_count = 0
     updated_count = 0
@@ -1072,15 +1086,30 @@ def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> Impor
         from apps.notifications.services import NotificationService
 
         NotificationService().notify_operations(
-            event_type=EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED,
-            title="Inventory import completed",
+            event_type=EmailNotificationLog.NotificationType.INVENTORY_IMPORT_FAILED if job.status == ImportExportJob.Status.FAILED else EmailNotificationLog.NotificationType.INVENTORY_IMPORT_COMPLETED,
+            title="Inventory import failed" if job.status == ImportExportJob.Status.FAILED else "Inventory import completed",
             message=f"{imported_count} imported, {updated_count} updated, {skipped_count} skipped, {len(failed_rows)} failed.",
-            severity="warning" if job.rows_failed or job.rows_skipped else "info",
+            severity="critical" if job.status == ImportExportJob.Status.FAILED else "warning" if job.rows_failed or job.rows_skipped else "info",
             metadata={"import_job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
         )
     except Exception:
         pass
     return job
+
+
+def _dispatch_inventory_import_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        try:
+            from .tasks import process_inventory_import_job
+
+            async_result = process_inventory_import_job.delay(job.id, actor_id=getattr(actor, "id", None))
+            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
+            job.save(update_fields=["filters", "updated_at"])
+            return job
+        except Exception as exc:
+            job.filters = {**job.filters, "dispatch_warning": str(exc)}
+            job.save(update_fields=["filters", "updated_at"])
+    return process_inventory_sites_import(job, actor=actor)
 
 
 def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirmed: bool = False) -> ImportExportJob:
@@ -1116,18 +1145,82 @@ def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirme
         metadata={"job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
     )
 
-    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-        try:
-            from .tasks import process_inventory_import_job
+    return _dispatch_inventory_import_job(job, actor=actor)
 
-            async_result = process_inventory_import_job.delay(job.id, actor_id=getattr(actor, "id", None))
-            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
-            job.save(update_fields=["filters", "updated_at"])
-            return job
-        except Exception as exc:
-            job.filters = {**job.filters, "dispatch_warning": str(exc)}
-            job.save(update_fields=["filters", "updated_at"])
-    return process_inventory_sites_import(job, actor=actor)
+
+def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if job.company_name != get_company_name():
+        raise ValueError("Job does not belong to the active company.")
+    if job.status != ImportExportJob.Status.FAILED:
+        raise ValueError("Only failed import/export jobs can be retried.")
+
+    now = timezone.now()
+    next_retry_count = job.retry_count + 1
+    if job.job_type == ImportExportJob.JobType.IMPORT:
+        if job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
+            raise ValueError("Only inventory import retries are supported.")
+        source_rows = job.filters.get("source_preview_rows") or job.preview_rows
+        retry_rows = [_reset_preview_row_for_retry(row) for row in source_rows]
+        retry_job = ImportExportJob.objects.create(
+            created_by=actor if getattr(actor, "is_authenticated", False) else job.created_by,
+            company_name=job.company_name,
+            job_type=job.job_type,
+            resource_type=job.resource_type,
+            status=ImportExportJob.Status.CONFIRMED,
+            original_file=job.original_file,
+            filters={
+                **job.filters,
+                "retry_of_job_id": job.id,
+                "retry_attempt": next_retry_count,
+                "retry_requested_at": now.isoformat(),
+                "retry_requested_by": getattr(actor, "email", "") or getattr(actor, "username", ""),
+                "source_preview_rows": source_rows,
+            },
+            retry_of=job,
+            retry_count=next_retry_count,
+            rows_total=job.rows_total,
+            preview_rows=retry_rows,
+        )
+        event_type = "inventory.import.retry_requested"
+        summary = f"Inventory import retry requested for failed job #{job.id}."
+    elif job.job_type == ImportExportJob.JobType.EXPORT:
+        retry_job = ImportExportJob.objects.create(
+            created_by=actor if getattr(actor, "is_authenticated", False) else job.created_by,
+            company_name=job.company_name,
+            job_type=job.job_type,
+            resource_type=job.resource_type,
+            status=ImportExportJob.Status.CONFIRMED,
+            filters={
+                **job.filters,
+                "retry_of_job_id": job.id,
+                "retry_attempt": next_retry_count,
+                "retry_requested_at": now.isoformat(),
+                "retry_requested_by": getattr(actor, "email", "") or getattr(actor, "username", ""),
+            },
+            retry_of=job,
+            retry_count=next_retry_count,
+        )
+        event_type = "export.retry_requested"
+        summary = f"{job.resource_type} export retry requested for failed job #{job.id}."
+    else:
+        raise ValueError("Unsupported job type for retry.")
+
+    job.retry_count = next_retry_count
+    job.last_retry_at = now
+    job.save(update_fields=["retry_count", "last_retry_at", "updated_at"])
+    record_audit_event(
+        event_type=event_type,
+        entity_type="import_export_job",
+        entity_id=job.id,
+        actor=actor,
+        severity=AuditEvent.Severity.WARNING,
+        summary=summary,
+        metadata={"job_id": job.id, "retry_job_id": retry_job.id, "retry_attempt": next_retry_count, "resource_type": job.resource_type},
+    )
+
+    if retry_job.job_type == ImportExportJob.JobType.IMPORT:
+        return _dispatch_inventory_import_job(retry_job, actor=actor)
+    return _dispatch_export_job(retry_job, actor=actor)
 
 
 def _inventory_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
@@ -1333,7 +1426,34 @@ def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
             summary=f"{job.resource_type} export failed.",
             metadata={"job_id": job.id, "resource_type": job.resource_type},
         )
+        try:
+            from apps.notifications.services import NotificationService
+
+            NotificationService().notify_operations(
+                event_type=EmailNotificationLog.NotificationType.EXPORT_FAILED,
+                title="Export failed",
+                message=f"{job.resource_type.replace('_', ' ')} export could not be generated safely.",
+                severity="critical",
+                metadata={"export_job_id": job.id, "resource_type": job.resource_type},
+            )
+        except Exception:
+            pass
         return job
+
+
+def _dispatch_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
+        try:
+            from .tasks import process_export_job_task
+
+            async_result = process_export_job_task.delay(job.id, actor_id=getattr(actor, "id", None))
+            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
+            job.save(update_fields=["filters", "updated_at"])
+            return job
+        except Exception as exc:
+            job.filters = {**job.filters, "dispatch_warning": str(exc)}
+            job.save(update_fields=["filters", "updated_at"])
+    return process_export_job(job, actor=actor)
 
 
 def _start_csv_export_job(*, actor=None, resource_type: str, filters=None) -> ImportExportJob:
@@ -1356,18 +1476,7 @@ def _start_csv_export_job(*, actor=None, resource_type: str, filters=None) -> Im
         summary=f"{resource_type} export queued.",
         metadata={"job_id": job.id, "resource_type": resource_type, "filters": filters},
     )
-    if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) and not getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False):
-        try:
-            from .tasks import process_export_job_task
-
-            async_result = process_export_job_task.delay(job.id, actor_id=getattr(actor, "id", None))
-            job.filters = {**job.filters, "celery_task_id": getattr(async_result, "id", "")}
-            job.save(update_fields=["filters", "updated_at"])
-            return job
-        except Exception as exc:
-            job.filters = {**job.filters, "dispatch_warning": str(exc)}
-            job.save(update_fields=["filters", "updated_at"])
-    return process_export_job(job, actor=actor)
+    return _dispatch_export_job(job, actor=actor)
 
 
 def export_inventory_sites_csv(*, actor=None, filters=None) -> ImportExportJob:
