@@ -191,7 +191,9 @@ class OperationsSummaryView(APIView):
     allowed_roles = OBSERVABILITY_ROLES
 
     def get(self, request):
-        return Response(build_operations_summary(request.query_params))
+        filters = request.query_params.copy()
+        filters["_user"] = request.user
+        return Response(build_operations_summary(filters))
 
 
 class EvaluateAlertsView(APIView):

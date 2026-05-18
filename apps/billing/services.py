@@ -799,6 +799,124 @@ def get_invoice_balance_due(invoice: Invoice, *, total_paid: Decimal | None = No
     return max(payable_total - total_paid, ZERO)
 
 
+def get_invoice_escalation_status(invoice: Invoice, *, total_paid: Decimal | None = None, today: date | None = None) -> dict:
+    today = today or timezone.localdate()
+    balance_due = get_invoice_balance_due(invoice, total_paid=total_paid)
+    due_date = invoice.due_date
+    if invoice.status in {Invoice.Status.DRAFT, Invoice.Status.CANCELLED} or balance_due <= ZERO:
+        return {"status": "settled", "label": "Settled", "days_overdue": 0, "age_bucket": ""}
+    if not due_date:
+        return {"status": "due_soon", "label": "Due date missing", "days_overdue": 0, "age_bucket": ""}
+    days_overdue = (today - due_date).days
+    if days_overdue < 0:
+        return {"status": "due_soon", "label": "Due soon", "days_overdue": 0, "age_bucket": ""}
+    if days_overdue <= 7:
+        return {"status": "overdue_warning", "label": "Overdue warning", "days_overdue": days_overdue, "age_bucket": "1-7"}
+    if days_overdue <= 15:
+        return {"status": "overdue_breach", "label": "Overdue breach", "days_overdue": days_overdue, "age_bucket": "8-15"}
+    if days_overdue <= 30:
+        return {"status": "overdue_breach", "label": "Overdue breach", "days_overdue": days_overdue, "age_bucket": "16-30"}
+    return {"status": "critical_overdue", "label": "Critical overdue", "days_overdue": days_overdue, "age_bucket": "30+"}
+
+
+def build_collection_efficiency_analytics(invoice_queryset=None, *, today: date | None = None) -> dict:
+    today = today or timezone.localdate()
+    invoice_queryset = invoice_queryset or Invoice.objects.all()
+    invoice_queryset = invoice_queryset.select_related("campaign", "campaign__client").exclude(
+        status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]
+    )
+    invoice_rows = list(
+        invoice_queryset.annotate(
+            _amount_paid=Coalesce(Sum("payments__amount"), ZERO, output_field=SUMMARY_DECIMAL_FIELD)
+        )
+    )
+
+    total_invoiced = ZERO
+    collected_amount = ZERO
+    pending_amount = ZERO
+    overdue_amount = ZERO
+    overdue_count = 0
+    age_buckets = {
+        "1-7": {"label": "1-7 days", "count": 0, "amount": ZERO},
+        "8-15": {"label": "8-15 days", "count": 0, "amount": ZERO},
+        "16-30": {"label": "16-30 days", "count": 0, "amount": ZERO},
+        "30+": {"label": "30+ days", "count": 0, "amount": ZERO},
+    }
+    client_totals: dict[int | str, dict] = {}
+    paid_days = []
+
+    for invoice in invoice_rows:
+        invoice_total = quantize_money(invoice.grand_total or invoice.total_amount or ZERO)
+        amount_paid = quantize_money(getattr(invoice, "_amount_paid", ZERO) or ZERO)
+        balance_due = get_invoice_balance_due(invoice, total_paid=amount_paid)
+        total_invoiced += invoice_total
+        collected_amount += amount_paid
+        pending_amount += balance_due
+        escalation = get_invoice_escalation_status(invoice, total_paid=amount_paid, today=today)
+
+        if escalation["age_bucket"]:
+            overdue_count += 1
+            overdue_amount += balance_due
+            bucket = age_buckets[escalation["age_bucket"]]
+            bucket["count"] += 1
+            bucket["amount"] += balance_due
+            client = getattr(invoice.campaign, "client", None)
+            client_key = getattr(client, "id", invoice.client_legal_name or invoice.id)
+            client_row = client_totals.setdefault(
+                client_key,
+                {
+                    "client": getattr(client, "organization_name", "") or getattr(client, "email", "") or invoice.client_legal_name or "Unknown client",
+                    "count": 0,
+                    "amount": ZERO,
+                    "oldest_days_overdue": 0,
+                },
+            )
+            client_row["count"] += 1
+            client_row["amount"] += balance_due
+            client_row["oldest_days_overdue"] = max(client_row["oldest_days_overdue"], escalation["days_overdue"])
+
+        if balance_due <= ZERO and invoice.due_date:
+            last_payment = invoice.payments.order_by("-payment_date", "-id").first()
+            if last_payment:
+                paid_days.append(max(0, (last_payment.payment_date - invoice.due_date).days))
+
+    payment_trend = list(
+        Payment.objects.filter(invoice_id__in=[invoice.id for invoice in invoice_rows])
+        .values("payment_date")
+        .annotate(amount=Coalesce(Sum("amount"), ZERO, output_field=SUMMARY_DECIMAL_FIELD), payments=Count("id"))
+        .order_by("payment_date")
+    )
+    collection_efficiency = round((collected_amount / total_invoiced) * Decimal("100")) if total_invoiced > ZERO else 0
+    top_overdue_clients = sorted(client_totals.values(), key=lambda row: row["amount"], reverse=True)[:5]
+
+    return {
+        "total_invoiced_amount": quantize_money(total_invoiced),
+        "collected_amount": quantize_money(collected_amount),
+        "pending_amount": quantize_money(pending_amount),
+        "overdue_amount": quantize_money(overdue_amount),
+        "overdue_invoice_count": overdue_count,
+        "collection_efficiency_percentage": collection_efficiency,
+        "average_days_to_payment": round(sum(paid_days) / len(paid_days), 1) if paid_days else None,
+        "overdue_age_buckets": [
+            {"bucket": key, "label": value["label"], "count": value["count"], "amount": quantize_money(value["amount"])}
+            for key, value in age_buckets.items()
+        ],
+        "top_overdue_clients": [
+            {
+                "client": row["client"],
+                "count": row["count"],
+                "amount": quantize_money(row["amount"]),
+                "oldest_days_overdue": row["oldest_days_overdue"],
+            }
+            for row in top_overdue_clients
+        ],
+        "payment_trend": [
+            {"day": row["payment_date"], "amount": quantize_money(row["amount"]), "payments": row["payments"]}
+            for row in payment_trend
+        ],
+    }
+
+
 def resolve_invoice_payment_status(
     *,
     status: str,
@@ -1043,6 +1161,12 @@ class InvoiceService(BaseService):
         summary["outstanding_amount"] = max(summary["total_invoiced"] - summary["total_paid"], Decimal("0.00"))
         summary["total_collected"] = summary["total_paid"]
         summary["outstanding_balance"] = summary["outstanding_amount"]
+        collection = build_collection_efficiency_analytics(invoice_queryset, today=today)
+        summary["collection_efficiency_percentage"] = collection["collection_efficiency_percentage"]
+        summary["average_days_to_payment"] = collection["average_days_to_payment"]
+        summary["overdue_age_buckets"] = collection["overdue_age_buckets"]
+        summary["top_overdue_clients"] = collection["top_overdue_clients"]
+        summary["payment_trend"] = collection["payment_trend"]
         cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
         return summary
 

@@ -843,3 +843,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Operations summary now includes POE SLA warning/breach KPIs, oldest pending POE, unassigned review backlog, suspicious unresolved count, and reviewer workload distribution with pending/approved/rejected/rework counts.
 - Alert thresholds now include the `poe_sla_breaches` metric, creating audit events and operations notifications when breached POE reviews exceed the configured rule.
 - Mobile parity review: field staff do not see reviewer workload. Mobile admin overview receives only high-level POE SLA warning/breach KPIs to keep the app lightweight.
+
+## Invoice Overdue Escalation And Collection Analytics
+
+- Billing intelligence now calculates overdue invoice count/value, collection efficiency, pending/collected/invoiced totals, average days to payment, payment trend, overdue age buckets, and top overdue clients.
+- Invoice API responses now include a computed `escalation_status` with `due_soon`, `overdue_warning`, `overdue_breach`, `critical_overdue`, or `settled` labels without changing invoice lifecycle writes.
+- Operations summary exposes billing risk only to admin/finance users; operations users keep operational visibility but do not receive client-level receivables exposure.
+- The existing `overdue_invoices` alert metric now uses effective due-date/balance calculations instead of relying only on stored invoice status, and overdue alerts notify admin and finance role inboxes in addition to the operational alert trail.
+- `/operations` adds overdue invoice/value KPIs, collection efficiency, overdue age buckets, payment trend, and top overdue clients. `/billing` adds escalation badges and payment-risk hints to invoice rows.
+- Mobile parity: mobile admin overview receives high-level overdue invoice count, overdue value, and collection efficiency KPI cards. Field staff mobile screens remain finance-free.

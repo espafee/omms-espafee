@@ -949,10 +949,25 @@ textarea::placeholder {
 }
 
 .status-breached,
-.status-critical {
+.status-critical,
+.status-overdue_breach,
+.status-critical_overdue {
   border-color: rgba(185, 28, 28, 0.24);
   background: #fef2f2;
   color: #991b1b;
+}
+
+.status-due_soon,
+.status-settled {
+  border-color: var(--line);
+  background: white;
+  color: var(--accent);
+}
+
+.status-overdue_warning {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+  color: #92400e;
 }
 
 .empty-state {

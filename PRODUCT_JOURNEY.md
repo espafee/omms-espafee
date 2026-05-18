@@ -87,3 +87,9 @@ Inventory retries remain safe by reusing the import preview metadata and idempot
 OMMS now makes delayed POE review risk visible before it becomes a campaign delivery problem. Pending POE reviews and unresolved suspicious proofs receive warning and breach states based on clear operational SLA windows, and those signals appear directly in the POE queue and Operations dashboard.
 
 The Operations dashboard now summarizes POE SLA warnings, breaches, oldest pending proof, unassigned review backlog, suspicious unresolved proofs, and reviewer workload distribution. This gives operations teams a compact way to balance review ownership and escalate risky campaigns without changing field upload behavior.
+
+## Invoice Overdue Escalation And Collection Efficiency
+
+OMMS now surfaces receivables risk before revenue delays become invisible backlog. Billing intelligence calculates overdue value, age buckets, collection efficiency, payment trends, average payment delay, and the clients carrying the largest overdue exposure.
+
+The Operations dashboard adds a compact billing risk panel for admin and finance users, while Billing invoice rows now carry escalation labels and payment-risk hints. Overdue invoice alerts continue through the existing cooldown-protected alert system and now notify finance/admin inboxes for clearer ownership.

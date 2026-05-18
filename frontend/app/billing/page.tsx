@@ -111,6 +111,24 @@ function formatMoneyInput(value: string | number | null | undefined) {
   return Math.max(parseMoney(value), 0).toFixed(2);
 }
 
+function getInvoiceEscalation(invoice: Invoice) {
+  return invoice.escalation_status ?? { status: "due_soon", label: "Due soon", days_overdue: 0, age_bucket: "" };
+}
+
+function getInvoiceRiskHint(invoice: Invoice) {
+  const escalation = getInvoiceEscalation(invoice);
+  if (escalation.status === "critical_overdue") {
+    return `${escalation.days_overdue} days overdue. Escalate collection follow-up.`;
+  }
+  if (escalation.status === "overdue_breach" || escalation.status === "overdue_warning") {
+    return `${escalation.days_overdue} days overdue. Follow up before revenue slips further.`;
+  }
+  if (escalation.status === "due_soon") {
+    return "Monitor due date and payment commitment.";
+  }
+  return "Payment risk cleared.";
+}
+
 function createEmptyLine(localId: number): EstimateLineDraft {
   return {
     localId,
@@ -1294,6 +1312,50 @@ export default function BillingPage() {
         </section>
       ) : null}
 
+      {canManageBilling ? (
+        <section className="module-grid">
+          <article className="module-card">
+            <div className="module-head">
+              <h2>Collection efficiency</h2>
+              <span>{billingData?.summary.collection_efficiency_percentage ?? 0}%</span>
+            </div>
+            <div className="module-stats">
+              <div className="module-stat">
+                <p className="stat-label">Collected</p>
+                <p className="stat-value">{formatCurrency(billingData?.summary.total_collected ?? "0.00")}</p>
+              </div>
+              <div className="module-stat">
+                <p className="stat-label">Pending</p>
+                <p className="stat-value">{formatCurrency(billingData?.summary.outstanding_balance ?? "0.00")}</p>
+              </div>
+              <div className="module-stat">
+                <p className="stat-label">Avg delay</p>
+                <p className="stat-value">{billingData?.summary.average_days_to_payment ?? "-"}d</p>
+              </div>
+            </div>
+          </article>
+          <article className="module-card">
+            <div className="module-head">
+              <h2>Overdue age</h2>
+              <span>Escalation</span>
+            </div>
+            <div className="asset-list compact-feed">
+              {(billingData?.summary.overdue_age_buckets ?? []).map((bucket) => (
+                <article className="asset-card" key={bucket.bucket}>
+                  <div className="asset-head">
+                    <div>
+                      <p className="site-code">{bucket.label}</p>
+                      <h3>{formatCurrency(bucket.amount)}</h3>
+                    </div>
+                    <span className="status-pill status-overdue">{bucket.count}</span>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+        </section>
+      ) : null}
+
       <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
@@ -1467,6 +1529,7 @@ export default function BillingPage() {
                   <th>Issue date</th>
                   <th>Due date</th>
                   <th>Payment status</th>
+                  <th>Risk</th>
                   <th>Invoice total</th>
                   <th>Amount paid</th>
                   <th>Balance due</th>
@@ -1476,6 +1539,7 @@ export default function BillingPage() {
               <tbody>
                 {displayedInvoices.map((invoice) => {
                   const campaign = campaignMap.get(invoice.campaign);
+                  const escalation = getInvoiceEscalation(invoice);
 
                   return (
                     <tr key={invoice.id}>
@@ -1495,6 +1559,12 @@ export default function BillingPage() {
                       <td>{invoice.due_date ? formatDate(invoice.due_date) : "Not set"}</td>
                       <td>
                         <span className={`status-pill status-${invoice.payment_status}`}>{invoice.payment_status.replaceAll("_", " ")}</span>
+                      </td>
+                      <td>
+                        <div className="table-primary">
+                          <strong><span className={`status-pill status-${escalation.status}`}>{escalation.label}</span></strong>
+                          <span>{getInvoiceRiskHint(invoice)}</span>
+                        </div>
                       </td>
                       <td>{formatCurrency(invoice.invoice_total)}</td>
                       <td>{formatCurrency(invoice.amount_paid)}</td>

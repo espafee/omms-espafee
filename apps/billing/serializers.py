@@ -5,7 +5,7 @@ from rest_framework import serializers
 from apps.campaigns.models import Campaign
 
 from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
-from .services import get_invoice_payment_status
+from .services import get_invoice_escalation_status, get_invoice_payment_status
 
 
 class InvoiceSummarySerializer(serializers.Serializer):
@@ -26,6 +26,11 @@ class InvoiceSummarySerializer(serializers.Serializer):
     total_collected = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_amount = serializers.DecimalField(max_digits=14, decimal_places=2)
     outstanding_balance = serializers.DecimalField(max_digits=14, decimal_places=2)
+    collection_efficiency_percentage = serializers.IntegerField()
+    average_days_to_payment = serializers.FloatField(allow_null=True)
+    overdue_age_buckets = serializers.ListField(child=serializers.DictField())
+    top_overdue_clients = serializers.ListField(child=serializers.DictField())
+    payment_trend = serializers.ListField(child=serializers.DictField())
 
 
 class SupplierProfileSerializer(serializers.ModelSerializer):
@@ -320,6 +325,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     amount_paid = serializers.SerializerMethodField()
     balance_due = serializers.SerializerMethodField()
     payment_status = serializers.SerializerMethodField()
+    escalation_status = serializers.SerializerMethodField()
 
     def get_pdf_file(self, obj):
         return obj.pdf_file.name if obj.pdf_file else None
@@ -337,6 +343,9 @@ class InvoiceSerializer(serializers.ModelSerializer):
 
     def get_payment_status(self, obj):
         return get_invoice_payment_status(obj, total_paid=self.get_amount_paid(obj))
+
+    def get_escalation_status(self, obj):
+        return get_invoice_escalation_status(obj, total_paid=self.get_amount_paid(obj))
 
     class Meta:
         model = Invoice

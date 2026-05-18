@@ -82,6 +82,12 @@ export type Invoice = {
   amount_paid: string;
   balance_due: string;
   payment_status: string;
+  escalation_status?: {
+    status: string;
+    label: string;
+    days_overdue: number;
+    age_bucket: string;
+  };
   pdf_file?: string | null;
   lines: InvoiceLine[];
   payments: Payment[];

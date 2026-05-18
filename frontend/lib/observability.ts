@@ -64,7 +64,21 @@ export type OperationsSummary = {
     active_users_today: number;
     campaigns_running: number;
     invoice_collection_rate: number;
+    overdue_invoices: number;
+    overdue_invoice_value: string;
     export_activity_today: number;
+  };
+  billing_intelligence: {
+    total_invoiced_amount: string;
+    collected_amount: string;
+    pending_amount: string;
+    overdue_amount: string;
+    overdue_invoice_count: number;
+    collection_efficiency_percentage: number;
+    average_days_to_payment: number | null;
+    overdue_age_buckets: Array<{ bucket: string; label: string; count: number; amount: string }>;
+    top_overdue_clients: Array<{ client: string; count: number; amount: string; oldest_days_overdue: number }>;
+    payment_trend: Array<{ day: string; amount: string; payments: number }>;
   };
   slow_requests_count: number;
   audit_by_severity: Array<{ severity: string; total: number }>;

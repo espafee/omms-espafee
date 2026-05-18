@@ -42,6 +42,11 @@ export type BillingSummary = {
   total_collected: string;
   outstanding_amount: string;
   outstanding_balance: string;
+  collection_efficiency_percentage: number;
+  average_days_to_payment: number | null;
+  overdue_age_buckets: Array<{ bucket: string; label: string; count: number; amount: string }>;
+  top_overdue_clients: Array<{ client: string; count: number; amount: string; oldest_days_overdue: number }>;
+  payment_trend: Array<{ day: string; amount: string; payments: number }>;
 };
 
 export type DashboardPayload = {

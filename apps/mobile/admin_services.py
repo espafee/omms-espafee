@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.bookings.models import Assignment, Booking
+from apps.billing.services import build_collection_efficiency_analytics
 from apps.campaigns.models import Campaign
 from apps.issues.models import Issue
 from apps.issues.services import sync_issue_sla_status
@@ -116,6 +117,7 @@ class MobileAdminOperationsService:
         today = timezone.localdate()
         bookings = _base_booking_queryset()
         poe_sla = build_poe_sla_intelligence()
+        billing = build_collection_efficiency_analytics()
         return {
             "active_campaigns": _active_campaign_queryset(today).count(),
             "poe_pending": sum(1 for booking in bookings if _is_poe_pending(booking)),
@@ -128,6 +130,9 @@ class MobileAdminOperationsService:
             ).count(),
             "poe_sla_warnings": poe_sla["warning_count"],
             "poe_sla_breaches": poe_sla["breach_count"],
+            "overdue_invoices": billing["overdue_invoice_count"],
+            "overdue_invoice_value": billing["overdue_amount"],
+            "collection_efficiency": billing["collection_efficiency_percentage"],
             "bookings_starting_today": Booking.objects.filter(start_date=today).exclude(status=Booking.Status.CANCELLED).count(),
             "bookings_ending_today": Booking.objects.filter(end_date=today).exclude(status=Booking.Status.CANCELLED).count(),
         }

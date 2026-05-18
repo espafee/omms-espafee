@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
+import { formatCurrency } from "@/lib/dashboard";
 import {
   acknowledgeAlertEvent,
   confirmImportJob,
@@ -476,6 +477,8 @@ export default function OperationsPage() {
         <KpiCard label="Active users today" value={isLoading ? "..." : summary?.kpis.active_users_today ?? 0} />
         <KpiCard label="Campaigns running" value={isLoading ? "..." : summary?.kpis.campaigns_running ?? 0} href="/campaigns" />
         <KpiCard label="Collection status" value={isLoading ? "..." : `${summary?.kpis.invoice_collection_rate ?? 0}%`} href="/billing" />
+        <KpiCard label="Overdue invoices" value={isLoading ? "..." : summary?.kpis.overdue_invoices ?? 0} hint="billing risk" href="/billing" />
+        <KpiCard label="Overdue value" value={isLoading ? "..." : formatCurrency(summary?.kpis.overdue_invoice_value ?? "0.00")} href="/billing" />
         <KpiCard label="Exports today" value={isLoading ? "..." : summary?.kpis.export_activity_today ?? 0} />
       </section>
 
@@ -576,9 +579,58 @@ export default function OperationsPage() {
             <h2>Billing analytics</h2>
             <Link href="/billing">Open billing</Link>
           </div>
-          <CompactBars rows={summary?.charts.billing_activity ?? []} labelKey="day" valueKey="invoices" />
+          <CompactBars rows={summary?.billing_intelligence.payment_trend ?? []} labelKey="day" valueKey="amount" />
         </article>
 
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Billing risk</h2>
+            <span>Receivables</span>
+          </div>
+          <div className="ops-health-grid">
+            <div><p className="stat-label">Invoiced</p><strong>{formatCurrency(summary?.billing_intelligence.total_invoiced_amount ?? "0.00")}</strong></div>
+            <div><p className="stat-label">Collected</p><strong>{formatCurrency(summary?.billing_intelligence.collected_amount ?? "0.00")}</strong></div>
+            <div><p className="stat-label">Pending</p><strong>{formatCurrency(summary?.billing_intelligence.pending_amount ?? "0.00")}</strong></div>
+            <div><p className="stat-label">Overdue</p><strong>{formatCurrency(summary?.billing_intelligence.overdue_amount ?? "0.00")}</strong></div>
+            <div><p className="stat-label">Efficiency</p><strong>{summary?.billing_intelligence.collection_efficiency_percentage ?? 0}%</strong></div>
+            <div><p className="stat-label">Avg payment delay</p><strong>{summary?.billing_intelligence.average_days_to_payment ?? "-"}d</strong></div>
+          </div>
+        </article>
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Overdue age buckets</h2>
+            <span>Invoice value</span>
+          </div>
+          <CompactBars rows={summary?.billing_intelligence.overdue_age_buckets ?? []} labelKey="label" valueKey="amount" />
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Top overdue clients</h2>
+            <span>Largest exposure</span>
+          </div>
+          <div className="asset-list compact-feed">
+            {(summary?.billing_intelligence.top_overdue_clients ?? []).map((client) => (
+              <article className="asset-card" key={client.client}>
+                <div className="asset-head">
+                  <div>
+                    <p className="site-code">{client.count} overdue invoice(s)</p>
+                    <h3>{client.client}</h3>
+                  </div>
+                  <span className="status-pill status-overdue">{client.oldest_days_overdue}d</span>
+                </div>
+                <p className="site-copy">{formatCurrency(client.amount)} overdue</p>
+              </article>
+            ))}
+            {(summary?.billing_intelligence.top_overdue_clients ?? []).length === 0 ? <p className="empty-state">No overdue client exposure for this view.</p> : null}
+          </div>
+        </article>
+      </section>
+
+      <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
             <h2>Operational load</h2>
@@ -586,9 +638,7 @@ export default function OperationsPage() {
           </div>
           <CompactBars rows={summary?.charts.load_distribution ?? []} labelKey="entity_type" valueKey="total" />
         </article>
-      </section>
 
-      <section className="module-grid">
         <article className="module-card">
           <div className="module-head">
             <h2>System health</h2>

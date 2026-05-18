@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date, timedelta
+from decimal import Decimal
 from io import BytesIO
 
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -9,6 +11,7 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from apps.bookings.models import Assignment, Booking
+from apps.billing.models import Invoice
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.issues.models import Issue
@@ -239,6 +242,14 @@ class MobileApiTests(TestCase):
         self.assertEqual(ProofOfExecution.objects.count(), 1)
 
     def test_mobile_admin_overview_allows_admin_and_returns_expected_keys(self):
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_date=date.today() - timedelta(days=20),
+            due_date=date.today() - timedelta(days=10),
+            total_amount=Decimal("5000.00"),
+            grand_total=Decimal("5000.00"),
+            status=Invoice.Status.ISSUED,
+        )
         self._authenticate(self.admin)
 
         response = self.client.get("/api/v1/mobile/admin/overview/")
@@ -253,10 +264,15 @@ class MobileApiTests(TestCase):
                 "suspicious_poe",
                 "poe_sla_warnings",
                 "poe_sla_breaches",
+                "overdue_invoices",
+                "overdue_invoice_value",
+                "collection_efficiency",
                 "bookings_starting_today",
                 "bookings_ending_today",
             },
         )
+        self.assertEqual(response.data["overdue_invoices"], 1)
+        self.assertEqual(response.data["overdue_invoice_value"], "5000.00")
 
     def test_mobile_admin_overview_rejects_field_staff(self):
         self._authenticate(self.field_staff)

@@ -33,6 +33,7 @@ from apps.observability.services import (
 from apps.observability.tasks import process_export_job_task
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import get_poe_sla_status
+from apps.billing.services import build_collection_efficiency_analytics
 
 User = get_user_model()
 
@@ -207,6 +208,31 @@ class ObservabilityFoundationTests(TestCase):
         reviewer = next(row for row in payload["reviewer_workload"] if row["reviewer"] == self.operations.email)
         self.assertEqual(reviewer["pending"], 1)
         self.assertEqual(reviewer["approved"], 1)
+
+    def test_collection_efficiency_groups_overdue_age_buckets(self):
+        invoice = Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_date=date.today() - timedelta(days=20),
+            due_date=date.today() - timedelta(days=10),
+            total_amount=Decimal("1000.00"),
+            grand_total=Decimal("1000.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        Payment.objects.create(
+            invoice=invoice,
+            payment_date=date.today(),
+            amount=Decimal("250.00"),
+            method=Payment.Method.BANK_TRANSFER,
+        )
+
+        payload = build_collection_efficiency_analytics()
+
+        self.assertEqual(payload["overdue_invoice_count"], 1)
+        self.assertEqual(payload["overdue_amount"], Decimal("750.00"))
+        bucket = next(item for item in payload["overdue_age_buckets"] if item["bucket"] == "8-15")
+        self.assertEqual(bucket["count"], 1)
+        self.assertEqual(bucket["amount"], Decimal("750.00"))
+        self.assertEqual(payload["collection_efficiency_percentage"], 25)
 
     def test_diagnostics_are_admin_only(self):
         self.client.force_authenticate(self.client_user)
@@ -723,6 +749,29 @@ class ObservabilityFoundationTests(TestCase):
         self.assertTrue(AuditEvent.objects.filter(event_type="alert.triggered", entity_id=str(rule.id)).exists())
         self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED, title__icontains=rule.name).exists())
 
+    def test_overdue_invoice_threshold_notifies_finance_and_admin(self):
+        rule = AlertRule.objects.create(
+            name="Overdue invoice threshold",
+            metric=AlertRule.Metric.OVERDUE_INVOICES,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_date=date.today() - timedelta(days=40),
+            due_date=date.today() - timedelta(days=31),
+            total_amount=Decimal("1500.00"),
+            grand_total=Decimal("1500.00"),
+            status=Invoice.Status.ISSUED,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in events if event.rule_id == rule.id]), 1)
+        self.assertTrue(Notification.objects.filter(recipient_role="finance", title__icontains=rule.name).exists())
+        self.assertTrue(Notification.objects.filter(recipient_role="admin", title__icontains=rule.name).exists())
+
     def test_failed_api_request_threshold_uses_24h_window(self):
         rule = AlertRule.objects.create(
             name="Failed API threshold",
@@ -944,9 +993,27 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIn("system_health", response.data)
         self.assertIn("poe_sla", response.data)
         self.assertIn("poe_sla_warnings", response.data["kpis"])
+        self.assertIn("billing_intelligence", response.data)
         self.assertGreaterEqual(response.data["kpis"]["failed_requests"], 1)
         self.assertTrue(response.data["charts"]["request_activity"])
         self.assertTrue(response.data["timeline"])
+
+    def test_operations_summary_hides_billing_intelligence_from_operations_role(self):
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_date=date.today() - timedelta(days=20),
+            due_date=date.today() - timedelta(days=10),
+            total_amount=Decimal("1000.00"),
+            grand_total=Decimal("1000.00"),
+            status=Invoice.Status.ISSUED,
+        )
+        self.client.force_authenticate(self.operations)
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["kpis"]["overdue_invoices"], 0)
+        self.assertEqual(response.data["billing_intelligence"]["top_overdue_clients"], [])
 
     def test_operations_summary_filters_audit_by_role_and_notification_type(self):
         record_audit_event(

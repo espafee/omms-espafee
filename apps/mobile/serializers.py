@@ -42,6 +42,9 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     suspicious_poe = serializers.IntegerField()
     poe_sla_warnings = serializers.IntegerField()
     poe_sla_breaches = serializers.IntegerField()
+    overdue_invoices = serializers.IntegerField()
+    overdue_invoice_value = serializers.DecimalField(max_digits=14, decimal_places=2)
+    collection_efficiency = serializers.IntegerField()
     bookings_starting_today = serializers.IntegerField()
     bookings_ending_today = serializers.IntegerField()
 

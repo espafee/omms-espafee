@@ -19,6 +19,7 @@ from openpyxl import load_workbook
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
 from apps.billing.models import Invoice, Payment
+from apps.billing.services import build_collection_efficiency_analytics
 from apps.issues.models import Issue
 from apps.notifications.models import EmailNotificationLog, Notification
 from apps.poe.models import ProofOfExecution
@@ -266,7 +267,7 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
     if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
         return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
     if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
-        return Invoice.objects.filter(status=Invoice.Status.OVERDUE).count()
+        return build_collection_efficiency_analytics()["overdue_invoice_count"]
     return 0
 
 
@@ -309,6 +310,16 @@ def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
                 severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
                 metadata={"alert_rule_id": rule.id, "alert_event_id": event.id},
             )
+            if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
+                for role in ("admin", "finance"):
+                    NotificationService().create_internal_notification(
+                        recipient_role=role,
+                        event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                        title=f"Billing risk alert: {rule.name}",
+                        message=summary,
+                        severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                    )
         except Exception:
             pass
         created_events.append(event)
@@ -502,6 +513,12 @@ def _company_filter(queryset, filters: dict[str, Any]):
 
 def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
+    user = filters.get("_user")
+    can_view_finance = bool(
+        getattr(user, "is_superuser", False)
+        or getattr(user, "role", None) in {"admin", "finance"}
+        or user is None
+    )
     poe_payload = build_poe_analytics(filters)
     poe_sla = build_poe_sla_intelligence(filters)
     request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
@@ -537,9 +554,20 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     now = timezone.now()
     today = timezone.localdate()
     campaigns_running = Campaign.objects.filter(status=Campaign.Status.ACTIVE, start_date__lte=today, end_date__gte=today).count()
-    invoice_total = Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]).count()
-    invoice_paid = Invoice.objects.filter(status__in=[Invoice.Status.PAID, Invoice.Status.PARTIALLY_PAID]).count()
-    invoice_collection_rate = round((invoice_paid / invoice_total) * 100) if invoice_total else 0
+    invoice_queryset = Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED])
+    billing_intelligence = build_collection_efficiency_analytics(invoice_queryset) if can_view_finance else {
+        "total_invoiced_amount": Decimal("0.00"),
+        "collected_amount": Decimal("0.00"),
+        "pending_amount": Decimal("0.00"),
+        "overdue_amount": Decimal("0.00"),
+        "overdue_invoice_count": 0,
+        "collection_efficiency_percentage": 0,
+        "average_days_to_payment": None,
+        "overdue_age_buckets": [],
+        "top_overdue_clients": [],
+        "payment_trend": [],
+    }
+    invoice_collection_rate = billing_intelligence["collection_efficiency_percentage"] if can_view_finance else 0
     active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING, ImportExportJob.Status.PENDING]
     failed_request_count = request_queryset.filter(status_code__gte=500).count()
     total_request_count = request_queryset.count()
@@ -578,7 +606,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         poe_queryset.values("checked_by__email").annotate(total=Count("id")).order_by("-total")[:8]
     )
     billing_activity = (
-        Invoice.objects.annotate(day=TruncDate("created_at"))
+        invoice_queryset.annotate(day=TruncDate("created_at"))
         .values("day")
         .annotate(
             invoices=Count("id"),
@@ -586,8 +614,8 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             overdue=Count("id", filter=Q(status=Invoice.Status.OVERDUE)),
         )
         .order_by("day")
-    )
-    payment_activity = _daily_counts(Payment.objects.all(), date_field="payment_date", value_name="payments")
+    ) if can_view_finance else []
+    payment_activity = _daily_counts(Payment.objects.all(), date_field="payment_date", value_name="payments") if can_view_finance else []
     operations_activity = (
         audit_queryset.annotate(day=TruncDate("created_at"))
         .values("day")
@@ -650,6 +678,8 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "active_users_today": active_users_today,
             "campaigns_running": campaigns_running,
             "invoice_collection_rate": invoice_collection_rate,
+            "overdue_invoices": billing_intelligence["overdue_invoice_count"],
+            "overdue_invoice_value": billing_intelligence["overdue_amount"],
             "export_activity_today": export_activity_today,
         },
         "slow_requests_count": request_queryset.filter(is_slow=True).count(),
@@ -682,6 +712,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "load_distribution": load_distribution,
         },
         "poe_sla": poe_sla,
+        "billing_intelligence": billing_intelligence,
         "timeline": timeline,
         "system_health": {
             "celery_mode": "enabled" if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) else "disabled",
