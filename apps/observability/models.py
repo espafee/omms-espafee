@@ -165,6 +165,7 @@ class AlertRule(TimeStampedModel):
         FAILED_IMPORT_EXPORT_JOBS = "failed_import_export_jobs", "Failed Import/Export Jobs"
         SUSPICIOUS_POES = "suspicious_poes", "Suspicious POEs"
         OVERDUE_POE_REVIEWS = "overdue_poe_reviews", "Overdue POE Reviews"
+        POE_SLA_BREACHES = "poe_sla_breaches", "POE SLA Breaches"
         BREACHED_ISSUES = "breached_issues", "Breached Issues"
         OVERDUE_INVOICES = "overdue_invoices", "Overdue Invoices"
 

@@ -38,6 +38,14 @@ export type PoeRecord = {
   review_due_at: string | null;
   reviewed_at: string | null;
   review_sla_status: string;
+  sla_indicator?: {
+    status: string;
+    label: string;
+    age_hours: number;
+    warning_at: string | null;
+    breach_at: string | null;
+    is_suspicious_unresolved: boolean;
+  };
   location_confidence?: {
     captured_latitude: string | null;
     captured_longitude: string | null;

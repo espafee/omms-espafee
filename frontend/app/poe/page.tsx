@@ -565,6 +565,8 @@ export default function PoePage() {
                   const campaign = booking ? campaignMap.get(booking.campaign) : null;
                   const unit = booking ? unitMap.get(booking.media_unit) : null;
                   const confidence = record.location_confidence;
+                  const slaIndicator = record.sla_indicator;
+                  const slaStatus = slaIndicator?.status ?? record.review_sla_status ?? "on_track";
 
                   return (
                     <tr key={record.id}>
@@ -589,10 +591,11 @@ export default function PoePage() {
                       <td>
                         <div className="table-primary">
                           <strong>
-                            <span className={`status-pill status-${record.review_sla_status}`}>
-                              {record.review_sla_status?.replaceAll("_", " ") ?? "on track"}
+                            <span className={`status-pill status-${slaStatus}`}>
+                              {slaIndicator?.label ?? record.review_sla_status?.replaceAll("_", " ") ?? "On track"}
                             </span>
                           </strong>
+                          {slaIndicator ? <span>{slaIndicator.age_hours}h in review window</span> : null}
                           <span>{record.review_due_at ? `Due ${formatDateTime(record.review_due_at)}` : "No review due date"}</span>
                           {record.review_comment ? <span>{record.review_comment}</span> : null}
                         </div>

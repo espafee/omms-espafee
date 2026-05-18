@@ -3,7 +3,7 @@ from rest_framework import serializers
 from core.images import build_public_media_url
 
 from .models import ProofOfExecution, ProofOfExecutionMedia, ProofOfExecutionVerificationLog
-from .services import build_location_confidence, resolve_review_sla_status
+from .services import build_location_confidence, get_poe_sla_status, resolve_review_sla_status
 
 
 class AbsoluteMediaUrlMixin:
@@ -69,6 +69,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
     verification_logs = ProofOfExecutionVerificationLogSerializer(many=True, read_only=True)
     location_confidence = serializers.SerializerMethodField()
     review_sla_status = serializers.SerializerMethodField()
+    sla_indicator = serializers.SerializerMethodField()
 
     class Meta:
         model = ProofOfExecution
@@ -88,6 +89,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "review_due_at",
             "reviewed_at",
             "review_sla_status",
+            "sla_indicator",
             "notes",
             "location_confidence",
             "media_items",
@@ -101,6 +103,7 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "verification_notes",
             "reviewed_at",
             "review_sla_status",
+            "sla_indicator",
             "location_confidence",
             "media_items",
             "verification_logs",
@@ -116,6 +119,9 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
 
     def get_review_sla_status(self, obj):
         return resolve_review_sla_status(obj)
+
+    def get_sla_indicator(self, obj):
+        return get_poe_sla_status(obj)
 
 
 class ProofOfExecutionApproveRequestSerializer(serializers.Serializer):

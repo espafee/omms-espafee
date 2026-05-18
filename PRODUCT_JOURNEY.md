@@ -81,3 +81,9 @@ The live layer is intentionally calm: a compact `Live` indicator, last-updated t
 OMMS can now recover from failed operational jobs without losing history. Failed imports and exports expose a controlled retry action in the Operations workbench, creating a linked retry job while preserving the original failure record and report.
 
 Inventory retries remain safe by reusing the import preview metadata and idempotent import rules, so retrying a failed import does not blindly duplicate sites or media units. Export retries regenerate the requested CSV from the original filters. Each retry request is audited, and completion or failure continues to flow through the notification system.
+
+## POE SLA And Reviewer Workload Intelligence
+
+OMMS now makes delayed POE review risk visible before it becomes a campaign delivery problem. Pending POE reviews and unresolved suspicious proofs receive warning and breach states based on clear operational SLA windows, and those signals appear directly in the POE queue and Operations dashboard.
+
+The Operations dashboard now summarizes POE SLA warnings, breaches, oldest pending proof, unassigned review backlog, suspicious unresolved proofs, and reviewer workload distribution. This gives operations teams a compact way to balance review ownership and escalate risky campaigns without changing field upload behavior.

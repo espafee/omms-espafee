@@ -921,6 +921,8 @@ textarea::placeholder {
 .status-approved,
 .status-completed,
 .status-verified,
+.status-reviewed,
+.status-on_track,
 .status-paid,
 .status-reserved,
 .status-live,
@@ -938,6 +940,19 @@ textarea::placeholder {
   border-color: var(--line);
   background: white;
   color: var(--accent);
+}
+
+.status-warning {
+  border-color: rgba(217, 119, 6, 0.28);
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.status-breached,
+.status-critical {
+  border-color: rgba(185, 28, 28, 0.24);
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .empty-state {

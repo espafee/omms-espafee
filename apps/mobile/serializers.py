@@ -40,6 +40,8 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     poe_pending = serializers.IntegerField()
     poe_completed_today = serializers.IntegerField()
     suspicious_poe = serializers.IntegerField()
+    poe_sla_warnings = serializers.IntegerField()
+    poe_sla_breaches = serializers.IntegerField()
     bookings_starting_today = serializers.IntegerField()
     bookings_ending_today = serializers.IntegerField()
 

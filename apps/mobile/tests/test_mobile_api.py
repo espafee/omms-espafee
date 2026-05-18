@@ -251,6 +251,8 @@ class MobileApiTests(TestCase):
                 "poe_pending",
                 "poe_completed_today",
                 "suspicious_poe",
+                "poe_sla_warnings",
+                "poe_sla_breaches",
                 "bookings_starting_today",
                 "bookings_ending_today",
             },

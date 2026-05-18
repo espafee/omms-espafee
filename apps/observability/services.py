@@ -22,7 +22,7 @@ from apps.billing.models import Invoice, Payment
 from apps.issues.models import Issue
 from apps.notifications.models import EmailNotificationLog, Notification
 from apps.poe.models import ProofOfExecution
-from apps.poe.services import resolve_review_sla_status
+from apps.poe.services import get_poe_sla_status, get_poe_sla_thresholds, resolve_review_sla_status
 from apps.users.models import User
 from core.repositories import BaseRepository
 from core.services import BaseService
@@ -45,8 +45,6 @@ IMPORT_SITE_FIELD_ALIASES = {
     "lng": "site_longitude",
     "long": "site_longitude",
 }
-
-
 def get_company_name() -> str:
     try:
         from apps.setup.models import CompanyProfile
@@ -229,6 +227,7 @@ def ensure_default_alert_rules() -> None:
         ("Failed import/export jobs in last 24h", AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS, 2, 1440, AlertRule.Severity.WARNING),
         ("Suspicious POEs today", AlertRule.Metric.SUSPICIOUS_POES, 5, 1440, AlertRule.Severity.WARNING),
         ("Overdue POE reviews", AlertRule.Metric.OVERDUE_POE_REVIEWS, 5, 1440, AlertRule.Severity.WARNING),
+        ("POE SLA breaches", AlertRule.Metric.POE_SLA_BREACHES, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Breached issues", AlertRule.Metric.BREACHED_ISSUES, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Overdue invoices", AlertRule.Metric.OVERDUE_INVOICES, 5, 1440, AlertRule.Severity.WARNING),
     ]
@@ -262,6 +261,8 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
         ).count()
     if rule.metric == AlertRule.Metric.OVERDUE_POE_REVIEWS:
         return ProofOfExecution.objects.filter(reviewed_at__isnull=True, review_due_at__lt=now).count()
+    if rule.metric == AlertRule.Metric.POE_SLA_BREACHES:
+        return build_poe_sla_intelligence(now=now)["breach_count"]
     if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
         return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
     if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
@@ -386,6 +387,95 @@ def build_poe_analytics(filters: dict[str, Any] | None = None) -> dict[str, Any]
     }
 
 
+def build_poe_sla_intelligence(filters: dict[str, Any] | None = None, *, now=None) -> dict[str, Any]:
+    filters = filters or {}
+    now = now or timezone.now()
+    thresholds = get_poe_sla_thresholds()
+    queryset = ProofOfExecution.objects.select_related("checked_by", "booking__campaign").all()
+    if filters.get("date_from"):
+        queryset = queryset.filter(captured_at__date__gte=filters["date_from"])
+    if filters.get("date_to"):
+        queryset = queryset.filter(captured_at__date__lte=filters["date_to"])
+
+    warning_count = 0
+    breach_count = 0
+    suspicious_unresolved_count = 0
+    unassigned_count = 0
+    oldest_pending = None
+    pending_by_reviewer: dict[str, dict[str, Any]] = {}
+
+    for record in queryset:
+        sla = get_poe_sla_status(record, now=now)
+        if sla["status"] == "warning":
+            warning_count += 1
+        elif sla["status"] == "breached":
+            breach_count += 1
+        if sla["is_suspicious_unresolved"]:
+            suspicious_unresolved_count += 1
+        if record.verification_status == ProofOfExecution.VerificationStatus.PENDING and not record.reviewed_at:
+            if record.checked_by_id is None:
+                unassigned_count += 1
+            if oldest_pending is None or record.captured_at < oldest_pending.captured_at:
+                oldest_pending = record
+            key = record.checked_by.email if record.checked_by else "Unassigned"
+            bucket = pending_by_reviewer.setdefault(key, {"reviewer": key, "pending": 0})
+            bucket["pending"] += 1
+
+    reviewer_activity = list(
+        queryset.values("checked_by__email")
+        .annotate(
+            approved=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.VERIFIED)),
+            rejected=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.REJECTED)),
+            suspicious=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)),
+        )
+        .order_by("checked_by__email")
+    )
+    reviewer_rows = []
+    for row in reviewer_activity:
+        reviewer = row["checked_by__email"] or "Unassigned"
+        pending = pending_by_reviewer.get(reviewer, {}).get("pending", 0)
+        reviewer_rows.append(
+            {
+                "reviewer": reviewer,
+                "pending": pending,
+                "approved": row["approved"],
+                "rejected": row["rejected"],
+                "rework": row["suspicious"],
+                "is_overloaded": pending >= thresholds["reviewer_overload_threshold"],
+            }
+        )
+    for reviewer, pending_row in pending_by_reviewer.items():
+        if not any(row["reviewer"] == reviewer for row in reviewer_rows):
+            reviewer_rows.append(
+                {
+                    "reviewer": reviewer,
+                    "pending": pending_row["pending"],
+                    "approved": 0,
+                    "rejected": 0,
+                    "rework": 0,
+                    "is_overloaded": pending_row["pending"] >= thresholds["reviewer_overload_threshold"],
+                }
+            )
+    reviewer_rows = sorted(reviewer_rows, key=lambda row: row["pending"], reverse=True)[:10]
+
+    return {
+        "warning_count": warning_count,
+        "breach_count": breach_count,
+        "oldest_pending": {
+            "id": oldest_pending.id,
+            "captured_at": oldest_pending.captured_at,
+            "campaign": oldest_pending.booking.campaign.name,
+            "age_hours": get_poe_sla_status(oldest_pending, now=now)["age_hours"],
+        }
+        if oldest_pending
+        else None,
+        "unassigned_count": unassigned_count,
+        "reviewer_workload": reviewer_rows,
+        "suspicious_unresolved_count": suspicious_unresolved_count,
+        "thresholds": thresholds,
+    }
+
+
 def _apply_created_range(queryset, filters: dict[str, Any]):
     if filters.get("date_from"):
         queryset = queryset.filter(created_at__date__gte=filters["date_from"])
@@ -413,6 +503,7 @@ def _company_filter(queryset, filters: dict[str, Any]):
 def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
     poe_payload = build_poe_analytics(filters)
+    poe_sla = build_poe_sla_intelligence(filters)
     request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
     audit_queryset = _company_filter(AuditEvent.objects.all(), filters)
     notification_queryset = EmailNotificationLog.objects.all()
@@ -552,6 +643,8 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "failed_jobs": job_queryset.filter(status=ImportExportJob.Status.FAILED).count(),
             "suspicious_poes": poe_payload["suspicious_count"],
             "pending_poe_reviews": poe_payload["pending_review_count"],
+            "poe_sla_warnings": poe_sla["warning_count"],
+            "poe_sla_breaches": poe_sla["breach_count"],
             "notifications_today": inbox_queryset.filter(created_at__date=today).count(),
             "failed_requests": failed_request_count,
             "active_users_today": active_users_today,
@@ -581,12 +674,14 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             ],
             "poe_status": poe_status,
             "reviewer_workload": [{"reviewer": row["checked_by__email"] or "Unassigned", "total": row["total"]} for row in reviewer_workload],
+            "poe_reviewer_workload": poe_sla["reviewer_workload"],
             "billing_activity": list(billing_activity),
             "payment_activity": payment_activity,
             "operations_activity": list(operations_activity),
             "notification_activity": notification_activity,
             "load_distribution": load_distribution,
         },
+        "poe_sla": poe_sla,
         "timeline": timeline,
         "system_health": {
             "celery_mode": "enabled" if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) else "disabled",

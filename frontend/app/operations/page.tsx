@@ -78,6 +78,15 @@ function formatRelativeRefresh(value: Date | null, now: number) {
   return `Updated ${Math.floor(seconds / 60)}m ago`;
 }
 
+function formatHours(value: number) {
+  if (value < 24) {
+    return `${value}h`;
+  }
+  const days = Math.floor(value / 24);
+  const hours = value % 24;
+  return hours ? `${days}d ${hours}h` : `${days}d`;
+}
+
 function SimpleBar({ label, value, max }: { label: string; value: number; max: number }) {
   const width = max > 0 ? Math.max(4, Math.round((value / max) * 100)) : 4;
   return (
@@ -460,6 +469,8 @@ export default function OperationsPage() {
         <KpiCard label="Failed jobs" value={isLoading ? "..." : summary?.kpis.failed_jobs ?? 0} hint="needs review" />
         <KpiCard label="Suspicious POEs" value={isLoading ? "..." : summary?.kpis.suspicious_poes ?? 0} href="/poe" />
         <KpiCard label="Pending POE reviews" value={isLoading ? "..." : summary?.kpis.pending_poe_reviews ?? 0} />
+        <KpiCard label="POE SLA warnings" value={isLoading ? "..." : summary?.kpis.poe_sla_warnings ?? 0} hint="24h / 12h risk" href="/poe" />
+        <KpiCard label="POE SLA breaches" value={isLoading ? "..." : summary?.kpis.poe_sla_breaches ?? 0} hint="needs escalation" href="/poe" />
         <KpiCard label="Notifications today" value={isLoading ? "..." : summary?.kpis.notifications_today ?? 0} href="/notifications" />
         <KpiCard label="Failed requests" value={isLoading ? "..." : summary?.kpis.failed_requests ?? 0} />
         <KpiCard label="Active users today" value={isLoading ? "..." : summary?.kpis.active_users_today ?? 0} />
@@ -500,7 +511,62 @@ export default function OperationsPage() {
             <h2>Reviewer workload</h2>
             <span>POE reviews</span>
           </div>
-          <CompactBars rows={summary?.charts.reviewer_workload ?? []} labelKey="reviewer" valueKey="total" />
+          <CompactBars rows={summary?.charts.poe_reviewer_workload ?? []} labelKey="reviewer" valueKey="pending" />
+        </article>
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>POE SLA risk</h2>
+            <span>Review deadlines</span>
+          </div>
+          <div className="ops-health-grid">
+            <div><p className="stat-label">Warnings</p><strong>{summary?.poe_sla.warning_count ?? 0}</strong></div>
+            <div><p className="stat-label">Breaches</p><strong>{summary?.poe_sla.breach_count ?? 0}</strong></div>
+            <div><p className="stat-label">Unassigned</p><strong>{summary?.poe_sla.unassigned_count ?? 0}</strong></div>
+            <div><p className="stat-label">Suspicious unresolved</p><strong>{summary?.poe_sla.suspicious_unresolved_count ?? 0}</strong></div>
+            <div>
+              <p className="stat-label">Oldest pending</p>
+              <strong>{summary?.poe_sla.oldest_pending ? formatHours(summary.poe_sla.oldest_pending.age_hours) : "-"}</strong>
+              {summary?.poe_sla.oldest_pending ? <span className="site-copy">{summary.poe_sla.oldest_pending.campaign}</span> : null}
+            </div>
+            <div>
+              <p className="stat-label">SLA rules</p>
+              <strong>{summary?.poe_sla.thresholds.pending_warning_hours ?? 24}h / {summary?.poe_sla.thresholds.pending_breach_hours ?? 48}h</strong>
+              <span className="site-copy">Pending warning / breach</span>
+            </div>
+          </div>
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Reviewer balance</h2>
+            <span>Pending / outcomes</span>
+          </div>
+          <div className="ops-bars">
+            {(summary?.poe_sla.reviewer_workload ?? []).map((row) => (
+              <div className="module-stat" key={row.reviewer}>
+                <p className="stat-label">{row.reviewer}</p>
+                <div className="progress-track">
+                  <span
+                    className="progress-fill"
+                    style={{
+                      width: `${Math.max(
+                        4,
+                        Math.min(100, Math.round((row.pending / Math.max(1, summary?.poe_sla.thresholds.reviewer_overload_threshold ?? 10)) * 100)),
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="site-copy">
+                  {row.pending} pending · {row.approved} approved · {row.rejected} rejected · {row.rework} rework
+                  {row.is_overloaded ? " · overloaded" : ""}
+                </p>
+              </div>
+            ))}
+            {(summary?.poe_sla.reviewer_workload ?? []).length === 0 ? <p className="empty-state">No reviewer load for this filter.</p> : null}
+          </div>
         </article>
       </section>
 

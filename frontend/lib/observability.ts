@@ -25,11 +25,40 @@ export type PoeAnalytics = {
 
 export type OperationsSummary = {
   poe: PoeAnalytics;
+  poe_sla: {
+    warning_count: number;
+    breach_count: number;
+    oldest_pending: {
+      id: number;
+      captured_at: string;
+      campaign: string;
+      age_hours: number;
+    } | null;
+    unassigned_count: number;
+    reviewer_workload: Array<{
+      reviewer: string;
+      pending: number;
+      approved: number;
+      rejected: number;
+      rework: number;
+      is_overloaded: boolean;
+    }>;
+    suspicious_unresolved_count: number;
+    thresholds: {
+      pending_warning_hours: number;
+      pending_breach_hours: number;
+      suspicious_warning_hours: number;
+      suspicious_breach_hours: number;
+      reviewer_overload_threshold: number;
+    };
+  };
   kpis: {
     active_jobs: number;
     failed_jobs: number;
     suspicious_poes: number;
     pending_poe_reviews: number;
+    poe_sla_warnings: number;
+    poe_sla_breaches: number;
     notifications_today: number;
     failed_requests: number;
     active_users_today: number;
@@ -55,6 +84,14 @@ export type OperationsSummary = {
     request_activity: Array<{ day: string; total: number; failed: number; slow: number; failed_percentage: number }>;
     poe_status: Array<{ verification_status: string; total: number }>;
     reviewer_workload: Array<{ reviewer: string; total: number }>;
+    poe_reviewer_workload: Array<{
+      reviewer: string;
+      pending: number;
+      approved: number;
+      rejected: number;
+      rework: number;
+      is_overloaded: boolean;
+    }>;
     billing_activity: Array<{ day: string; invoices: number; paid: number; overdue: number }>;
     payment_activity: Array<{ day: string; payments: number }>;
     operations_activity: Array<{ day: string; events: number }>;

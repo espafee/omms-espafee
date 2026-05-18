@@ -20,6 +20,23 @@ from .verification import DEFAULT_DISTANCE_THRESHOLD_METERS, ProofOfExecutionVer
 from .verification import haversine_distance_meters
 
 
+POE_REVIEW_WARNING_HOURS = 24
+POE_REVIEW_BREACH_HOURS = 48
+POE_SUSPICIOUS_WARNING_HOURS = 12
+POE_SUSPICIOUS_BREACH_HOURS = 24
+POE_REVIEWER_OVERLOAD_THRESHOLD = 10
+
+
+def get_poe_sla_thresholds() -> dict[str, int]:
+    return {
+        "pending_warning_hours": int(getattr(settings, "OMMS_POE_REVIEW_WARNING_HOURS", POE_REVIEW_WARNING_HOURS)),
+        "pending_breach_hours": int(getattr(settings, "OMMS_POE_REVIEW_BREACH_HOURS", POE_REVIEW_BREACH_HOURS)),
+        "suspicious_warning_hours": int(getattr(settings, "OMMS_POE_SUSPICIOUS_WARNING_HOURS", POE_SUSPICIOUS_WARNING_HOURS)),
+        "suspicious_breach_hours": int(getattr(settings, "OMMS_POE_SUSPICIOUS_BREACH_HOURS", POE_SUSPICIOUS_BREACH_HOURS)),
+        "reviewer_overload_threshold": int(getattr(settings, "OMMS_POE_REVIEWER_OVERLOAD_THRESHOLD", POE_REVIEWER_OVERLOAD_THRESHOLD)),
+    }
+
+
 class ProofOfExecutionService(BaseService):
     repository_class = ProofOfExecutionRepository
     REPLACEMENT_ALLOWED_STATUSES = {
@@ -345,6 +362,52 @@ def resolve_review_sla_status(poe_record: ProofOfExecution, *, now=None) -> str:
         review_due_at=poe_record.review_due_at,
         now=now,
     )
+
+
+def get_poe_sla_status(poe_record: ProofOfExecution, *, now=None) -> dict:
+    now = now or timezone.now()
+    thresholds = get_poe_sla_thresholds()
+    reviewed = bool(poe_record.reviewed_at)
+    captured_at = poe_record.captured_at or timezone.now()
+    age_hours = max(0, int((now - captured_at).total_seconds() // 3600))
+    is_suspicious_unresolved = (
+        poe_record.verification_status
+        in {ProofOfExecution.VerificationStatus.SUSPICIOUS, ProofOfExecution.VerificationStatus.REJECTED}
+        and not reviewed
+    )
+    is_pending_unresolved = poe_record.verification_status == ProofOfExecution.VerificationStatus.PENDING and not reviewed
+    warning_at = None
+    breach_at = None
+    status = "reviewed" if reviewed else "on_track"
+    label = "Reviewed" if reviewed else "On track"
+
+    if is_suspicious_unresolved:
+        warning_at = captured_at + timedelta(hours=thresholds["suspicious_warning_hours"])
+        breach_at = captured_at + timedelta(hours=thresholds["suspicious_breach_hours"])
+        if now >= breach_at:
+            status = "breached"
+            label = "Suspicious breach"
+        elif now >= warning_at:
+            status = "warning"
+            label = "Suspicious warning"
+    elif is_pending_unresolved:
+        warning_at = captured_at + timedelta(hours=thresholds["pending_warning_hours"])
+        breach_at = captured_at + timedelta(hours=thresholds["pending_breach_hours"])
+        if now >= breach_at:
+            status = "breached"
+            label = "Review breach"
+        elif now >= warning_at:
+            status = "warning"
+            label = "Review warning"
+
+    return {
+        "status": status,
+        "label": label,
+        "age_hours": age_hours,
+        "warning_at": warning_at,
+        "breach_at": breach_at,
+        "is_suspicious_unresolved": is_suspicious_unresolved,
+    }
 
 
 class ProofOfExecutionMediaService(BaseService):

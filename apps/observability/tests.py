@@ -18,6 +18,7 @@ from apps.notifications.models import EmailNotificationLog, Notification, Notifi
 from apps.notifications.services import NotificationService
 from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
 from apps.observability.services import (
+    build_poe_sla_intelligence,
     build_poe_analytics,
     confirm_inventory_sites_import,
     evaluate_alert_thresholds,
@@ -31,6 +32,7 @@ from apps.observability.services import (
 )
 from apps.observability.tasks import process_export_job_task
 from apps.poe.models import ProofOfExecution
+from apps.poe.services import get_poe_sla_status
 
 User = get_user_model()
 
@@ -135,6 +137,76 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(payload["missing_gps_count"], 1)
         self.assertEqual(payload["pending_review_count"], 1)
         self.assertEqual(payload["overdue_review_count"], 1)
+
+    def test_poe_sla_indicator_marks_pending_warning_and_breach(self):
+        now = timezone.now()
+        warning_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=25),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+        breached_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=49),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+
+        self.assertEqual(get_poe_sla_status(warning_poe, now=now)["status"], "warning")
+        self.assertEqual(get_poe_sla_status(breached_poe, now=now)["status"], "breached")
+
+    def test_poe_sla_indicator_marks_suspicious_unresolved_faster(self):
+        now = timezone.now()
+        warning_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=13),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+        breached_poe = ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=25),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+
+        self.assertEqual(get_poe_sla_status(warning_poe, now=now)["status"], "warning")
+        self.assertEqual(get_poe_sla_status(breached_poe, now=now)["status"], "breached")
+        self.assertTrue(get_poe_sla_status(breached_poe, now=now)["is_suspicious_unresolved"])
+
+    def test_poe_sla_intelligence_aggregates_reviewer_workload(self):
+        now = timezone.now()
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=49),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=2),
+            checked_by=self.operations,
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=1),
+            checked_by=self.operations,
+            verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
+            reviewed_at=now,
+        )
+
+        payload = build_poe_sla_intelligence(now=now)
+
+        self.assertEqual(payload["breach_count"], 1)
+        self.assertEqual(payload["unassigned_count"], 1)
+        self.assertEqual(payload["oldest_pending"]["age_hours"], 49)
+        reviewer = next(row for row in payload["reviewer_workload"] if row["reviewer"] == self.operations.email)
+        self.assertEqual(reviewer["pending"], 1)
+        self.assertEqual(reviewer["approved"], 1)
 
     def test_diagnostics_are_admin_only(self):
         self.client.force_authenticate(self.client_user)
@@ -630,6 +702,27 @@ class ObservabilityFoundationTests(TestCase):
         self.assertTrue(AuditEvent.objects.filter(event_type="alert.triggered", entity_id=str(rule.id)).exists())
         self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED, title__icontains=rule.name).exists())
 
+    def test_poe_sla_breach_threshold_creates_audit_and_notification(self):
+        rule = AlertRule.objects.create(
+            name="POE SLA breach threshold",
+            metric=AlertRule.Metric.POE_SLA_BREACHES,
+            threshold=1,
+            window_minutes=1440,
+            cooldown_minutes=60,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now() - timedelta(hours=49),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len([event for event in events if event.rule_id == rule.id]), 1)
+        self.assertTrue(AuditEvent.objects.filter(event_type="alert.triggered", entity_id=str(rule.id)).exists())
+        self.assertTrue(Notification.objects.filter(event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED, title__icontains=rule.name).exists())
+
     def test_failed_api_request_threshold_uses_24h_window(self):
         rule = AlertRule.objects.create(
             name="Failed API threshold",
@@ -849,6 +942,8 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIn("charts", response.data)
         self.assertIn("timeline", response.data)
         self.assertIn("system_health", response.data)
+        self.assertIn("poe_sla", response.data)
+        self.assertIn("poe_sla_warnings", response.data["kpis"])
         self.assertGreaterEqual(response.data["kpis"]["failed_requests"], 1)
         self.assertTrue(response.data["charts"]["request_activity"])
         self.assertTrue(response.data["timeline"])

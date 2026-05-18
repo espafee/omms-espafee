@@ -834,3 +834,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Retry requests create audit events (`inventory.import.retry_requested` or `export.retry_requested`); retry completion/failure uses existing import/export notifications, including failed export notifications.
 - The Operations dashboard now shows retry metadata and Retry actions for eligible failed import/export jobs.
 - Mobile parity review: mobile admin remains read-only for operational job control. Retry actions stay web-only because they mutate import/export state and require the richer Operations workbench context.
+
+## POE SLA Breach Indicators And Reviewer Workload
+
+- POE review risk now has explicit SLA states: pending reviews warn after 24 hours and breach after 48 hours; suspicious or rejected unresolved POEs warn after 12 hours and breach after 24 hours.
+- SLA thresholds are environment-configurable through `OMMS_POE_REVIEW_WARNING_HOURS`, `OMMS_POE_REVIEW_BREACH_HOURS`, `OMMS_POE_SUSPICIOUS_WARNING_HOURS`, `OMMS_POE_SUSPICIOUS_BREACH_HOURS`, and `OMMS_POE_REVIEWER_OVERLOAD_THRESHOLD`.
+- POE API responses now include a computed `sla_indicator` payload with status, label, age, warning time, breach time, and suspicious-unresolved flag while preserving the existing `review_sla_status` field.
+- Operations summary now includes POE SLA warning/breach KPIs, oldest pending POE, unassigned review backlog, suspicious unresolved count, and reviewer workload distribution with pending/approved/rejected/rework counts.
+- Alert thresholds now include the `poe_sla_breaches` metric, creating audit events and operations notifications when breached POE reviews exceed the configured rule.
+- Mobile parity review: field staff do not see reviewer workload. Mobile admin overview receives only high-level POE SLA warning/breach KPIs to keep the app lightweight.
