@@ -851,6 +851,7 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     now = now or timezone.now()
     since = now - timedelta(hours=24)
     database_ok = True
+    diagnostic_query_ok = True
     try:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
@@ -864,18 +865,27 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     beat_configured = bool(getattr(settings, "CELERY_BEAT_SCHEDULE", {}))
     active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING]
     if database_ok:
-        recent_failed_requests = ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
-        recent_slow_requests = ApiRequestLog.objects.filter(is_slow=True, created_at__gte=since).count()
-        recent_failed_jobs = ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since).count()
-        latest_successful_import = ImportExportJob.objects.filter(
-            job_type=ImportExportJob.JobType.IMPORT,
-            status=ImportExportJob.Status.COMPLETED,
-        ).order_by("-completed_at", "-updated_at").first()
-        latest_successful_export = ImportExportJob.objects.filter(
-            job_type=ImportExportJob.JobType.EXPORT,
-            status=ImportExportJob.Status.COMPLETED,
-        ).order_by("-completed_at", "-updated_at").first()
-        active_jobs = ImportExportJob.objects.filter(status__in=active_job_statuses).count()
+        try:
+            recent_failed_requests = ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
+            recent_slow_requests = ApiRequestLog.objects.filter(is_slow=True, created_at__gte=since).count()
+            recent_failed_jobs = ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since).count()
+            latest_successful_import = ImportExportJob.objects.filter(
+                job_type=ImportExportJob.JobType.IMPORT,
+                status=ImportExportJob.Status.COMPLETED,
+            ).order_by("-completed_at", "-updated_at").first()
+            latest_successful_export = ImportExportJob.objects.filter(
+                job_type=ImportExportJob.JobType.EXPORT,
+                status=ImportExportJob.Status.COMPLETED,
+            ).order_by("-completed_at", "-updated_at").first()
+            active_jobs = ImportExportJob.objects.filter(status__in=active_job_statuses).count()
+        except Exception:
+            diagnostic_query_ok = False
+            recent_failed_requests = 0
+            recent_slow_requests = 0
+            recent_failed_jobs = 0
+            latest_successful_import = None
+            latest_successful_export = None
+            active_jobs = 0
     else:
         recent_failed_requests = 0
         recent_slow_requests = 0
@@ -887,6 +897,8 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     signals = []
     if not database_ok:
         signals.append("database_unavailable")
+    if not diagnostic_query_ok:
+        signals.append("diagnostic_queries_unavailable")
     if celery_enabled and not broker_configured:
         signals.append("broker_not_configured")
     if recent_failed_requests >= 10:
@@ -896,7 +908,7 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     if recent_slow_requests >= 25:
         signals.append("slow_request_spike")
 
-    if not database_ok or recent_failed_requests >= 25 or recent_failed_jobs >= 5:
+    if not database_ok or not diagnostic_query_ok or recent_failed_requests >= 25 or recent_failed_jobs >= 5:
         status_value = "degraded"
     elif signals:
         status_value = "warning"
@@ -906,7 +918,7 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     return {
         "status": status_value,
         "api_status": "healthy" if recent_failed_requests < 10 and database_ok else "degraded",
-        "database": {"ok": database_ok},
+        "database": {"ok": database_ok, "diagnostic_queries_ok": diagnostic_query_ok},
         "redis": {"configured": broker_configured},
         "celery": {
             "enabled": celery_enabled,
@@ -1617,7 +1629,13 @@ def build_role_activity(filters: dict[str, Any] | None = None) -> dict[str, Any]
 
 def build_diagnostics_payload() -> dict[str, Any]:
     system_health = build_system_health_diagnostics()
-    cache_ok = cache.set("omms:diagnostics:ping", "ok", 10) and cache.get("omms:diagnostics:ping") == "ok"
+    try:
+        cache_ok = cache.set("omms:diagnostics:ping", "ok", 10) and cache.get("omms:diagnostics:ping") == "ok"
+    except Exception:
+        cache_ok = False
+    database_ok = bool(system_health.get("database", {}).get("ok")) and bool(
+        system_health.get("database", {}).get("diagnostic_queries_ok", True)
+    )
     return {
         "app_version": getattr(settings, "OMMS_APP_VERSION", ""),
         "git_commit": getattr(settings, "OMMS_GIT_COMMIT", ""),
@@ -1641,29 +1659,29 @@ def build_diagnostics_payload() -> dict[str, Any]:
             ApiRequestLog.objects.filter(is_slow=True)
             .values("created_at", "method", "path", "status_code", "duration_ms", "category")[:10]
         )
-        if system_health["database"]["ok"]
+        if database_ok
         else [],
         "recent_errors": list(
             ApiRequestLog.objects.filter(status_code__gte=500)
             .values("created_at", "method", "path", "status_code", "duration_ms", "category")[:10]
         )
-        if system_health["database"]["ok"]
+        if database_ok
         else [],
         "recent_critical_alerts": list(
             AlertEvent.objects.filter(severity=AlertRule.Severity.CRITICAL)
             .values("created_at", "metric", "summary", "observed_value", "threshold")[:10]
         )
-        if system_health["database"]["ok"]
+        if database_ok
         else [],
         "notification_retry_health": {
             "failed_count": EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED).count()
-            if system_health["database"]["ok"]
+            if database_ok
             else 0,
             "due_retry_count": EmailNotificationLog.objects.filter(
                 status=EmailNotificationLog.Status.FAILED,
                 next_retry_at__lte=timezone.now(),
             ).count()
-            if system_health["database"]["ok"]
+            if database_ok
             else 0,
         },
     }

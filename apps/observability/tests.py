@@ -492,6 +492,29 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(payload["status"], "degraded")
         self.assertFalse(payload["database"]["ok"])
 
+    @patch("apps.observability.services.ApiRequestLog.objects.filter")
+    def test_system_health_degraded_when_diagnostic_queries_fail(self, filter_mock):
+        filter_mock.side_effect = Exception("missing diagnostics table")
+
+        payload = build_system_health_diagnostics()
+
+        self.assertEqual(payload["status"], "degraded")
+        self.assertTrue(payload["database"]["ok"])
+        self.assertFalse(payload["database"]["diagnostic_queries_ok"])
+        self.assertIn("diagnostic_queries_unavailable", payload["signals"])
+
+    @patch("apps.observability.views.build_diagnostics_payload")
+    def test_diagnostics_endpoint_returns_safe_fallback_on_payload_error(self, diagnostics_mock):
+        diagnostics_mock.side_effect = RuntimeError("diagnostics failed")
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("observability-diagnostics"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["system_health"]["status"], "degraded")
+        self.assertEqual(response.data["cache"]["ok"], False)
+        self.assertEqual(response.data["notification_retry_health"]["failed_count"], 0)
+
     @patch("apps.observability.services.build_system_health_diagnostics")
     def test_system_health_degraded_alert_creates_notification(self, health_mock):
         health_mock.return_value = {

@@ -507,6 +507,10 @@ export default function OperationsPage() {
     router.replace("/login");
   }
 
+  const systemHealth = summary?.system_health;
+  const deployment = systemHealth?.deployment;
+  const healthSignals = systemHealth?.signals ?? [];
+
   return (
     <AppShell
       active="operations"
@@ -529,7 +533,7 @@ export default function OperationsPage() {
           </div>
         </div>
         <div className="ops-live-meta">
-          <span>{summary?.system_health.active_jobs ?? 0} active job(s)</span>
+          <span>{systemHealth?.active_jobs ?? 0} active job(s)</span>
           <span>{activeExportJobs.length} export running/queued</span>
           {isLiveRefreshing ? <span>Refreshing...</span> : null}
         </div>
@@ -821,28 +825,28 @@ export default function OperationsPage() {
           <div className="module-head">
             <div>
               <h2>System status</h2>
-              <p className="site-copy">Environment {summary?.system_health.deployment.environment_name || "unknown"}</p>
+              <p className="site-copy">Environment {deployment?.environment_name || "unknown"}</p>
             </div>
-            <span className={`status-pill status-${summary?.system_health.status ?? "unknown"}`}>
-              {statusLabel(summary?.system_health.status)}
+            <span className={`status-pill status-${systemHealth?.status ?? "unknown"}`}>
+              {statusLabel(systemHealth?.status)}
             </span>
           </div>
           <div className="ops-health-grid">
-            <div><p className="stat-label">API</p><strong>{statusLabel(summary?.system_health.api_status)}</strong></div>
-            <div><p className="stat-label">Database</p><strong>{summary?.system_health.database.ok ? "Connected" : "Degraded"}</strong></div>
-            <div><p className="stat-label">Redis</p><strong>{summary?.system_health.redis.configured ? "Configured" : "Not configured"}</strong></div>
-            <div><p className="stat-label">Celery</p><strong>{summary?.system_health.celery.mode ?? "..."}</strong><span className="site-copy">{summary?.system_health.celery.worker_ready ?? "unknown"} worker</span></div>
-            <div><p className="stat-label">Failed jobs</p><strong>{summary?.system_health.recent_failed_background_jobs ?? 0}</strong></div>
-            <div><p className="stat-label">Failed requests</p><strong>{summary?.system_health.recent_failed_requests ?? 0}</strong></div>
-            <div><p className="stat-label">Slow requests</p><strong>{summary?.system_health.recent_slow_requests ?? 0}</strong></div>
-            <div><p className="stat-label">API failures</p><strong>{summary?.system_health.api_failure_percentage ?? 0}%</strong></div>
-            <div><p className="stat-label">Retries due</p><strong>{summary?.system_health.notification_retries_due ?? 0}</strong></div>
-            <div><p className="stat-label">Last import</p><strong>{summary?.system_health.last_successful_import ? formatDateTime(summary.system_health.last_successful_import) : "-"}</strong></div>
-            <div><p className="stat-label">Last export</p><strong>{summary?.system_health.last_successful_export ? formatDateTime(summary.system_health.last_successful_export) : "-"}</strong></div>
-            <div><p className="stat-label">Build</p><strong>{summary?.system_health.deployment.git_commit || summary?.system_health.deployment.app_version || "-"}</strong></div>
+            <div><p className="stat-label">API</p><strong>{statusLabel(systemHealth?.api_status)}</strong></div>
+            <div><p className="stat-label">Database</p><strong>{systemHealth?.database?.ok ? "Connected" : "Degraded"}</strong></div>
+            <div><p className="stat-label">Redis</p><strong>{systemHealth?.redis?.configured ? "Configured" : "Not configured"}</strong></div>
+            <div><p className="stat-label">Celery</p><strong>{systemHealth?.celery?.mode ?? "..."}</strong><span className="site-copy">{systemHealth?.celery?.worker_ready ?? "unknown"} worker</span></div>
+            <div><p className="stat-label">Failed jobs</p><strong>{systemHealth?.recent_failed_background_jobs ?? 0}</strong></div>
+            <div><p className="stat-label">Failed requests</p><strong>{systemHealth?.recent_failed_requests ?? 0}</strong></div>
+            <div><p className="stat-label">Slow requests</p><strong>{systemHealth?.recent_slow_requests ?? 0}</strong></div>
+            <div><p className="stat-label">API failures</p><strong>{systemHealth?.api_failure_percentage ?? 0}%</strong></div>
+            <div><p className="stat-label">Retries due</p><strong>{systemHealth?.notification_retries_due ?? 0}</strong></div>
+            <div><p className="stat-label">Last import</p><strong>{systemHealth?.last_successful_import ? formatDateTime(systemHealth.last_successful_import) : "-"}</strong></div>
+            <div><p className="stat-label">Last export</p><strong>{systemHealth?.last_successful_export ? formatDateTime(systemHealth.last_successful_export) : "-"}</strong></div>
+            <div><p className="stat-label">Build</p><strong>{deployment?.git_commit || deployment?.app_version || "-"}</strong></div>
           </div>
-          {summary?.system_health.signals.length ? (
-            <p className="site-copy">Signals: {summary.system_health.signals.map(statusLabel).join(", ")}</p>
+          {healthSignals.length ? (
+            <p className="site-copy">Signals: {healthSignals.map(statusLabel).join(", ")}</p>
           ) : null}
         </article>
 

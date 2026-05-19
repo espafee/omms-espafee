@@ -185,7 +185,34 @@ class DiagnosticsView(APIView):
     allowed_roles = (ADMIN,)
 
     def get(self, request):
-        return Response(build_diagnostics_payload())
+        try:
+            return Response(build_diagnostics_payload())
+        except Exception:
+            logger.exception("Diagnostics payload failed")
+            summary = build_empty_operations_summary(error="System health diagnostics are temporarily unavailable.")
+            system_health = summary["system_health"]
+            return Response(
+                {
+                    "app_version": system_health["deployment"].get("app_version", ""),
+                    "git_commit": system_health["deployment"].get("git_commit", ""),
+                    "environment": system_health["deployment"],
+                    "system_health": system_health,
+                    "database": system_health["database"],
+                    "cache": {"ok": False, "timeout_seconds": 0},
+                    "background_jobs": {
+                        "celery_broker_configured": system_health["celery"]["broker_configured"],
+                        "background_jobs_enabled": system_health["celery"]["enabled"],
+                        "mode": system_health["celery"]["mode"],
+                        "worker_ready": system_health["celery"]["worker_ready"],
+                        "beat_configured": system_health["celery"]["beat_configured"],
+                    },
+                    "request_logging": {"enabled": False, "slow_threshold_ms": 0, "retention_days": 0},
+                    "recent_slow_requests": [],
+                    "recent_errors": [],
+                    "recent_critical_alerts": [],
+                    "notification_retry_health": {"failed_count": 0, "due_retry_count": 0},
+                }
+            )
 
 
 class HealthView(APIView):
