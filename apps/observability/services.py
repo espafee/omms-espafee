@@ -28,9 +28,10 @@ from apps.poe.models import ProofOfExecution
 from apps.poe.services import get_poe_sla_status, get_poe_sla_thresholds, resolve_review_sla_status
 from apps.users.models import User
 from core.repositories import BaseRepository
+from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, OPERATIONS, SALES
 from core.services import BaseService
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
 
 
 SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret", "private_key", "file", "image"}
@@ -63,6 +64,133 @@ OPERATIONAL_SEARCH_MODULES = {
     "units",
 }
 BILLING_SEARCH_ROLES = {"admin", "finance"}
+DASHBOARD_WIDGETS = {
+    "operational_health": {
+        "label": "Operational health",
+        "category": "operations",
+        "description": "System health, live jobs, request failures, and diagnostics.",
+        "href": "/operations",
+    },
+    "critical_campaigns": {
+        "label": "Critical campaigns",
+        "category": "campaigns",
+        "description": "Campaigns with critical delivery or commercial risk.",
+        "href": "/campaigns",
+    },
+    "billing_risk": {
+        "label": "Billing risk",
+        "category": "finance",
+        "description": "Overdue invoices, collection efficiency, and payment risk.",
+        "href": "/billing",
+    },
+    "alerts": {
+        "label": "Alerts",
+        "category": "operations",
+        "description": "Active operational alerts and threshold breaches.",
+        "href": "/operations",
+    },
+    "campaign_performance": {
+        "label": "Campaign performance",
+        "category": "campaigns",
+        "description": "Active campaigns, delivery health, and POE completion.",
+        "href": "/campaigns",
+    },
+    "poe_sla": {
+        "label": "POE SLA",
+        "category": "poe",
+        "description": "Pending reviews, breaches, suspicious proofs, and review risk.",
+        "href": "/poe",
+    },
+    "reviewer_workload": {
+        "label": "Reviewer workload",
+        "category": "poe",
+        "description": "Reviewer load, unassigned proofs, and review outcomes.",
+        "href": "/operations",
+    },
+    "import_export_jobs": {
+        "label": "Import/export jobs",
+        "category": "operations",
+        "description": "Active, failed, completed, and retryable operational jobs.",
+        "href": "/operations",
+    },
+    "overdue_invoices": {
+        "label": "Overdue invoices",
+        "category": "finance",
+        "description": "Overdue invoice count, value, and escalation state.",
+        "href": "/billing",
+    },
+    "collection_efficiency": {
+        "label": "Collection efficiency",
+        "category": "finance",
+        "description": "Collection percentage, payment trend, and pending receivables.",
+        "href": "/billing",
+    },
+    "invoice_payment_trend": {
+        "label": "Invoice/payment trend",
+        "category": "finance",
+        "description": "Invoice and payment trend lines for finance monitoring.",
+        "href": "/billing",
+    },
+    "billing_alerts": {
+        "label": "Billing alerts",
+        "category": "finance",
+        "description": "Finance-owned alerts for overdue and failed payment workflows.",
+        "href": "/notifications",
+    },
+    "assigned_work": {
+        "label": "Assigned work",
+        "category": "field",
+        "description": "Current field assignments and site tasks.",
+        "href": "/poe/capture",
+    },
+    "pending_poe_uploads": {
+        "label": "Pending POE uploads",
+        "category": "field",
+        "description": "POE captures still needed for assigned bookings.",
+        "href": "/poe/capture",
+    },
+    "upload_status": {
+        "label": "Upload status",
+        "category": "field",
+        "description": "Recent proof upload and verification feedback.",
+        "href": "/poe/capture",
+    },
+    "site_task_alerts": {
+        "label": "Site/task alerts",
+        "category": "field",
+        "description": "Task issues and assigned work alerts.",
+        "href": "/notifications",
+    },
+    "client_campaign_status": {
+        "label": "Campaign status",
+        "category": "client",
+        "description": "Client-visible campaign progress and status.",
+        "href": "/campaigns",
+    },
+    "approved_poes": {
+        "label": "Approved POEs",
+        "category": "client",
+        "description": "Approved proofs and campaign execution evidence.",
+        "href": "/poe",
+    },
+    "client_invoices": {
+        "label": "Invoices/statements",
+        "category": "client",
+        "description": "Client-visible invoice and statement status.",
+        "href": "/billing",
+    },
+}
+DASHBOARD_ROLE_DEFAULTS = {
+    ADMIN: ["operational_health", "critical_campaigns", "billing_risk", "alerts", "campaign_performance", "poe_sla"],
+    SALES: ["campaign_performance", "critical_campaigns", "client_campaign_status", "alerts"],
+    OPERATIONS: ["poe_sla", "reviewer_workload", "campaign_performance", "import_export_jobs", "alerts"],
+    FINANCE: ["overdue_invoices", "collection_efficiency", "invoice_payment_trend", "billing_alerts"],
+    FIELD_STAFF: ["assigned_work", "pending_poe_uploads", "upload_status", "site_task_alerts"],
+    CLIENT: ["client_campaign_status", "approved_poes", "client_invoices"],
+}
+FINANCE_WIDGETS = {"billing_risk", "overdue_invoices", "collection_efficiency", "invoice_payment_trend", "billing_alerts", "client_invoices"}
+OPERATIONS_INTELLIGENCE_WIDGETS = {"operational_health", "alerts", "reviewer_workload", "import_export_jobs"}
+REQUIRED_DASHBOARD_WIDGETS = {"assigned_work", "client_campaign_status"}
 def get_company_name() -> str:
     try:
         from apps.setup.models import CompanyProfile
@@ -220,6 +348,130 @@ class SavedOperationalViewService(BaseService):
         validated_data.pop("user", None)
         validated_data.pop("company_name", None)
         return super().update(instance, actor=actor, **validated_data)
+
+
+class DashboardWidgetPreferenceRepository(BaseRepository):
+    model = DashboardWidgetPreference
+    select_related = ("user",)
+
+    def scope_queryset(self, queryset, user=None):
+        if not user or not getattr(user, "is_authenticated", False):
+            return queryset.none()
+        return queryset.filter(user=user, company_name=get_company_name())
+
+
+class DashboardWidgetPreferenceService(BaseService):
+    repository_class = DashboardWidgetPreferenceRepository
+
+
+def can_view_dashboard_finance(user) -> bool:
+    role = getattr(user, "role", "")
+    return bool(getattr(user, "is_superuser", False) or role in {ADMIN, FINANCE, SALES, CLIENT})
+
+
+def can_view_dashboard_operations(user) -> bool:
+    role = getattr(user, "role", "")
+    return bool(getattr(user, "is_superuser", False) or role in {ADMIN, OPERATIONS, FINANCE})
+
+
+def get_role_dashboard_defaults(role: str) -> list[str]:
+    return list(DASHBOARD_ROLE_DEFAULTS.get(role, DASHBOARD_ROLE_DEFAULTS[CLIENT]))
+
+
+def _is_widget_allowed_for_user(widget_key: str, user) -> bool:
+    role = getattr(user, "role", "")
+    if widget_key in FINANCE_WIDGETS and not can_view_dashboard_finance(user):
+        return False
+    if widget_key in OPERATIONS_INTELLIGENCE_WIDGETS and not can_view_dashboard_operations(user):
+        return False
+    if role == FIELD_STAFF and DASHBOARD_WIDGETS[widget_key]["category"] != "field":
+        return False
+    if role == CLIENT and DASHBOARD_WIDGETS[widget_key]["category"] not in {"client", "finance"}:
+        return False
+    return True
+
+
+def build_dashboard_profile(user) -> dict[str, Any]:
+    role = getattr(user, "role", CLIENT) or CLIENT
+    company_name = get_company_name()
+    default_widgets = [key for key in get_role_dashboard_defaults(role) if _is_widget_allowed_for_user(key, user)]
+    preferences = {
+        preference.widget_key: preference
+        for preference in DashboardWidgetPreference.objects.filter(user=user, company_name=company_name)
+    }
+    available_widgets = []
+    active_widgets = []
+    hidden_widgets = []
+    sorted_keys = sorted(
+        [key for key in DASHBOARD_WIDGETS if _is_widget_allowed_for_user(key, user)],
+        key=lambda item: (
+            preferences.get(item).sort_order if item in preferences else default_widgets.index(item) if item in default_widgets else 100,
+            DASHBOARD_WIDGETS[item]["label"],
+        ),
+    )
+    for index, key in enumerate(sorted_keys):
+        preference = preferences.get(key)
+        is_default_visible = key in default_widgets
+        is_visible = preference.is_visible if preference else is_default_visible
+        if key in REQUIRED_DASHBOARD_WIDGETS:
+            is_visible = True
+        if is_visible:
+            active_widgets.append(key)
+        else:
+            hidden_widgets.append(key)
+        available_widgets.append(
+            {
+                "key": key,
+                "label": DASHBOARD_WIDGETS[key]["label"],
+                "category": DASHBOARD_WIDGETS[key]["category"],
+                "description": DASHBOARD_WIDGETS[key]["description"],
+                "href": DASHBOARD_WIDGETS[key]["href"],
+                "is_visible": is_visible,
+                "is_required": key in REQUIRED_DASHBOARD_WIDGETS,
+                "sort_order": preference.sort_order if preference else index,
+            }
+        )
+    return {
+        "role": role,
+        "role_label": role.replace("_", " ").title(),
+        "active_widgets": active_widgets,
+        "available_widgets": available_widgets,
+        "hidden_widgets": hidden_widgets,
+        "can_customize": role not in {FIELD_STAFF, CLIENT},
+        "can_view_finance": can_view_dashboard_finance(user),
+        "can_view_operations": can_view_dashboard_operations(user),
+    }
+
+
+def save_dashboard_widget_preferences(user, widgets: list[dict[str, Any]]) -> dict[str, Any]:
+    if not user or not getattr(user, "is_authenticated", False):
+        raise ValueError("Authenticated user is required.")
+    profile = build_dashboard_profile(user)
+    if not profile["can_customize"]:
+        raise ValueError("Dashboard customization is not available for this role.")
+    allowed_keys = {widget["key"] for widget in profile["available_widgets"]}
+    company_name = get_company_name()
+    with transaction.atomic():
+        for index, widget in enumerate(widgets):
+            widget_key = str(widget.get("widget_key") or widget.get("key") or "")
+            if widget_key not in allowed_keys:
+                continue
+            if widget_key in REQUIRED_DASHBOARD_WIDGETS:
+                is_visible = True
+            else:
+                is_visible = bool(widget.get("is_visible", True))
+            DashboardWidgetPreference.objects.update_or_create(
+                user=user,
+                company_name=company_name,
+                widget_key=widget_key,
+                defaults={"is_visible": is_visible, "sort_order": int(widget.get("sort_order", index) or index)},
+            )
+    return build_dashboard_profile(user)
+
+
+def reset_dashboard_widget_preferences(user) -> dict[str, Any]:
+    DashboardWidgetPreference.objects.filter(user=user, company_name=get_company_name()).delete()
+    return build_dashboard_profile(user)
 
 
 class AlertRuleRepository(BaseRepository):

@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
 
 
 class ApiRequestLogSerializer(serializers.ModelSerializer):
@@ -117,6 +117,34 @@ class SavedOperationalViewSerializer(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Filters must be an object.")
         return value
+
+
+class DashboardWidgetPreferenceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardWidgetPreference
+        fields = ["widget_key", "is_visible", "sort_order"]
+
+
+class DashboardWidgetSerializer(serializers.Serializer):
+    key = serializers.CharField()
+    label = serializers.CharField()
+    category = serializers.CharField()
+    description = serializers.CharField()
+    href = serializers.CharField(allow_blank=True)
+    is_visible = serializers.BooleanField()
+    is_required = serializers.BooleanField()
+    sort_order = serializers.IntegerField()
+
+
+class DashboardProfileSerializer(serializers.Serializer):
+    role = serializers.CharField()
+    role_label = serializers.CharField()
+    active_widgets = serializers.ListField(child=serializers.CharField())
+    available_widgets = DashboardWidgetSerializer(many=True)
+    hidden_widgets = serializers.ListField(child=serializers.CharField())
+    can_customize = serializers.BooleanField()
+    can_view_finance = serializers.BooleanField()
+    can_view_operations = serializers.BooleanField()
 
 
 class PoeAnalyticsSerializer(serializers.Serializer):

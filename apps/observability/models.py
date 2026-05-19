@@ -192,6 +192,28 @@ class SavedOperationalView(TimeStampedModel):
         return f"{self.name} ({self.view_type})"
 
 
+class DashboardWidgetPreference(TimeStampedModel):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="dashboard_widget_preferences",
+        on_delete=models.CASCADE,
+    )
+    company_name = models.CharField(max_length=255, blank=True, db_index=True)
+    widget_key = models.CharField(max_length=80)
+    is_visible = models.BooleanField(default=True)
+    sort_order = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        ordering = ["sort_order", "widget_key"]
+        unique_together = ("user", "company_name", "widget_key")
+        indexes = [
+            models.Index(fields=["user", "company_name", "sort_order"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.user_id} {self.widget_key}: {'visible' if self.is_visible else 'hidden'}"
+
+
 class AlertRule(TimeStampedModel):
     class Metric(models.TextChoices):
         SLOW_REQUESTS = "slow_requests", "Slow Requests"

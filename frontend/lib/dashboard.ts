@@ -57,7 +57,29 @@ export type BillingSummary = {
 export type DashboardPayload = {
   campaigns: CampaignSummary;
   bookings: BookingSummary;
-  billing: BillingSummary;
+  billing: BillingSummary | null;
+};
+
+export type DashboardWidget = {
+  key: string;
+  label: string;
+  category: string;
+  description: string;
+  href: string;
+  is_visible: boolean;
+  is_required: boolean;
+  sort_order: number;
+};
+
+export type DashboardProfile = {
+  role: string;
+  role_label: string;
+  active_widgets: string[];
+  available_widgets: DashboardWidget[];
+  hidden_widgets: string[];
+  can_customize: boolean;
+  can_view_finance: boolean;
+  can_view_operations: boolean;
 };
 
 export function formatCurrency(value: string | number | null | undefined) {
@@ -69,11 +91,29 @@ export function formatCurrency(value: string | number | null | undefined) {
   }).format(Number.isFinite(amount) ? amount : 0);
 }
 
-export async function fetchDashboardData(): Promise<DashboardPayload> {
+export async function fetchDashboardProfile(): Promise<DashboardProfile> {
+  return apiFetch<DashboardProfile>("observability/dashboard-profile/");
+}
+
+export async function updateDashboardProfile(widgets: Array<{ widget_key: string; is_visible: boolean; sort_order: number }>) {
+  return apiFetch<DashboardProfile>("observability/dashboard-profile/", {
+    method: "PATCH",
+    body: JSON.stringify({ widgets }),
+  });
+}
+
+export async function restoreDashboardProfileDefaults() {
+  return apiFetch<DashboardProfile>("observability/dashboard-profile/", {
+    method: "POST",
+    body: JSON.stringify({ action: "restore_defaults" }),
+  });
+}
+
+export async function fetchDashboardData(options: { includeBilling?: boolean } = {}): Promise<DashboardPayload> {
   const [campaigns, bookings, billing] = await Promise.all([
     apiFetch<CampaignSummary>("campaigns/summary/"),
     apiFetch<BookingSummary>("bookings/summary/"),
-    apiFetch<BillingSummary>("billing/invoices/summary/"),
+    options.includeBilling ? apiFetch<BillingSummary>("billing/invoices/summary/") : Promise.resolve(null),
   ]);
 
   return {

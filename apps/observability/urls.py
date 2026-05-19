@@ -6,6 +6,7 @@ from .views import (
     AlertRuleViewSet,
     ApiRequestLogViewSet,
     AuditEventViewSet,
+    DashboardProfileView,
     DiagnosticsView,
     EvaluateAlertsView,
     HealthView,
@@ -28,6 +29,7 @@ router.register("saved-views", SavedOperationalViewViewSet, basename="observabil
 urlpatterns = [
     path("poe-analytics/", PoeAnalyticsView.as_view(), name="observability-poe-analytics"),
     path("operations-summary/", OperationsSummaryView.as_view(), name="observability-operations-summary"),
+    path("dashboard-profile/", DashboardProfileView.as_view(), name="observability-dashboard-profile"),
     path("operational-search/", OperationalSearchView.as_view(), name="observability-operational-search"),
     path("diagnostics/", DiagnosticsView.as_view(), name="observability-diagnostics"),
     path("health/", HealthView.as_view(), name="observability-health"),

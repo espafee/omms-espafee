@@ -16,9 +16,10 @@ from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.notifications.models import EmailNotificationLog, Notification, NotificationPreference
 from apps.notifications.services import NotificationService
-from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
+from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
 from apps.observability.services import (
     build_campaign_performance_analytics,
+    build_dashboard_profile,
     build_operational_search,
     build_poe_sla_intelligence,
     build_poe_analytics,
@@ -30,6 +31,7 @@ from apps.observability.services import (
     process_inventory_sites_import,
     record_audit_event,
     retry_import_export_job,
+    save_dashboard_widget_preferences,
     validate_inventory_sites_import,
 )
 from apps.observability.tasks import process_export_job_task
@@ -346,6 +348,78 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(response.data["total"], 1)
         self.assertEqual({item["module"] for item in response.data["results"]}, {"campaigns"})
+
+    def test_dashboard_profile_returns_role_specific_widgets(self):
+        admin_profile = build_dashboard_profile(self.admin)
+        operations_profile = build_dashboard_profile(self.operations)
+
+        self.assertIn("billing_risk", admin_profile["active_widgets"])
+        self.assertIn("poe_sla", operations_profile["active_widgets"])
+        self.assertIn("import_export_jobs", operations_profile["active_widgets"])
+        self.assertNotIn("billing_risk", operations_profile["active_widgets"])
+
+    def test_dashboard_profile_protects_finance_widgets_for_field_staff(self):
+        field_staff = User.objects.create_user(
+            email="field-dashboard@example.com",
+            username="field_dashboard",
+            password=self.password,
+            role=User.Role.FIELD_STAFF,
+        )
+
+        profile = build_dashboard_profile(field_staff)
+
+        self.assertFalse(profile["can_view_finance"])
+        self.assertFalse(profile["can_view_operations"])
+        self.assertIn("assigned_work", profile["active_widgets"])
+        self.assertNotIn("billing_risk", {widget["key"] for widget in profile["available_widgets"]})
+        self.assertNotIn("operational_health", {widget["key"] for widget in profile["available_widgets"]})
+
+    def test_dashboard_profile_client_visibility_is_restricted(self):
+        profile = build_dashboard_profile(self.client_user)
+
+        self.assertIn("client_campaign_status", profile["active_widgets"])
+        self.assertIn("approved_poes", profile["active_widgets"])
+        self.assertNotIn("alerts", {widget["key"] for widget in profile["available_widgets"]})
+        self.assertFalse(profile["can_view_operations"])
+
+    def test_dashboard_widget_preferences_save_and_read(self):
+        updated = save_dashboard_widget_preferences(
+            self.admin,
+            [
+                {"widget_key": "billing_risk", "is_visible": False, "sort_order": 4},
+                {"widget_key": "campaign_performance", "is_visible": True, "sort_order": 1},
+            ],
+        )
+
+        self.assertNotIn("billing_risk", updated["active_widgets"])
+        self.assertTrue(
+            DashboardWidgetPreference.objects.filter(
+                user=self.admin,
+                widget_key="billing_risk",
+                is_visible=False,
+            ).exists()
+        )
+
+    def test_dashboard_profile_endpoint_persists_preferences(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.patch(
+            "/api/v1/observability/dashboard-profile/",
+            {"widgets": [{"widget_key": "billing_risk", "is_visible": False, "sort_order": 2}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("billing_risk", response.data["active_widgets"])
+
+        reset_response = self.client.post(
+            "/api/v1/observability/dashboard-profile/",
+            {"action": "restore_defaults"},
+            format="json",
+        )
+
+        self.assertEqual(reset_response.status_code, status.HTTP_200_OK)
+        self.assertIn("billing_risk", reset_response.data["active_widgets"])
 
     def test_campaign_performance_hides_billing_for_operations_role(self):
         Invoice.objects.create(

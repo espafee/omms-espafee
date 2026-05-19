@@ -872,3 +872,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `/operations` can save and restore filter combinations such as critical campaigns, failed imports, pending POEs, finance risk, or daily operations.
 - The shared app shell now includes a compact operational search dropdown with grouped results and recent local searches.
 - Mobile parity: mobile admin gets a lightweight campaign/site/unit lookup at `GET /api/v1/mobile/admin/search/`. Field staff search remains limited to assigned work context; no finance or operational intelligence search is exposed to field users.
+
+## Role-Based Dashboard Customization Foundation
+
+- Observability now exposes `GET/PATCH/POST /api/v1/observability/dashboard-profile/` for role-aware dashboard profiles, widget preferences, and restoring defaults.
+- Default widget sets are defined for admin/owner, operations, finance, field staff, and client roles.
+- Persisted `DashboardWidgetPreference` rows are scoped by user and company name and store widget visibility plus sort order.
+- The main dashboard reads the profile before loading summaries, so finance summaries are only requested when the active role can view finance widgets.
+- Back-office roles can hide/show safe optional widgets from the dashboard. Field staff and client dashboards remain default-guided to avoid exposing admin customization or operational intelligence.
+- Security behavior: finance widgets are blocked for operations/field users, operations-intelligence widgets are blocked for clients/field users, and required field/client widgets cannot be hidden.
+- Mobile parity: no heavy mobile customization was added. Mobile admin remains a focused operational companion, and field staff mobile stays centered on assigned work and POE upload.

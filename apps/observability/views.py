@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import RoleBasedPermission
-from core.roles import ADMIN, FINANCE, OPERATIONS
+from core.roles import ADMIN, ALL_ROLES, FINANCE, OPERATIONS
 from core.viewsets import ServiceModelViewSet
 
 from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
@@ -18,6 +18,7 @@ from .serializers import (
     ApiRequestLogSerializer,
     AuditEventSerializer,
     ImportExportJobSerializer,
+    DashboardProfileSerializer,
     OperationalSearchSerializer,
     SavedOperationalViewSerializer,
 )
@@ -27,6 +28,7 @@ from .services import (
     ApiRequestLogService,
     AuditEventService,
     ImportExportJobService,
+    build_dashboard_profile,
     build_diagnostics_payload,
     build_operations_summary,
     build_operational_search,
@@ -41,7 +43,9 @@ from .services import (
     export_poe_reports_csv,
     record_audit_event,
     retry_import_export_job,
+    reset_dashboard_widget_preferences,
     SavedOperationalViewService,
+    save_dashboard_widget_preferences,
     validate_inventory_sites_import,
 )
 
@@ -204,6 +208,26 @@ class OperationsSummaryView(APIView):
         filters = request.query_params.copy()
         filters["_user"] = request.user
         return Response(build_operations_summary(filters))
+
+
+class DashboardProfileView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = ALL_ROLES
+
+    def get(self, request):
+        return Response(DashboardProfileSerializer(build_dashboard_profile(request.user)).data)
+
+    def patch(self, request):
+        try:
+            payload = save_dashboard_widget_preferences(request.user, request.data.get("widgets", []))
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(DashboardProfileSerializer(payload).data)
+
+    def post(self, request):
+        if request.data.get("action") != "restore_defaults":
+            return Response({"detail": "Unsupported dashboard profile action."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(DashboardProfileSerializer(reset_dashboard_widget_preferences(request.user)).data)
 
 
 class OperationalSearchView(APIView):

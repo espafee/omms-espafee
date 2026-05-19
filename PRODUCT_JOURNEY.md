@@ -105,3 +105,9 @@ The Operations dashboard now includes campaign risk distribution, POE completion
 OMMS now has the first layer of cross-operational navigation. Admin, operations, and finance users can search across campaign delivery, POE records, import/export jobs, alerts, audit history, notifications, and inventory records from the app shell without jumping through separate modules.
 
 Saved operational views turn repeated filters into reusable work surfaces. Operators can save views such as `Critical Campaigns`, `Pending POEs`, `Failed Imports`, or `Today’s Operations`, then restore those filters on the Operations dashboard. Finance-sensitive search remains permission-protected, and mobile admin receives only a lightweight campaign/site lookup foundation.
+
+## Role-Based Dashboard Customization Foundation
+
+OMMS dashboards now start from the user's role instead of a one-size-fits-all layout. Admin/owners see operational health, critical campaigns, billing risk, alerts, campaign performance, and POE SLA first. Operations users see POE SLA, reviewer workload, campaign risk, jobs, and alerts. Finance users see overdue invoices, collection efficiency, payment trends, and billing alerts. Field staff and clients stay focused on their own execution or campaign visibility.
+
+The first customization layer lets back-office users hide/show safe optional widgets and restore role defaults. This keeps dashboards personally useful while preserving the important guardrails: finance widgets do not leak to operations or field users, and operational intelligence does not leak to client or field dashboards.

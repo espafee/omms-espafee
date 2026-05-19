@@ -730,6 +730,50 @@ textarea::placeholder {
   border-left: 1px solid var(--line);
 }
 
+.dashboard-customize {
+  margin-top: 24px;
+}
+
+.dashboard-widget-toggles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.dashboard-widget-toggle {
+  min-height: 78px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f7fbf9;
+}
+
+.dashboard-widget-toggle input {
+  margin-top: 3px;
+  accent-color: #064e3b;
+}
+
+.dashboard-widget-toggle span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.dashboard-widget-toggle strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.dashboard-widget-toggle small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .dashboard-error {
   margin-top: 22px;
 }
