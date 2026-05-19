@@ -189,6 +189,7 @@ export default function CampaignsPage() {
       { label: "Active campaigns", value: String(campaignData.summary.active_campaigns) },
       { label: "Ending soon", value: String(campaignData.summary.ending_soon_count) },
       { label: "Campaigns at risk", value: String(campaignData.summary.campaigns_at_risk) },
+      { label: "Critical campaigns", value: String(campaignData.summary.critical_campaigns) },
       { label: "Live bookings", value: String(campaignData.summary.live_bookings) },
       { label: "Approved assets", value: String(campaignData.summary.approved_assets) },
     ];
@@ -640,7 +641,7 @@ export default function CampaignsPage() {
                             {(campaign.performance?.risk_status ?? "on_track").replaceAll("_", " ")}
                           </span>
                         </strong>
-                        <span>POE {campaign.performance?.poe_completion_percentage ?? 0}%</span>
+                        <span>POE {campaign.performance?.poe_completion_percentage ?? 0}% · {campaign.performance?.pending_poe_count ?? 0} pending</span>
                       </div>
                     </td>
                     <td>{formatCurrency(campaign.budget)}</td>
@@ -702,7 +703,18 @@ export default function CampaignsPage() {
                     <p className="stat-label">Billing</p>
                     <p className="site-copy">
                       {selectedCampaign.performance.billing_status.replaceAll("_", " ")}
+                      {selectedCampaign.performance.invoice_generated ? ` · payment ${selectedCampaign.performance.payment_completion_percentage}%` : " · no invoice"}
                       {selectedCampaign.performance.overdue_amount !== "0.00" ? ` · ${formatCurrency(selectedCampaign.performance.overdue_amount)} overdue` : ""}
+                    </p>
+                  </div>
+                ) : null}
+                {selectedCampaign.performance ? (
+                  <div>
+                    <p className="stat-label">Health</p>
+                    <p className="site-copy">
+                      {selectedCampaign.performance.operational_delay_indicators.length
+                        ? selectedCampaign.performance.operational_delay_indicators.join(", ").replaceAll("_", " ")
+                        : "No delay indicators"}
                     </p>
                   </div>
                 ) : null}

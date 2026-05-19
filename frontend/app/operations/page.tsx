@@ -479,6 +479,7 @@ export default function OperationsPage() {
         <KpiCard label="Ending soon" value={isLoading ? "..." : summary?.kpis.campaigns_ending_soon ?? 0} hint="campaigns" href="/campaigns" />
         <KpiCard label="Campaign POE risk" value={isLoading ? "..." : summary?.kpis.campaigns_poe_risk ?? 0} href="/campaigns" />
         <KpiCard label="Campaign billing risk" value={isLoading ? "..." : summary?.kpis.campaigns_billing_risk ?? 0} href="/campaigns" />
+        <KpiCard label="Critical campaigns" value={isLoading ? "..." : summary?.kpis.critical_campaigns ?? 0} hint="escalate" href="/campaigns" />
         <KpiCard label="Collection status" value={isLoading ? "..." : `${summary?.kpis.invoice_collection_rate ?? 0}%`} href="/billing" />
         <KpiCard label="Overdue invoices" value={isLoading ? "..." : summary?.kpis.overdue_invoices ?? 0} hint="billing risk" href="/billing" />
         <KpiCard label="Overdue value" value={isLoading ? "..." : formatCurrency(summary?.kpis.overdue_invoice_value ?? "0.00")} href="/billing" />
@@ -502,11 +503,11 @@ export default function OperationsPage() {
                   <span className={`status-pill status-${campaign.risk_status}`}>{campaign.risk_status.replaceAll("_", " ")}</span>
                 </div>
                 <p className="site-copy">
-                  POE {campaign.poe_completion_percentage}% · {campaign.sites_with_approved_poe}/{campaign.booked_sites_count} approved · {campaign.suspicious_poe_count} suspicious
+                  POE {campaign.poe_completion_percentage}% · {campaign.sites_with_approved_poe}/{campaign.booked_sites_count} approved · {campaign.pending_poe_count} pending · {campaign.suspicious_poe_count} suspicious
                 </p>
                 {summary?.campaign_performance.can_view_billing ? (
                   <p className="site-copy">
-                    Billing {campaign.billing_status.replaceAll("_", " ")} · overdue {formatCurrency(campaign.overdue_amount)}
+                    Billing {campaign.billing_status.replaceAll("_", " ")} · payment {campaign.payment_completion_percentage}% · overdue {formatCurrency(campaign.overdue_amount)}
                   </p>
                 ) : null}
               </article>
@@ -521,6 +522,24 @@ export default function OperationsPage() {
             <span>Classification</span>
           </div>
           <CompactBars rows={summary?.charts.campaign_risk_distribution ?? []} labelKey="risk" valueKey="total" />
+        </article>
+      </section>
+
+      <section className="module-grid">
+        <article className="module-card">
+          <div className="module-head">
+            <h2>POE completion trend</h2>
+            <span>Campaigns</span>
+          </div>
+          <CompactBars rows={summary?.charts.campaign_poe_completion_trend ?? []} labelKey="campaign" valueKey="completion" />
+        </article>
+
+        <article className="module-card">
+          <div className="module-head">
+            <h2>Operational health trend</h2>
+            <span>Delay indicators</span>
+          </div>
+          <CompactBars rows={summary?.charts.campaign_operational_health_trend ?? []} labelKey="campaign" valueKey="indicators" />
         </article>
       </section>
 

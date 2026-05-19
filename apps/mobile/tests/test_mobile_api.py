@@ -261,6 +261,7 @@ class MobileApiTests(TestCase):
                 "active_campaigns",
                 "campaigns_at_risk",
                 "campaigns_ending_soon",
+                "critical_campaigns",
                 "poe_pending",
                 "poe_completed_today",
                 "suspicious_poe",
@@ -277,6 +278,7 @@ class MobileApiTests(TestCase):
         self.assertEqual(response.data["overdue_invoice_value"], "5000.00")
         self.assertIn("campaigns_at_risk", response.data)
         self.assertIn("campaigns_ending_soon", response.data)
+        self.assertIn("critical_campaigns", response.data)
 
     def test_mobile_admin_overview_rejects_field_staff(self):
         self._authenticate(self.field_staff)

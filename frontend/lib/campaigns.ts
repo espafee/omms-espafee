@@ -38,9 +38,14 @@ export type Campaign = {
     booked_sites_count: number;
     sites_with_approved_poe: number;
     sites_missing_poe: number;
+    pending_poe_count: number;
     suspicious_poe_count: number;
+    invoice_generated: boolean;
     billing_status: string;
     payment_collection_status: string;
+    payment_completion_percentage: number;
+    has_overdue_invoice: boolean;
+    operational_delay_indicators: string[];
     pending_amount: string;
     overdue_amount: string;
     is_ending_soon: boolean;

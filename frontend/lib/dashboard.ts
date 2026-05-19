@@ -14,6 +14,7 @@ export type CampaignSummary = {
   campaigns_at_risk: number;
   campaigns_poe_risk: number;
   campaigns_billing_risk: number;
+  critical_campaigns: number;
 };
 
 export type BookingSummary = {

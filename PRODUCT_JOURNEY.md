@@ -98,4 +98,4 @@ The Operations dashboard adds a compact billing risk panel for admin and finance
 
 OMMS now connects campaign delivery, POE completion, and commercial risk into one campaign performance layer. Campaigns receive a computed risk label without changing their lifecycle state, so owners can see which campaigns are on track, need attention, have POE risk, have billing risk, or are critical.
 
-The Operations dashboard now includes campaign risk distribution and a compact performance table, while the Campaigns page shows POE completion, missing proof counts, billing status, and risk badges per campaign. Mobile admin gets high-level campaign risk KPIs without exposing field staff to finance detail.
+The Operations dashboard now includes campaign risk distribution, POE completion trend, operational health trend, critical campaign count, and a compact performance table, while the Campaigns page shows POE completion, pending proof counts, billing status, operational delay indicators, and risk badges per campaign. Mobile admin gets high-level campaign risk KPIs without exposing field staff to finance detail.

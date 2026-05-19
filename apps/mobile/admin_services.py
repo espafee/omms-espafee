@@ -124,6 +124,7 @@ class MobileAdminOperationsService:
             "active_campaigns": _active_campaign_queryset(today).count(),
             "campaigns_at_risk": campaigns["at_risk_count"],
             "campaigns_ending_soon": campaigns["ending_soon_count"],
+            "critical_campaigns": campaigns["critical_count"],
             "poe_pending": sum(1 for booking in bookings if _is_poe_pending(booking)),
             "poe_completed_today": ProofOfExecution.objects.filter(
                 captured_at__date=today,

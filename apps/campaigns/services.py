@@ -72,6 +72,7 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
             ).count()
 
         poe_completion = round((approved_poe_sites / booked_sites) * 100) if booked_sites else 0
+        pending_poe_count = missing_poe_sites
         is_active = campaign.status == Campaign.Status.ACTIVE or (campaign.start_date <= today <= campaign.end_date)
         is_ending_soon = is_active and today <= campaign.end_date <= ending_soon_cutoff
         if is_active:
@@ -83,6 +84,7 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
         total_invoiced = sum((invoice.grand_total or invoice.total_amount or ZERO for invoice in invoices), ZERO)
         total_collected = sum((payment.amount for invoice in invoices for payment in invoice.payments.all()), ZERO)
         pending_amount = max(total_invoiced - total_collected, ZERO)
+        payment_completion = round((total_collected / total_invoiced) * Decimal("100")) if total_invoiced > ZERO else 0
         overdue_balance = ZERO
         overdue_invoice_count = 0
         for invoice in invoices:
@@ -145,10 +147,24 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
                 "booked_sites_count": booked_sites,
                 "sites_with_approved_poe": approved_poe_sites,
                 "sites_missing_poe": missing_poe_sites,
+                "pending_poe_count": pending_poe_count,
                 "poe_completion_percentage": poe_completion,
                 "suspicious_poe_count": suspicious_poe_count,
+                "invoice_generated": bool(invoices),
                 "billing_status": billing_status,
                 "payment_collection_status": payment_collection_status,
+                "payment_completion_percentage": payment_completion if can_view_billing else 0,
+                "has_overdue_invoice": overdue_balance > ZERO if can_view_billing else False,
+                "operational_delay_indicators": [
+                    label
+                    for label, active in [
+                        ("ending_soon", is_ending_soon),
+                        ("missing_poe", pending_poe_count > 0),
+                        ("suspicious_poe", suspicious_poe_count > 0),
+                        ("overdue_billing", overdue_balance > ZERO and can_view_billing),
+                    ]
+                    if active
+                ],
                 "pending_amount": pending_amount if can_view_billing else ZERO,
                 "overdue_amount": overdue_balance if can_view_billing else ZERO,
                 "risk_status": risk,
@@ -163,6 +179,22 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
         "at_risk_count": at_risk_count,
         "critical_count": risk_distribution["critical"],
         "risk_distribution": [{"risk": key, "total": value} for key, value in risk_distribution.items()],
+        "poe_completion_trend": [
+            {
+                "campaign": row["campaign_code"],
+                "completion": row["poe_completion_percentage"],
+                "missing": row["sites_missing_poe"],
+            }
+            for row in sorted(rows, key=lambda row: row["end_date"])[:10]
+        ],
+        "operational_health_trend": [
+            {
+                "campaign": row["campaign_code"],
+                "risk": row["risk_status"],
+                "indicators": len(row["operational_delay_indicators"]),
+            }
+            for row in sorted(rows, key=lambda row: (row["risk_status"] == "on_track", row["end_date"]))[:10]
+        ],
         "campaigns": sorted(rows, key=lambda row: (row["risk_status"] == "on_track", row["end_date"], row["campaign_id"]))[:12],
         "can_view_billing": can_view_billing,
     }
@@ -200,6 +232,7 @@ class CampaignService(BaseService):
         summary["campaigns_at_risk"] = performance["at_risk_count"]
         summary["campaigns_poe_risk"] = performance["poe_risk_count"]
         summary["campaigns_billing_risk"] = performance["billing_risk_count"]
+        summary["critical_campaigns"] = performance["critical_count"]
         cache.set(cache_key, summary, getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60))
         return summary
 

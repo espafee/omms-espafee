@@ -66,6 +66,7 @@ export type OperationsSummary = {
     campaigns_ending_soon: number;
     campaigns_poe_risk: number;
     campaigns_billing_risk: number;
+    critical_campaigns: number;
     invoice_collection_rate: number;
     overdue_invoices: number;
     overdue_invoice_value: string;
@@ -92,6 +93,8 @@ export type OperationsSummary = {
     critical_count: number;
     can_view_billing: boolean;
     risk_distribution: Array<{ risk: string; total: number }>;
+    poe_completion_trend: Array<{ campaign: string; completion: number; missing: number }>;
+    operational_health_trend: Array<{ campaign: string; risk: string; indicators: number }>;
     campaigns: Array<{
       campaign_id: number;
       campaign_name: string;
@@ -101,9 +104,14 @@ export type OperationsSummary = {
       booked_sites_count: number;
       sites_with_approved_poe: number;
       sites_missing_poe: number;
+      pending_poe_count: number;
       suspicious_poe_count: number;
+      invoice_generated: boolean;
       billing_status: string;
       payment_collection_status: string;
+      payment_completion_percentage: number;
+      has_overdue_invoice: boolean;
+      operational_delay_indicators: string[];
       pending_amount: string;
       overdue_amount: string;
       is_ending_soon: boolean;
@@ -141,6 +149,8 @@ export type OperationsSummary = {
     notification_activity: Array<{ day: string; notifications: number }>;
     load_distribution: Array<{ entity_type: string; total: number }>;
     campaign_risk_distribution: Array<{ risk: string; total: number }>;
+    campaign_poe_completion_trend: Array<{ campaign: string; completion: number; missing: number }>;
+    campaign_operational_health_trend: Array<{ campaign: string; risk: string; indicators: number }>;
   };
   timeline: Array<{
     id: string;

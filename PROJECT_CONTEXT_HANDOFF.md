@@ -855,10 +855,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 
 ## Campaign Performance Analytics Foundation
 
-- Campaign analytics now calculate active campaigns, campaigns ending soon, booked site count, approved/missing POE sites, POE completion percentage, suspicious POE count, billing status, payment collection status, and campaign risk classification.
+- Campaign analytics now calculate active campaigns, campaigns ending soon, booked site count, approved/pending/missing POE sites, POE completion percentage, suspicious POE count, invoice generated status, payment completion percentage, overdue invoice presence, operational delay indicators, billing status, payment collection status, and campaign risk classification.
 - Risk classification is analytics-only and does not mutate campaign lifecycle status. Computed values are `on_track`, `needs_attention`, `poe_risk`, `billing_risk`, and `critical`.
 - Billing-sensitive campaign fields are hidden for non-admin/non-finance users while operational POE risk remains visible to operations roles.
-- Operations summary now includes campaign ending-soon, POE risk, billing risk, risk distribution, and a compact campaign performance list.
+- Operations summary now includes campaign ending-soon, POE risk, billing risk, critical campaign count, risk distribution, POE completion trend, operational health trend, and a compact campaign performance list.
 - Alert thresholds now include `campaigns_at_risk`; critical campaign risk creates alert/audit records and notifies admin and operations inbox roles with existing cooldown protection.
 - `/campaigns` now shows performance badges/cards for POE completion, missing POE, risk status, billing status, and overdue exposure where permitted.
-- Mobile parity: mobile admin overview receives high-level active campaign, campaigns-at-risk, and campaigns-ending-soon KPIs. Field staff screens remain focused on assigned execution work.
+- Mobile parity: mobile admin overview receives high-level active campaign, campaigns-at-risk, campaigns-ending-soon, and critical campaign KPIs. Field staff screens remain focused on assigned execution work.

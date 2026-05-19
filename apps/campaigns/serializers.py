@@ -20,6 +20,7 @@ class CampaignSummarySerializer(serializers.Serializer):
     campaigns_at_risk = serializers.IntegerField()
     campaigns_poe_risk = serializers.IntegerField()
     campaigns_billing_risk = serializers.IntegerField()
+    critical_campaigns = serializers.IntegerField()
 
 
 class CampaignAssetSerializer(serializers.ModelSerializer):

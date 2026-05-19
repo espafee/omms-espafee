@@ -273,7 +273,10 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(row["booked_sites_count"], 2)
         self.assertEqual(row["sites_with_approved_poe"], 1)
         self.assertEqual(row["sites_missing_poe"], 1)
+        self.assertEqual(row["pending_poe_count"], 1)
         self.assertEqual(row["poe_completion_percentage"], 50)
+        self.assertFalse(row["invoice_generated"])
+        self.assertIn("missing_poe", row["operational_delay_indicators"])
         self.assertIn(row["risk_status"], {"poe_risk", "critical"})
 
     def test_campaign_performance_hides_billing_for_operations_role(self):
@@ -1079,6 +1082,8 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIn("billing_intelligence", response.data)
         self.assertIn("campaign_performance", response.data)
         self.assertIn("campaigns_poe_risk", response.data["kpis"])
+        self.assertIn("critical_campaigns", response.data["kpis"])
+        self.assertIn("campaign_poe_completion_trend", response.data["charts"])
         self.assertGreaterEqual(response.data["kpis"]["failed_requests"], 1)
         self.assertTrue(response.data["charts"]["request_activity"])
         self.assertTrue(response.data["timeline"])
