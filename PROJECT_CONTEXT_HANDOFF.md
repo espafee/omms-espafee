@@ -882,3 +882,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Back-office roles can hide/show safe optional widgets from the dashboard. Field staff and client dashboards remain default-guided to avoid exposing admin customization or operational intelligence.
 - Security behavior: finance widgets are blocked for operations/field users, operations-intelligence widgets are blocked for clients/field users, and required field/client widgets cannot be hidden.
 - Mobile parity: no heavy mobile customization was added. Mobile admin remains a focused operational companion, and field staff mobile stays centered on assigned work and POE upload.
+
+## API Health Diagnostics And Deployment Environment Status
+
+- Admin diagnostics now include a structured `system_health` payload with API status, database connectivity, Redis/Celery broker configuration, Celery eager/worker/beat readiness signals, failed/slow request counts, failed background jobs, last successful import/export, and deployment metadata.
+- Deployment metadata is intentionally non-secret: environment name, debug flag, configured frontend/backend URLs, Redis configured flag, Celery eager flag, database engine, app version, and git commit.
+- `.env.example` now documents `OMMS_ENVIRONMENT_NAME` and `OMMS_BACKEND_PUBLIC_BASE_URL` for Render/Vercel-friendly environment labeling.
+- The Operations dashboard System Status panel now shows API, database, Redis, Celery mode, failed jobs, failed/slow requests, last import/export, build identifier, and calm health badges (`healthy`, `warning`, `degraded`, `unknown`).
+- Alert thresholds now include `system_health_degraded`; degraded system health creates audit/alert records and admin/operations system diagnostic notifications through the existing cooldown flow.
+- Mobile parity: mobile admin overview receives a tiny system status summary with API/system health, active alert count, and failed jobs. Field staff mobile receives no diagnostics.

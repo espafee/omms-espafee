@@ -11,7 +11,7 @@ from apps.campaigns.models import Campaign
 from apps.campaigns.services import build_campaign_performance_analytics
 from apps.issues.models import Issue
 from apps.issues.services import sync_issue_sla_status
-from apps.observability.services import build_poe_sla_intelligence
+from apps.observability.services import build_poe_sla_intelligence, build_system_health_diagnostics
 from apps.poe.models import ProofOfExecution
 from core.images import build_public_media_url
 
@@ -120,6 +120,8 @@ class MobileAdminOperationsService:
         poe_sla = build_poe_sla_intelligence()
         billing = build_collection_efficiency_analytics()
         campaigns = build_campaign_performance_analytics()
+        system_health = build_system_health_diagnostics()
+        active_alerts = len([alert for alert in MobileAdminOperationsService.get_alerts() if alert["severity"] in {"warning", "danger"}])
         return {
             "active_campaigns": _active_campaign_queryset(today).count(),
             "campaigns_at_risk": campaigns["at_risk_count"],
@@ -140,6 +142,10 @@ class MobileAdminOperationsService:
             "collection_efficiency": billing["collection_efficiency_percentage"],
             "bookings_starting_today": Booking.objects.filter(start_date=today).exclude(status=Booking.Status.CANCELLED).count(),
             "bookings_ending_today": Booking.objects.filter(end_date=today).exclude(status=Booking.Status.CANCELLED).count(),
+            "system_status": system_health["status"],
+            "api_status": system_health["api_status"],
+            "failed_jobs": system_health["recent_failed_background_jobs"],
+            "active_alerts": active_alerts,
         }
 
     @staticmethod

@@ -162,6 +162,33 @@ export type OperationsSummary = {
     created_at: string;
   }>;
   system_health: {
+    status: string;
+    api_status: string;
+    recent_failed_requests: number;
+    recent_slow_requests: number;
+    recent_failed_background_jobs: number;
+    signals: string[];
+    deployment: {
+      environment_name: string;
+      debug: boolean;
+      frontend_url: string;
+      backend_url: string;
+      redis_configured: boolean;
+      celery_eager: boolean;
+      database_engine: string;
+      app_version: string;
+      git_commit: string;
+    };
+    celery: {
+      enabled: boolean;
+      broker_configured: boolean;
+      eager: boolean;
+      mode: string;
+      worker_ready: string;
+      beat_configured: boolean;
+    };
+    redis: { configured: boolean };
+    database: { ok: boolean };
     celery_mode: string;
     broker_configured: boolean;
     active_jobs: number;
@@ -177,9 +204,17 @@ export type OperationsSummary = {
 export type DiagnosticsPayload = {
   app_version: string;
   git_commit: string;
+  environment: OperationsSummary["system_health"]["deployment"];
+  system_health: OperationsSummary["system_health"];
   database: { ok: boolean };
   cache: { ok: boolean; timeout_seconds: number };
-  background_jobs: { celery_broker_configured: boolean; background_jobs_enabled: boolean; mode: string };
+  background_jobs: {
+    celery_broker_configured: boolean;
+    background_jobs_enabled: boolean;
+    mode: string;
+    worker_ready: string;
+    beat_configured: boolean;
+  };
   request_logging: { enabled: boolean; slow_threshold_ms: number; retention_days: number };
   recent_slow_requests: Array<{
     created_at: string;

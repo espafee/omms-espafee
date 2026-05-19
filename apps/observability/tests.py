@@ -23,6 +23,7 @@ from apps.observability.services import (
     build_operational_search,
     build_poe_sla_intelligence,
     build_poe_analytics,
+    build_system_health_diagnostics,
     confirm_inventory_sites_import,
     evaluate_alert_thresholds,
     export_campaigns_csv,
@@ -447,6 +448,86 @@ class ObservabilityFoundationTests(TestCase):
         allowed = self.client.get(reverse("observability-diagnostics"))
         self.assertEqual(allowed.status_code, status.HTTP_200_OK)
         self.assertIn("database", allowed.data)
+        self.assertIn("system_health", allowed.data)
+        self.assertIn("environment", allowed.data)
+        rendered = str(allowed.data).lower()
+        self.assertNotIn("secret_key", rendered)
+        self.assertNotIn("password", rendered)
+
+    def test_system_health_diagnostics_reports_safe_status_flags(self):
+        ApiRequestLog.objects.create(
+            user=self.admin,
+            company_name="VistaAi",
+            method="GET",
+            path="/api/v1/test/",
+            status_code=500,
+            duration_ms=1500,
+            is_slow=True,
+            category=ApiRequestLog.Category.OBSERVABILITY,
+        )
+        ImportExportJob.objects.create(
+            created_by=self.admin,
+            company_name="VistaAi",
+            job_type=ImportExportJob.JobType.EXPORT,
+            resource_type=ImportExportJob.ResourceType.CAMPAIGNS,
+            status=ImportExportJob.Status.FAILED,
+        )
+
+        payload = build_system_health_diagnostics()
+
+        self.assertIn(payload["status"], {"healthy", "warning", "degraded"})
+        self.assertTrue(payload["database"]["ok"])
+        self.assertIn("configured", payload["redis"])
+        self.assertEqual(payload["recent_failed_requests"], 1)
+        self.assertEqual(payload["recent_slow_requests"], 1)
+        self.assertEqual(payload["recent_failed_background_jobs"], 1)
+        self.assertIn("database_engine", payload["deployment"])
+
+    @patch("apps.observability.services.connection.cursor")
+    def test_system_health_degraded_when_database_unavailable(self, cursor_mock):
+        cursor_mock.side_effect = Exception("database unavailable")
+
+        payload = build_system_health_diagnostics()
+
+        self.assertEqual(payload["status"], "degraded")
+        self.assertFalse(payload["database"]["ok"])
+
+    @patch("apps.observability.services.build_system_health_diagnostics")
+    def test_system_health_degraded_alert_creates_notification(self, health_mock):
+        health_mock.return_value = {
+            "status": "degraded",
+            "api_status": "degraded",
+            "database": {"ok": False},
+            "redis": {"configured": True},
+            "celery": {"enabled": True, "broker_configured": True, "eager": False, "mode": "enabled", "worker_ready": "unknown", "beat_configured": True},
+            "recent_failed_requests": 25,
+            "recent_slow_requests": 0,
+            "recent_failed_background_jobs": 5,
+            "active_jobs": 0,
+            "last_successful_import": None,
+            "last_successful_export": None,
+            "signals": ["database_unavailable"],
+            "deployment": {"environment_name": "test"},
+        }
+        AlertRule.objects.create(
+            name="System health degraded",
+            metric=AlertRule.Metric.SYSTEM_HEALTH_DEGRADED,
+            threshold=1,
+            window_minutes=15,
+            cooldown_minutes=60,
+            severity=AlertRule.Severity.CRITICAL,
+        )
+
+        events = evaluate_alert_thresholds()
+
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0].metric, AlertRule.Metric.SYSTEM_HEALTH_DEGRADED)
+        self.assertTrue(
+            Notification.objects.filter(
+                event_type=EmailNotificationLog.NotificationType.SYSTEM_DIAGNOSTIC_ALERT,
+                recipient_role="admin",
+            ).exists()
+        )
 
     def test_notification_inbox_mark_read(self):
         notification = Notification.objects.create(

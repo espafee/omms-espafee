@@ -272,6 +272,10 @@ class MobileApiTests(TestCase):
                 "collection_efficiency",
                 "bookings_starting_today",
                 "bookings_ending_today",
+                "system_status",
+                "api_status",
+                "failed_jobs",
+                "active_alerts",
             },
         )
         self.assertEqual(response.data["overdue_invoices"], 1)
@@ -279,6 +283,7 @@ class MobileApiTests(TestCase):
         self.assertIn("campaigns_at_risk", response.data)
         self.assertIn("campaigns_ending_soon", response.data)
         self.assertIn("critical_campaigns", response.data)
+        self.assertIn(response.data["system_status"], {"healthy", "warning", "degraded"})
 
     def test_mobile_admin_overview_rejects_field_staff(self):
         self._authenticate(self.field_staff)

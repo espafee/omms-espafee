@@ -111,3 +111,9 @@ Saved operational views turn repeated filters into reusable work surfaces. Opera
 OMMS dashboards now start from the user's role instead of a one-size-fits-all layout. Admin/owners see operational health, critical campaigns, billing risk, alerts, campaign performance, and POE SLA first. Operations users see POE SLA, reviewer workload, campaign risk, jobs, and alerts. Finance users see overdue invoices, collection efficiency, payment trends, and billing alerts. Field staff and clients stay focused on their own execution or campaign visibility.
 
 The first customization layer lets back-office users hide/show safe optional widgets and restore role defaults. This keeps dashboards personally useful while preserving the important guardrails: finance widgets do not leak to operations or field users, and operational intelligence does not leak to client or field dashboards.
+
+## API Health Diagnostics And Environment Status
+
+OMMS now gives admins a compact answer to a very operational question: is the platform healthy right now? Diagnostics combine API health, database connectivity, Redis/Celery configuration, failed or slow requests, failed background jobs, and last successful import/export activity into one safe system status payload.
+
+The Operations dashboard now shows this as a System Status panel with calm health badges and non-secret deployment context. Degraded health can trigger the existing alert/notification path, while mobile admin receives only a tiny health summary suitable for an operations companion.

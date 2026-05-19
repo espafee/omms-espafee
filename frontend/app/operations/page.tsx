@@ -140,6 +140,13 @@ function formatMetricLabel(value: string) {
   return value.replaceAll("_", " ");
 }
 
+function statusLabel(value?: string) {
+  if (!value) {
+    return "Unknown";
+  }
+  return value.replaceAll("_", " ");
+}
+
 export default function OperationsPage() {
   const router = useRouter();
   const loadInFlightRef = useRef(false);
@@ -778,17 +785,31 @@ export default function OperationsPage() {
 
         <article className="module-card">
           <div className="module-head">
-            <h2>System health</h2>
-            <span>{diagnostics ? "Admin diagnostics" : "Operational"}</span>
+            <div>
+              <h2>System status</h2>
+              <p className="site-copy">Environment {summary?.system_health.deployment.environment_name || "unknown"}</p>
+            </div>
+            <span className={`status-pill status-${summary?.system_health.status ?? "unknown"}`}>
+              {statusLabel(summary?.system_health.status)}
+            </span>
           </div>
           <div className="ops-health-grid">
-            <div><p className="stat-label">Celery</p><strong>{summary?.system_health.celery_mode ?? "..."}</strong></div>
-            <div><p className="stat-label">Broker</p><strong>{summary?.system_health.broker_configured ? "Configured" : "Local"}</strong></div>
+            <div><p className="stat-label">API</p><strong>{statusLabel(summary?.system_health.api_status)}</strong></div>
+            <div><p className="stat-label">Database</p><strong>{summary?.system_health.database.ok ? "Connected" : "Degraded"}</strong></div>
+            <div><p className="stat-label">Redis</p><strong>{summary?.system_health.redis.configured ? "Configured" : "Not configured"}</strong></div>
+            <div><p className="stat-label">Celery</p><strong>{summary?.system_health.celery.mode ?? "..."}</strong><span className="site-copy">{summary?.system_health.celery.worker_ready ?? "unknown"} worker</span></div>
+            <div><p className="stat-label">Failed jobs</p><strong>{summary?.system_health.recent_failed_background_jobs ?? 0}</strong></div>
+            <div><p className="stat-label">Failed requests</p><strong>{summary?.system_health.recent_failed_requests ?? 0}</strong></div>
+            <div><p className="stat-label">Slow requests</p><strong>{summary?.system_health.recent_slow_requests ?? 0}</strong></div>
             <div><p className="stat-label">API failures</p><strong>{summary?.system_health.api_failure_percentage ?? 0}%</strong></div>
             <div><p className="stat-label">Retries due</p><strong>{summary?.system_health.notification_retries_due ?? 0}</strong></div>
             <div><p className="stat-label">Last import</p><strong>{summary?.system_health.last_successful_import ? formatDateTime(summary.system_health.last_successful_import) : "-"}</strong></div>
             <div><p className="stat-label">Last export</p><strong>{summary?.system_health.last_successful_export ? formatDateTime(summary.system_health.last_successful_export) : "-"}</strong></div>
+            <div><p className="stat-label">Build</p><strong>{summary?.system_health.deployment.git_commit || summary?.system_health.deployment.app_version || "-"}</strong></div>
           </div>
+          {summary?.system_health.signals.length ? (
+            <p className="site-copy">Signals: {summary.system_health.signals.map(statusLabel).join(", ")}</p>
+          ) : null}
         </article>
 
         <article className="module-card">

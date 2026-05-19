@@ -1207,7 +1207,8 @@ textarea::placeholder {
 }
 
 .status-due_soon,
-.status-settled {
+.status-settled,
+.status-healthy {
   border-color: var(--line);
   background: white;
   color: var(--accent);
@@ -1219,10 +1220,17 @@ textarea::placeholder {
   color: #92400e;
 }
 
-.status-needs_attention {
+.status-needs_attention,
+.status-unknown {
   border-color: rgba(217, 119, 6, 0.28);
   background: #fffbeb;
   color: #92400e;
+}
+
+.status-degraded {
+  border-color: rgba(185, 28, 28, 0.24);
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .empty-state {

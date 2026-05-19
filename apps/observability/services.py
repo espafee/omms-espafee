@@ -832,6 +832,101 @@ def notification_retry_job(limit: int = 50) -> int:
     return NotificationService().mark_due_retries_pending(limit=limit)
 
 
+def get_deployment_environment_metadata() -> dict[str, Any]:
+    database_engine = settings.DATABASES.get("default", {}).get("ENGINE", "")
+    return {
+        "environment_name": getattr(settings, "OMMS_ENVIRONMENT_NAME", ""),
+        "debug": bool(getattr(settings, "DEBUG", False)),
+        "frontend_url": getattr(settings, "FRONTEND_PUBLIC_BASE_URL", ""),
+        "backend_url": getattr(settings, "OMMS_BACKEND_PUBLIC_BASE_URL", ""),
+        "redis_configured": bool(getattr(settings, "CELERY_BROKER_URL", "")),
+        "celery_eager": bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)),
+        "database_engine": database_engine.rsplit(".", 1)[-1] if database_engine else "",
+        "app_version": getattr(settings, "OMMS_APP_VERSION", ""),
+        "git_commit": getattr(settings, "OMMS_GIT_COMMIT", ""),
+    }
+
+
+def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
+    now = now or timezone.now()
+    since = now - timedelta(hours=24)
+    database_ok = True
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+    except Exception:
+        database_ok = False
+
+    celery_enabled = bool(getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True))
+    celery_eager = bool(getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False))
+    broker_configured = bool(getattr(settings, "CELERY_BROKER_URL", ""))
+    beat_configured = bool(getattr(settings, "CELERY_BEAT_SCHEDULE", {}))
+    active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING]
+    if database_ok:
+        recent_failed_requests = ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
+        recent_slow_requests = ApiRequestLog.objects.filter(is_slow=True, created_at__gte=since).count()
+        recent_failed_jobs = ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since).count()
+        latest_successful_import = ImportExportJob.objects.filter(
+            job_type=ImportExportJob.JobType.IMPORT,
+            status=ImportExportJob.Status.COMPLETED,
+        ).order_by("-completed_at", "-updated_at").first()
+        latest_successful_export = ImportExportJob.objects.filter(
+            job_type=ImportExportJob.JobType.EXPORT,
+            status=ImportExportJob.Status.COMPLETED,
+        ).order_by("-completed_at", "-updated_at").first()
+        active_jobs = ImportExportJob.objects.filter(status__in=active_job_statuses).count()
+    else:
+        recent_failed_requests = 0
+        recent_slow_requests = 0
+        recent_failed_jobs = 0
+        latest_successful_import = None
+        latest_successful_export = None
+        active_jobs = 0
+
+    signals = []
+    if not database_ok:
+        signals.append("database_unavailable")
+    if celery_enabled and not broker_configured:
+        signals.append("broker_not_configured")
+    if recent_failed_requests >= 10:
+        signals.append("failed_request_spike")
+    if recent_failed_jobs >= 2:
+        signals.append("failed_background_jobs")
+    if recent_slow_requests >= 25:
+        signals.append("slow_request_spike")
+
+    if not database_ok or recent_failed_requests >= 25 or recent_failed_jobs >= 5:
+        status_value = "degraded"
+    elif signals:
+        status_value = "warning"
+    else:
+        status_value = "healthy"
+
+    return {
+        "status": status_value,
+        "api_status": "healthy" if recent_failed_requests < 10 and database_ok else "degraded",
+        "database": {"ok": database_ok},
+        "redis": {"configured": broker_configured},
+        "celery": {
+            "enabled": celery_enabled,
+            "broker_configured": broker_configured,
+            "eager": celery_eager,
+            "mode": "eager" if celery_eager else "enabled" if celery_enabled else "disabled",
+            "worker_ready": "unknown" if celery_enabled and not celery_eager else "not_required",
+            "beat_configured": beat_configured,
+        },
+        "recent_failed_requests": recent_failed_requests,
+        "recent_slow_requests": recent_slow_requests,
+        "recent_failed_background_jobs": recent_failed_jobs,
+        "active_jobs": active_jobs,
+        "last_successful_import": latest_successful_import.completed_at if latest_successful_import else None,
+        "last_successful_export": latest_successful_export.completed_at if latest_successful_export else None,
+        "signals": signals,
+        "deployment": get_deployment_environment_metadata(),
+    }
+
+
 def ensure_default_alert_rules() -> None:
     defaults = [
         ("Slow API requests in last 24h", AlertRule.Metric.SLOW_REQUESTS, 25, 1440, AlertRule.Severity.WARNING),
@@ -842,6 +937,7 @@ def ensure_default_alert_rules() -> None:
         ("Overdue POE reviews", AlertRule.Metric.OVERDUE_POE_REVIEWS, 5, 1440, AlertRule.Severity.WARNING),
         ("POE SLA breaches", AlertRule.Metric.POE_SLA_BREACHES, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Critical campaign risk", AlertRule.Metric.CAMPAIGNS_AT_RISK, 1, 1440, AlertRule.Severity.CRITICAL),
+        ("System health degraded", AlertRule.Metric.SYSTEM_HEALTH_DEGRADED, 1, 15, AlertRule.Severity.CRITICAL),
         ("Breached issues", AlertRule.Metric.BREACHED_ISSUES, 1, 1440, AlertRule.Severity.CRITICAL),
         ("Overdue invoices", AlertRule.Metric.OVERDUE_INVOICES, 5, 1440, AlertRule.Severity.WARNING),
     ]
@@ -879,6 +975,8 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
         return build_poe_sla_intelligence(now=now)["breach_count"]
     if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
         return build_campaign_performance_analytics()["critical_count"]
+    if rule.metric == AlertRule.Metric.SYSTEM_HEALTH_DEGRADED:
+        return 1 if build_system_health_diagnostics(now=now)["status"] == "degraded" else 0
     if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
         return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
     if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
@@ -943,6 +1041,16 @@ def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
                         title=f"Campaign risk alert: {rule.name}",
                         message=summary,
                         severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                    )
+            if rule.metric == AlertRule.Metric.SYSTEM_HEALTH_DEGRADED:
+                for role in ("admin", "operations"):
+                    NotificationService().create_internal_notification(
+                        recipient_role=role,
+                        event_type=EmailNotificationLog.NotificationType.SYSTEM_DIAGNOSTIC_ALERT,
+                        title=f"System health alert: {rule.name}",
+                        message=summary,
+                        severity="critical",
                         metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
                     )
         except Exception:
@@ -1349,6 +1457,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         "billing_intelligence": billing_intelligence,
         "timeline": timeline,
         "system_health": {
+            **build_system_health_diagnostics(now=now),
             "celery_mode": "enabled" if getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True) else "disabled",
             "broker_configured": bool(getattr(settings, "CELERY_BROKER_URL", "")),
             "active_jobs": job_queryset.filter(status__in=active_job_statuses).count(),
@@ -1386,24 +1495,21 @@ def build_role_activity(filters: dict[str, Any] | None = None) -> dict[str, Any]
 
 
 def build_diagnostics_payload() -> dict[str, Any]:
-    database_ok = True
-    try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT 1")
-            cursor.fetchone()
-    except Exception:
-        database_ok = False
-
+    system_health = build_system_health_diagnostics()
     cache_ok = cache.set("omms:diagnostics:ping", "ok", 10) and cache.get("omms:diagnostics:ping") == "ok"
     return {
         "app_version": getattr(settings, "OMMS_APP_VERSION", ""),
         "git_commit": getattr(settings, "OMMS_GIT_COMMIT", ""),
-        "database": {"ok": database_ok},
+        "environment": system_health["deployment"],
+        "system_health": system_health,
+        "database": system_health["database"],
         "cache": {"ok": bool(cache_ok), "timeout_seconds": getattr(settings, "OMMS_DASHBOARD_CACHE_SECONDS", 60)},
         "background_jobs": {
-            "celery_broker_configured": bool(getattr(settings, "CELERY_BROKER_URL", "")),
+            "celery_broker_configured": system_health["celery"]["broker_configured"],
             "background_jobs_enabled": getattr(settings, "OMMS_ENABLE_BACKGROUND_JOBS", True),
-            "mode": "celery-ready",
+            "mode": system_health["celery"]["mode"],
+            "worker_ready": system_health["celery"]["worker_ready"],
+            "beat_configured": system_health["celery"]["beat_configured"],
         },
         "request_logging": {
             "enabled": getattr(settings, "OMMS_API_REQUEST_LOGGING_ENABLED", True),
@@ -1413,21 +1519,31 @@ def build_diagnostics_payload() -> dict[str, Any]:
         "recent_slow_requests": list(
             ApiRequestLog.objects.filter(is_slow=True)
             .values("created_at", "method", "path", "status_code", "duration_ms", "category")[:10]
-        ),
+        )
+        if system_health["database"]["ok"]
+        else [],
         "recent_errors": list(
             ApiRequestLog.objects.filter(status_code__gte=500)
             .values("created_at", "method", "path", "status_code", "duration_ms", "category")[:10]
-        ),
+        )
+        if system_health["database"]["ok"]
+        else [],
         "recent_critical_alerts": list(
             AlertEvent.objects.filter(severity=AlertRule.Severity.CRITICAL)
             .values("created_at", "metric", "summary", "observed_value", "threshold")[:10]
-        ),
+        )
+        if system_health["database"]["ok"]
+        else [],
         "notification_retry_health": {
-            "failed_count": EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED).count(),
+            "failed_count": EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED).count()
+            if system_health["database"]["ok"]
+            else 0,
             "due_retry_count": EmailNotificationLog.objects.filter(
                 status=EmailNotificationLog.Status.FAILED,
                 next_retry_at__lte=timezone.now(),
-            ).count(),
+            ).count()
+            if system_health["database"]["ok"]
+            else 0,
         },
     }
 

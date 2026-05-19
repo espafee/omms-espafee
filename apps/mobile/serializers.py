@@ -50,6 +50,10 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     collection_efficiency = serializers.IntegerField()
     bookings_starting_today = serializers.IntegerField()
     bookings_ending_today = serializers.IntegerField()
+    system_status = serializers.CharField()
+    api_status = serializers.CharField()
+    failed_jobs = serializers.IntegerField()
+    active_alerts = serializers.IntegerField()
 
 
 class MobileAdminRunningCampaignSerializer(serializers.Serializer):
