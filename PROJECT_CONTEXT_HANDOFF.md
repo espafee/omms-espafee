@@ -891,3 +891,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The Operations dashboard System Status panel now shows API, database, Redis, Celery mode, failed jobs, failed/slow requests, last import/export, build identifier, and calm health badges (`healthy`, `warning`, `degraded`, `unknown`).
 - Alert thresholds now include `system_health_degraded`; degraded system health creates audit/alert records and admin/operations system diagnostic notifications through the existing cooldown flow.
 - Mobile parity: mobile admin overview receives a tiny system status summary with API/system health, active alert count, and failed jobs. Field staff mobile receives no diagnostics.
+
+## Dashboard Customization Wiring Fix
+
+- Dashboard profile preferences now actively gate visible dashboard sections rather than only updating checkbox state.
+- The main dashboard reloads data after preference save/restore so changes apply immediately and persist on refresh/logout/login through `DashboardWidgetPreference`.
+- Finance summaries are requested only when the user is finance-authorized and at least one finance widget is visible, preventing hidden finance widgets from driving unnecessary billing API calls.
+- Required widgets remain disabled in the customization panel and are labeled as required; backend preference saving keeps required widgets visible even if a caller attempts to hide them.

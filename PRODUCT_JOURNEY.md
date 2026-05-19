@@ -117,3 +117,9 @@ The first customization layer lets back-office users hide/show safe optional wid
 OMMS now gives admins a compact answer to a very operational question: is the platform healthy right now? Diagnostics combine API health, database connectivity, Redis/Celery configuration, failed or slow requests, failed background jobs, and last successful import/export activity into one safe system status payload.
 
 The Operations dashboard now shows this as a System Status panel with calm health badges and non-secret deployment context. Degraded health can trigger the existing alert/notification path, while mobile admin receives only a tiny health summary suitable for an operations companion.
+
+## Dashboard Customization Wiring Fix
+
+Dashboard customization now changes the actual dashboard, not just the checklist. When a back-office user hides a safe optional widget, the matching dashboard card or section disappears immediately after save and remains hidden after refresh or a new login.
+
+The dashboard also stops requesting billing summary data when all finance widgets are hidden, while still preserving role and permission guardrails. Restore defaults visibly rebuilds the role-default layout, and required widgets are clearly marked so users understand why they cannot be disabled.

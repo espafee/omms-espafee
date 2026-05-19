@@ -412,6 +412,12 @@ class ObservabilityFoundationTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertNotIn("billing_risk", response.data["active_widgets"])
+        self.assertIn("billing_risk", response.data["hidden_widgets"])
+
+        get_response = self.client.get("/api/v1/observability/dashboard-profile/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("billing_risk", get_response.data["active_widgets"])
+        self.assertIn("billing_risk", get_response.data["hidden_widgets"])
 
         reset_response = self.client.post(
             "/api/v1/observability/dashboard-profile/",
@@ -421,6 +427,22 @@ class ObservabilityFoundationTests(TestCase):
 
         self.assertEqual(reset_response.status_code, status.HTTP_200_OK)
         self.assertIn("billing_risk", reset_response.data["active_widgets"])
+
+    @patch("apps.observability.services.REQUIRED_DASHBOARD_WIDGETS", {"campaign_performance"})
+    def test_dashboard_widget_preferences_keep_required_widgets_visible(self):
+        updated = save_dashboard_widget_preferences(
+            self.admin,
+            [{"widget_key": "campaign_performance", "is_visible": False, "sort_order": 1}],
+        )
+
+        self.assertIn("campaign_performance", updated["active_widgets"])
+        self.assertTrue(
+            DashboardWidgetPreference.objects.filter(
+                user=self.admin,
+                widget_key="campaign_performance",
+                is_visible=True,
+            ).exists()
+        )
 
     def test_campaign_performance_hides_billing_for_operations_role(self):
         Invoice.objects.create(

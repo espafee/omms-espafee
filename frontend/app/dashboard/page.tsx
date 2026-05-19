@@ -21,6 +21,38 @@ type StoredUser = {
   role?: string;
 };
 
+const FINANCE_WIDGET_KEYS = [
+  "billing_risk",
+  "overdue_invoices",
+  "collection_efficiency",
+  "invoice_payment_trend",
+  "billing_alerts",
+  "client_invoices",
+];
+
+function profileHasVisibleFinanceWidgets(dashboardProfile: DashboardProfile) {
+  return FINANCE_WIDGET_KEYS.some((key) => dashboardProfile.active_widgets.includes(key));
+}
+
+function applyWidgetVisibility(profile: DashboardProfile, widgets: Array<{ widget_key: string; is_visible: boolean; sort_order: number }>) {
+  const widgetState = new Map(widgets.map((widget) => [widget.widget_key, widget]));
+  const availableWidgets = profile.available_widgets.map((widget) => {
+    const nextWidget = widgetState.get(widget.key);
+    const isVisible = widget.is_required || (nextWidget ? nextWidget.is_visible : widget.is_visible);
+    return {
+      ...widget,
+      is_visible: isVisible,
+      sort_order: nextWidget?.sort_order ?? widget.sort_order,
+    };
+  });
+  return {
+    ...profile,
+    available_widgets: availableWidgets,
+    active_widgets: availableWidgets.filter((widget) => widget.is_visible).map((widget) => widget.key),
+    hidden_widgets: availableWidgets.filter((widget) => !widget.is_visible).map((widget) => widget.key),
+  };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -30,6 +62,14 @@ export default function DashboardPage() {
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+
+  async function refreshDashboardForProfile(nextProfile: DashboardProfile) {
+    setProfile(nextProfile);
+    const summaries = await fetchDashboardData({
+      includeBilling: nextProfile.can_view_finance && profileHasVisibleFinanceWidgets(nextProfile),
+    });
+    setDashboard(summaries);
+  }
 
   useEffect(() => {
     const token = getAccessToken();
@@ -54,7 +94,9 @@ export default function DashboardPage() {
         }
         const dashboardProfile = await fetchDashboardProfile();
         setProfile(dashboardProfile);
-        const summaries = await fetchDashboardData({ includeBilling: dashboardProfile.can_view_finance });
+        const summaries = await fetchDashboardData({
+          includeBilling: dashboardProfile.can_view_finance && profileHasVisibleFinanceWidgets(dashboardProfile),
+        });
         setDashboard(summaries);
       } catch (loadError) {
         const message = loadError instanceof Error ? loadError.message : "Unable to load the dashboard.";
@@ -88,6 +130,12 @@ export default function DashboardPage() {
     return activeWidgetSet.has(key);
   }
 
+  function hasAnyWidget(keys: string[]) {
+    return keys.some((key) => activeWidgetSet.has(key));
+  }
+
+  const shouldShowBillingWidgets = Boolean(profile?.can_view_finance && hasAnyWidget(FINANCE_WIDGET_KEYS));
+
   const quickStats = useMemo(() => {
     if (!dashboard) {
       return [];
@@ -98,13 +146,14 @@ export default function DashboardPage() {
       { key: "assigned_work", label: "Live bookings", value: String(dashboard.bookings.live_bookings) },
       { key: "billing_risk", label: "Outstanding revenue", value: formatCurrency(dashboard.billing?.outstanding_amount ?? "0.00") },
       { key: "client_campaign_status", label: "Approved assets", value: String(dashboard.campaigns.approved_assets) },
-    ].filter((item) => activeWidgetSet.has(item.key) || (item.key === "billing_risk" && profile?.can_view_finance));
-  }, [activeWidgetSet, dashboard, profile]);
+    ].filter((item) => activeWidgetSet.has(item.key));
+  }, [activeWidgetSet, dashboard]);
 
   async function handleWidgetToggle(widgetKey: string, isVisible: boolean) {
     if (!profile?.can_customize) {
       return;
     }
+    const previousProfile = profile;
     setIsSavingProfile(true);
     setError("");
     setMessage("");
@@ -114,9 +163,12 @@ export default function DashboardPage() {
         is_visible: widget.key === widgetKey ? isVisible : widget.is_visible,
         sort_order: widget.sort_order,
       }));
-      setProfile(await updateDashboardProfile(nextWidgets));
+      setProfile(applyWidgetVisibility(profile, nextWidgets));
+      const nextProfile = await updateDashboardProfile(nextWidgets);
+      await refreshDashboardForProfile(nextProfile);
       setMessage("Dashboard preference saved.");
     } catch (saveError) {
+      setProfile(previousProfile);
       setError(saveError instanceof Error ? saveError.message : "Unable to save dashboard preference.");
     } finally {
       setIsSavingProfile(false);
@@ -128,7 +180,8 @@ export default function DashboardPage() {
     setError("");
     setMessage("");
     try {
-      setProfile(await restoreDashboardProfileDefaults());
+      const nextProfile = await restoreDashboardProfileDefaults();
+      await refreshDashboardForProfile(nextProfile);
       setMessage("Dashboard defaults restored.");
     } catch (restoreError) {
       setError(restoreError instanceof Error ? restoreError.message : "Unable to restore dashboard defaults.");
@@ -171,7 +224,7 @@ export default function DashboardPage() {
                   />
                   <span>
                     <strong>{widget.label}</strong>
-                    <small>{widget.category} · {widget.description}</small>
+                    <small>{widget.category} · {widget.description}{widget.is_required ? " · Required" : ""}</small>
                   </span>
                 </label>
               ))}
@@ -190,7 +243,7 @@ export default function DashboardPage() {
 
         <section className="module-grid">
           {hasWidget("campaign_performance") || hasWidget("critical_campaigns") || hasWidget("client_campaign_status") ? (
-          <article className="module-card">
+          <article className="module-card" data-testid="dashboard-campaign-performance">
             <div className="module-head">
               <h2>Campaign performance</h2>
               <span>Campaigns</span>
@@ -215,7 +268,7 @@ export default function DashboardPage() {
           ) : null}
 
           {hasWidget("assigned_work") || hasWidget("pending_poe_uploads") || hasWidget("campaign_performance") ? (
-          <article className="module-card">
+          <article className="module-card" data-testid="dashboard-booking-pipeline">
             <div className="module-head">
               <h2>Booking pipeline</h2>
               <span>Bookings</span>
@@ -239,8 +292,8 @@ export default function DashboardPage() {
           </article>
           ) : null}
 
-          {profile?.can_view_finance && (hasWidget("billing_risk") || hasWidget("overdue_invoices") || hasWidget("collection_efficiency") || hasWidget("client_invoices")) ? (
-          <article className="module-card module-card-highlight">
+          {shouldShowBillingWidgets ? (
+          <article className="module-card module-card-highlight" data-testid="dashboard-revenue-watch">
             <div className="module-head">
               <h2>Revenue watch</h2>
               <span>Billing</span>
@@ -298,7 +351,7 @@ export default function DashboardPage() {
             <p className="activity-copy">Media units currently represented across visible booking activity.</p>
           </article>
           ) : null}
-          {profile?.can_view_finance && (hasWidget("billing_risk") || hasWidget("overdue_invoices") || hasWidget("client_invoices")) ? (
+          {shouldShowBillingWidgets ? (
           <article className="activity-card">
             <p className="stat-label">Actions needed</p>
             <p className="activity-value">{isLoading ? "..." : dashboard?.billing?.overdue_invoices ?? 0}</p>
