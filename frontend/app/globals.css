@@ -338,7 +338,8 @@ textarea::placeholder {
 }
 
 .error,
-.success {
+.success,
+.warning {
   margin: 0;
   padding: 12px 14px;
   border-radius: 8px;
@@ -363,6 +364,12 @@ textarea::placeholder {
   color: var(--success);
   border-color: rgba(22, 101, 52, 0.16);
   background: var(--success-soft);
+}
+
+.warning {
+  color: #92400e;
+  border-color: rgba(217, 119, 6, 0.18);
+  background: #fffbeb;
 }
 
 .helper {

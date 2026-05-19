@@ -170,6 +170,7 @@ export default function OperationsPage() {
   const [isStartingImport, setIsStartingImport] = useState(false);
   const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isLiveRefreshing, setIsLiveRefreshing] = useState(false);
@@ -189,25 +190,57 @@ export default function OperationsPage() {
         setIsLoading(true);
       }
       setError("");
+      setLoadWarnings([]);
       try {
         const profile = await fetchCurrentUser();
         setUser(profile);
-        const [summaryPayload, auditPayload, exportPayload, alertRulePayload] = await Promise.all([
+        const [summaryResult, auditResult, exportResult, alertRuleResult, diagnosticsResult, savedViewsResult] = await Promise.allSettled([
           fetchOperationsSummary(nextFilters),
           fetchAuditEvents({ severity: nextFilters.severity, event_type: nextFilters.event_type }),
           fetchExportJobs(),
           fetchAlertRules(),
+          profile.role === "admin" ? fetchDiagnostics() : Promise.resolve(null),
+          fetchSavedOperationalViews({ view_type: "operations" }),
         ]);
-        setSummary(summaryPayload);
-        setAuditEvents(auditPayload);
-        setExportJobs(exportPayload);
-        setAlertRules(alertRulePayload);
-        if (profile.role === "admin") {
-          setDiagnostics(await fetchDiagnostics());
+
+        const warnings: string[] = [];
+        if (summaryResult.status === "fulfilled") {
+          setSummary(summaryResult.value);
+          if (summaryResult.value.warnings?.length) {
+            warnings.push(...summaryResult.value.warnings);
+          }
+        } else {
+          warnings.push("Operations summary is temporarily unavailable.");
+        }
+        if (auditResult.status === "fulfilled") {
+          setAuditEvents(auditResult.value);
+        } else {
+          warnings.push("Audit timeline could not be refreshed.");
+        }
+        if (exportResult.status === "fulfilled") {
+          setExportJobs(exportResult.value);
+        } else {
+          warnings.push("Import/export history could not be refreshed.");
+        }
+        if (alertRuleResult.status === "fulfilled") {
+          setAlertRules(alertRuleResult.value);
+        } else {
+          warnings.push("Alert thresholds could not be refreshed.");
+        }
+        if (diagnosticsResult.status === "fulfilled") {
+          setDiagnostics(diagnosticsResult.value);
         } else {
           setDiagnostics(null);
+          if (profile.role === "admin") {
+            warnings.push("Admin diagnostics could not be refreshed.");
+          }
         }
-        setSavedViews(await fetchSavedOperationalViews({ view_type: "operations" }));
+        if (savedViewsResult.status === "fulfilled") {
+          setSavedViews(savedViewsResult.value);
+        } else {
+          warnings.push("Saved views are temporarily unavailable.");
+        }
+        setLoadWarnings(warnings);
         const now = new Date();
         setLastUpdatedAt(now);
         setLiveTick(now.getTime());
@@ -485,6 +518,7 @@ export default function OperationsPage() {
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}
       {message ? <p className="success">{message}</p> : null}
+      {loadWarnings.length ? <p className="warning">{loadWarnings.join(" ")}</p> : null}
 
       <section className="ops-live-strip" aria-label="Live operations refresh status">
         <div className="ops-live-status">

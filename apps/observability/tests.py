@@ -1311,6 +1311,18 @@ class ObservabilityFoundationTests(TestCase):
         self.assertTrue(response.data["charts"]["request_activity"])
         self.assertTrue(response.data["timeline"])
 
+    @patch("apps.observability.views.build_operations_summary")
+    def test_operations_summary_returns_safe_fallback_on_aggregation_error(self, summary_mock):
+        summary_mock.side_effect = RuntimeError("aggregation failed")
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["system_health"]["status"], "degraded")
+        self.assertEqual(response.data["kpis"]["active_jobs"], 0)
+        self.assertIn("Operations summary is temporarily unavailable.", response.data["warnings"])
+
     def test_operations_summary_hides_billing_intelligence_from_operations_role(self):
         Invoice.objects.create(
             campaign=self.campaign,

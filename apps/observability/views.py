@@ -1,3 +1,5 @@
+import logging
+
 from django.http import FileResponse
 from django.utils import timezone
 from rest_framework import status
@@ -30,6 +32,7 @@ from .services import (
     ImportExportJobService,
     build_dashboard_profile,
     build_diagnostics_payload,
+    build_empty_operations_summary,
     build_operations_summary,
     build_operational_search,
     build_poe_analytics,
@@ -51,6 +54,7 @@ from .services import (
 
 
 OBSERVABILITY_ROLES = (ADMIN, OPERATIONS, FINANCE)
+logger = logging.getLogger(__name__)
 
 
 class ApiRequestLogViewSet(ServiceModelViewSet):
@@ -207,7 +211,11 @@ class OperationsSummaryView(APIView):
     def get(self, request):
         filters = request.query_params.copy()
         filters["_user"] = request.user
-        return Response(build_operations_summary(filters))
+        try:
+            return Response(build_operations_summary(filters))
+        except Exception:
+            logger.exception("Operations summary aggregation failed")
+            return Response(build_empty_operations_summary(error="Operations summary is temporarily unavailable."))
 
 
 class DashboardProfileView(APIView):

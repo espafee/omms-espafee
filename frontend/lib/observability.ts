@@ -199,6 +199,7 @@ export type OperationsSummary = {
     last_successful_export: string | null;
     notification_retries_due: number;
   };
+  warnings?: string[];
 };
 
 export type DiagnosticsPayload = {
