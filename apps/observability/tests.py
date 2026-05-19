@@ -16,9 +16,10 @@ from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.notifications.models import EmailNotificationLog, Notification, NotificationPreference
 from apps.notifications.services import NotificationService
-from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
+from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
 from apps.observability.services import (
     build_campaign_performance_analytics,
+    build_operational_search,
     build_poe_sla_intelligence,
     build_poe_analytics,
     confirm_inventory_sites_import,
@@ -278,6 +279,73 @@ class ObservabilityFoundationTests(TestCase):
         self.assertFalse(row["invoice_generated"])
         self.assertIn("missing_poe", row["operational_delay_indicators"])
         self.assertIn(row["risk_status"], {"poe_risk", "critical"})
+
+    def test_operational_search_returns_scoped_campaign_inventory_and_poe_results(self):
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            captured_at=timezone.now(),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+
+        payload = build_operational_search(self.operations, {"q": "OBS", "modules": "campaigns,sites,units,poes"})
+        modules = {item["module"] for item in payload["results"]}
+
+        self.assertIn("campaigns", modules)
+        self.assertIn("sites", modules)
+        self.assertIn("units", modules)
+        self.assertIn("poes", modules)
+        self.assertEqual(payload["query"], "OBS")
+
+    def test_operational_search_hides_finance_results_from_operations_role(self):
+        Invoice.objects.create(
+            campaign=self.campaign,
+            invoice_number="INV-OBS-001",
+            invoice_date=date.today(),
+            due_date=date.today() + timedelta(days=10),
+            total_amount=Decimal("5000.00"),
+            grand_total=Decimal("5000.00"),
+            status=Invoice.Status.ISSUED,
+        )
+
+        operations_payload = build_operational_search(self.operations, {"q": "INV-OBS", "modules": "invoices,clients"})
+        finance_payload = build_operational_search(self.admin, {"q": "INV-OBS", "modules": "invoices,clients"})
+
+        self.assertEqual(operations_payload["results"], [])
+        self.assertIn("invoices", {item["module"] for item in finance_payload["results"]})
+
+    def test_saved_operational_views_are_owned_by_user(self):
+        self.client.force_authenticate(self.admin)
+        response = self.client.post(
+            "/api/v1/observability/saved-views/",
+            {
+                "name": "Critical Campaigns",
+                "view_type": "operations",
+                "module": "campaigns",
+                "filters": {"status": "critical", "module": "campaigns"},
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        saved_view = SavedOperationalView.objects.get()
+        self.assertEqual(saved_view.user, self.admin)
+        self.assertEqual(saved_view.filters["status"], "critical")
+
+        self.client.force_authenticate(self.operations)
+        list_response = self.client.get("/api/v1/observability/saved-views/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.data["count"], 0)
+
+    def test_operational_search_endpoint_supports_module_filtering(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get("/api/v1/observability/operational-search/", {"q": "OBS", "modules": "campaigns"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(response.data["total"], 1)
+        self.assertEqual({item["module"] for item in response.data["results"]}, {"campaigns"})
 
     def test_campaign_performance_hides_billing_for_operations_role(self):
         Invoice.objects.create(

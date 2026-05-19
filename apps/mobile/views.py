@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.poe.exceptions import DuplicateProofOfExecutionError
+from apps.observability.services import build_operational_search
 
 from .admin_services import MobileAdminOperationsService
 from .permissions import IsMobileAdmin
@@ -18,6 +19,7 @@ from .serializers import (
     MobileAdminOverviewSerializer,
     MobileAdminPoeTrackerSerializer,
     MobileAdminRunningCampaignSerializer,
+    MobileAdminSearchResultSerializer,
     MobilePoeSubmitResponseSerializer,
     MobilePoeSubmitSerializer,
 )
@@ -92,6 +94,17 @@ class MobileAdminAlertsView(APIView):
     def get(self, request, *args, **kwargs):
         serializer = MobileAdminAlertSerializer(MobileAdminOperationsService.get_alerts(), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileAdminSearchView(APIView):
+    permission_classes = [IsAuthenticated, IsMobileAdmin]
+
+    def get(self, request, *args, **kwargs):
+        query_params = request.query_params.copy()
+        query_params["modules"] = query_params.get("modules") or "campaigns,sites,units"
+        payload = build_operational_search(request.user, query_params)
+        serializer = MobileAdminSearchResultSerializer(payload["results"][:10], many=True)
+        return Response({"query": payload["query"], "results": serializer.data}, status=status.HTTP_200_OK)
 
 
 class MobileAdminIssuesView(APIView):

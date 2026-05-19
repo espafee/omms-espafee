@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiRequestLog, AuditEvent, ImportExportJob
+from .models import ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
 
 
 @admin.register(ApiRequestLog)
@@ -24,3 +24,10 @@ class ImportExportJobAdmin(admin.ModelAdmin):
     list_display = ("created_at", "job_type", "resource_type", "status", "rows_total", "rows_failed", "created_by")
     list_filter = ("job_type", "resource_type", "status", "created_at")
     search_fields = ("company_name", "created_by__email")
+
+
+@admin.register(SavedOperationalView)
+class SavedOperationalViewAdmin(admin.ModelAdmin):
+    list_display = ("name", "view_type", "module", "user", "company_name", "is_default", "updated_at")
+    list_filter = ("view_type", "module", "is_default", "updated_at")
+    search_fields = ("name", "search_query", "user__email", "company_name")

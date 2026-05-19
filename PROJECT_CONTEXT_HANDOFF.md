@@ -862,3 +862,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Alert thresholds now include `campaigns_at_risk`; critical campaign risk creates alert/audit records and notifies admin and operations inbox roles with existing cooldown protection.
 - `/campaigns` now shows performance badges/cards for POE completion, missing POE, risk status, billing status, and overdue exposure where permitted.
 - Mobile parity: mobile admin overview receives high-level active campaign, campaigns-at-risk, campaigns-ending-soon, and critical campaign KPIs. Field staff screens remain focused on assigned execution work.
+
+## Global Operational Search And Saved Views Foundation
+
+- Observability now owns a lightweight global operational search endpoint at `GET /api/v1/observability/operational-search/`.
+- Search covers campaigns, POEs, import/export jobs, alerts, audit events, notifications, sites/media units, and finance/client records where the caller has the appropriate role.
+- Phase 1 search uses simple indexed ORM filters, per-module limits, and result caps instead of Elasticsearch/OpenSearch. Finance and client search results are hidden from non-admin/non-finance users.
+- Saved operational views are persisted in `SavedOperationalView`, scoped to the current user and company name, and exposed through `/api/v1/observability/saved-views/`.
+- `/operations` can save and restore filter combinations such as critical campaigns, failed imports, pending POEs, finance risk, or daily operations.
+- The shared app shell now includes a compact operational search dropdown with grouped results and recent local searches.
+- Mobile parity: mobile admin gets a lightweight campaign/site/unit lookup at `GET /api/v1/mobile/admin/search/`. Field staff search remains limited to assigned work context; no finance or operational intelligence search is exposed to field users.

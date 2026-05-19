@@ -99,3 +99,9 @@ The Operations dashboard adds a compact billing risk panel for admin and finance
 OMMS now connects campaign delivery, POE completion, and commercial risk into one campaign performance layer. Campaigns receive a computed risk label without changing their lifecycle state, so owners can see which campaigns are on track, need attention, have POE risk, have billing risk, or are critical.
 
 The Operations dashboard now includes campaign risk distribution, POE completion trend, operational health trend, critical campaign count, and a compact performance table, while the Campaigns page shows POE completion, pending proof counts, billing status, operational delay indicators, and risk badges per campaign. Mobile admin gets high-level campaign risk KPIs without exposing field staff to finance detail.
+
+## Global Operational Search And Saved Views Foundation
+
+OMMS now has the first layer of cross-operational navigation. Admin, operations, and finance users can search across campaign delivery, POE records, import/export jobs, alerts, audit history, notifications, and inventory records from the app shell without jumping through separate modules.
+
+Saved operational views turn repeated filters into reusable work surfaces. Operators can save views such as `Critical Campaigns`, `Pending POEs`, `Failed Imports`, or `Today’s Operations`, then restore those filters on the Operations dashboard. Finance-sensitive search remains permission-protected, and mobile admin receives only a lightweight campaign/site lookup foundation.

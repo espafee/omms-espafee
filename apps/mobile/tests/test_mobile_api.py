@@ -301,6 +301,22 @@ class MobileApiTests(TestCase):
         self.assertIn("total_units", item)
         self.assertIn("poe_progress_percent", item)
 
+    def test_mobile_admin_search_returns_campaign_and_site_lookup(self):
+        self._authenticate(self.admin)
+
+        response = self.client.get("/api/v1/mobile/admin/search/?q=Jio&modules=campaigns,sites,units")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("results", response.data)
+        self.assertIn("campaigns", {item["module"] for item in response.data["results"]})
+
+    def test_mobile_admin_search_rejects_field_staff(self):
+        self._authenticate(self.field_staff)
+
+        response = self.client.get("/api/v1/mobile/admin/search/?q=Jio")
+
+        self.assertEqual(response.status_code, 403)
+
     def test_mobile_admin_poe_tracker_status_filter(self):
         suspicious_poe = ProofOfExecution.objects.create(
             booking=self.booking,

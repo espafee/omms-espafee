@@ -11,8 +11,16 @@ from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FINANCE, OPERATIONS
 from core.viewsets import ServiceModelViewSet
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
-from .serializers import AlertEventSerializer, AlertRuleSerializer, ApiRequestLogSerializer, AuditEventSerializer, ImportExportJobSerializer
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
+from .serializers import (
+    AlertEventSerializer,
+    AlertRuleSerializer,
+    ApiRequestLogSerializer,
+    AuditEventSerializer,
+    ImportExportJobSerializer,
+    OperationalSearchSerializer,
+    SavedOperationalViewSerializer,
+)
 from .services import (
     AlertEventService,
     AlertRuleService,
@@ -21,6 +29,7 @@ from .services import (
     ImportExportJobService,
     build_diagnostics_payload,
     build_operations_summary,
+    build_operational_search,
     build_poe_analytics,
     build_role_activity,
     confirm_inventory_sites_import,
@@ -32,6 +41,7 @@ from .services import (
     export_poe_reports_csv,
     record_audit_event,
     retry_import_export_job,
+    SavedOperationalViewService,
     validate_inventory_sites_import,
 )
 
@@ -194,6 +204,29 @@ class OperationsSummaryView(APIView):
         filters = request.query_params.copy()
         filters["_user"] = request.user
         return Response(build_operations_summary(filters))
+
+
+class OperationalSearchView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = OBSERVABILITY_ROLES
+
+    def get(self, request):
+        payload = build_operational_search(request.user, request.query_params)
+        return Response(OperationalSearchSerializer(payload).data)
+
+
+class SavedOperationalViewViewSet(ServiceModelViewSet):
+    serializer_class = SavedOperationalViewSerializer
+    permission_classes = [RoleBasedPermission]
+    service_class = SavedOperationalViewService
+    allowed_roles = OBSERVABILITY_ROLES
+    write_roles = OBSERVABILITY_ROLES
+    filterset_fields = ["view_type", "module", "is_default"]
+    search_fields = ["name", "search_query"]
+    ordering_fields = ["name", "updated_at", "view_type"]
+
+    def get_queryset(self):
+        return super().get_queryset().order_by("view_type", "name")
 
 
 class EvaluateAlertsView(APIView):

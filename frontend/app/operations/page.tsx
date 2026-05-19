@@ -26,6 +26,12 @@ import {
   type ImportExportJob,
   type OperationsSummary,
 } from "@/lib/observability";
+import {
+  createSavedOperationalView,
+  deleteSavedOperationalView,
+  fetchSavedOperationalViews,
+  type SavedOperationalView,
+} from "@/lib/operational-search";
 
 type StoredUser = {
   email?: string;
@@ -142,6 +148,8 @@ export default function OperationsPage() {
   const [diagnostics, setDiagnostics] = useState<DiagnosticsPayload | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [savedViews, setSavedViews] = useState<SavedOperationalView[]>([]);
+  const [savedViewName, setSavedViewName] = useState("");
   const [filters, setFilters] = useState(INITIAL_FILTERS);
   const [importJob, setImportJob] = useState<ImportExportJob | null>(null);
   const [exportJob, setExportJob] = useState<ImportExportJob | null>(null);
@@ -192,6 +200,7 @@ export default function OperationsPage() {
         } else {
           setDiagnostics(null);
         }
+        setSavedViews(await fetchSavedOperationalViews({ view_type: "operations" }));
         const now = new Date();
         setLastUpdatedAt(now);
         setLiveTick(now.getTime());
@@ -290,6 +299,47 @@ export default function OperationsPage() {
 
   function updateFilter(field: keyof typeof filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  async function handleSaveCurrentView() {
+    const trimmedName = savedViewName.trim();
+    if (!trimmedName) {
+      setError("Name this saved view before saving it.");
+      return;
+    }
+    setError("");
+    setMessage("");
+    try {
+      const savedView = await createSavedOperationalView({
+        name: trimmedName,
+        view_type: "operations",
+        module: filters.module || "operations",
+        filters,
+      });
+      setSavedViews((current) => [savedView, ...current.filter((item) => item.id !== savedView.id && item.name !== savedView.name)]);
+      setSavedViewName("");
+      setMessage("Operational view saved.");
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Unable to save this operational view.");
+    }
+  }
+
+  async function handleDeleteSavedView(id: number) {
+    setError("");
+    setMessage("");
+    try {
+      await deleteSavedOperationalView(id);
+      setSavedViews((current) => current.filter((item) => item.id !== id));
+      setMessage("Saved view removed.");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Unable to remove saved view.");
+    }
+  }
+
+  function applySavedView(view: SavedOperationalView) {
+    const nextFilters = { ...INITIAL_FILTERS, ...view.filters };
+    setFilters(nextFilters);
+    void load(nextFilters);
   }
 
   async function handleImportUpload(event: ChangeEvent<HTMLInputElement>) {
@@ -462,6 +512,32 @@ export default function OperationsPage() {
               />
             </div>
           ))}
+        </div>
+        <div className="saved-views-panel">
+          <div className="saved-view-save">
+            <input
+              aria-label="Saved view name"
+              value={savedViewName}
+              onChange={(event) => setSavedViewName(event.target.value)}
+              placeholder="Save this view as..."
+            />
+            <button className="submit compact-action" type="button" onClick={handleSaveCurrentView}>
+              Save view
+            </button>
+          </div>
+          <div className="saved-view-list" aria-label="Saved operational views">
+            {savedViews.slice(0, 6).map((view) => (
+              <span className="saved-view-chip" key={view.id}>
+                <button type="button" onClick={() => applySavedView(view)}>
+                  {view.name}
+                </button>
+                <button aria-label={`Delete ${view.name}`} type="button" onClick={() => handleDeleteSavedView(view.id)}>
+                  ×
+                </button>
+              </span>
+            ))}
+            {savedViews.length === 0 ? <span className="site-copy">No saved views yet.</span> : null}
+          </div>
         </div>
       </section>
 

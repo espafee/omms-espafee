@@ -157,6 +157,41 @@ class ImportExportJob(TimeStampedModel):
         return f"{self.job_type} {self.resource_type} ({self.status})"
 
 
+class SavedOperationalView(TimeStampedModel):
+    class ViewType(models.TextChoices):
+        OPERATIONS = "operations", "Operations"
+        SEARCH = "search", "Search"
+        ALERTS = "alerts", "Alerts"
+        CAMPAIGNS = "campaigns", "Campaigns"
+        BILLING = "billing", "Billing"
+        POE = "poe", "POE"
+        IMPORT_EXPORT = "import_export", "Import / Export"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="saved_operational_views",
+        on_delete=models.CASCADE,
+    )
+    company_name = models.CharField(max_length=255, blank=True, db_index=True)
+    name = models.CharField(max_length=120)
+    view_type = models.CharField(max_length=30, choices=ViewType.choices, default=ViewType.OPERATIONS, db_index=True)
+    module = models.CharField(max_length=40, blank=True, db_index=True)
+    search_query = models.CharField(max_length=120, blank=True)
+    filters = models.JSONField(default=dict, blank=True)
+    is_default = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ["view_type", "name"]
+        unique_together = ("user", "company_name", "name")
+        indexes = [
+            models.Index(fields=["user", "view_type", "updated_at"]),
+            models.Index(fields=["company_name", "module"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.name} ({self.view_type})"
+
+
 class AlertRule(TimeStampedModel):
     class Metric(models.TextChoices):
         SLOW_REQUESTS = "slow_requests", "Slow Requests"

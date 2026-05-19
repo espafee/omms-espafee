@@ -13,6 +13,7 @@ from django.core.files.base import ContentFile
 from django.db import connection, models, transaction
 from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
+from django.utils.dateparse import parse_date
 from django.utils import timezone
 from openpyxl import load_workbook
 
@@ -29,7 +30,7 @@ from apps.users.models import User
 from core.repositories import BaseRepository
 from core.services import BaseService
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
 
 
 SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret", "private_key", "file", "image"}
@@ -47,6 +48,21 @@ IMPORT_SITE_FIELD_ALIASES = {
     "lng": "site_longitude",
     "long": "site_longitude",
 }
+SEARCH_MODULE_LIMIT = 6
+SEARCH_RESULT_LIMIT = 30
+OPERATIONAL_SEARCH_MODULES = {
+    "campaigns",
+    "invoices",
+    "clients",
+    "poes",
+    "jobs",
+    "alerts",
+    "audit",
+    "notifications",
+    "sites",
+    "units",
+}
+BILLING_SEARCH_ROLES = {"admin", "finance"}
 def get_company_name() -> str:
     try:
         from apps.setup.models import CompanyProfile
@@ -182,6 +198,30 @@ class ImportExportJobService(BaseService):
         return super().create(actor=actor, **validated_data)
 
 
+class SavedOperationalViewRepository(BaseRepository):
+    model = SavedOperationalView
+    select_related = ("user",)
+
+    def scope_queryset(self, queryset, user=None):
+        if not user or not getattr(user, "is_authenticated", False):
+            return queryset.none()
+        return queryset.filter(user=user, company_name=get_company_name())
+
+
+class SavedOperationalViewService(BaseService):
+    repository_class = SavedOperationalViewRepository
+
+    def create(self, actor=None, **validated_data):
+        validated_data.setdefault("user", actor)
+        validated_data.setdefault("company_name", get_company_name())
+        return super().create(actor=actor, **validated_data)
+
+    def update(self, instance, actor=None, **validated_data):
+        validated_data.pop("user", None)
+        validated_data.pop("company_name", None)
+        return super().update(instance, actor=actor, **validated_data)
+
+
 class AlertRuleRepository(BaseRepository):
     model = AlertRule
 
@@ -197,6 +237,325 @@ class AlertRuleService(BaseService):
 
 class AlertEventService(BaseService):
     repository_class = AlertEventRepository
+
+
+def _split_modules(raw_modules: str | None) -> set[str]:
+    if not raw_modules:
+        return set(OPERATIONAL_SEARCH_MODULES)
+    requested = {module.strip().lower() for module in raw_modules.split(",") if module.strip()}
+    return requested & OPERATIONAL_SEARCH_MODULES
+
+
+def _date_filter(queryset, field_name: str, params: dict[str, Any]):
+    date_from = parse_date(str(params.get("date_from") or ""))
+    date_to = parse_date(str(params.get("date_to") or ""))
+    if date_from:
+        queryset = queryset.filter(**{f"{field_name}__date__gte": date_from})
+    if date_to:
+        queryset = queryset.filter(**{f"{field_name}__date__lte": date_to})
+    return queryset
+
+
+def _date_filter_date_field(queryset, field_name: str, params: dict[str, Any]):
+    date_from = parse_date(str(params.get("date_from") or ""))
+    date_to = parse_date(str(params.get("date_to") or ""))
+    if date_from:
+        queryset = queryset.filter(**{f"{field_name}__gte": date_from})
+    if date_to:
+        queryset = queryset.filter(**{f"{field_name}__lte": date_to})
+    return queryset
+
+
+def _result(*, module: str, obj_id, title: str, subtitle: str = "", status: str = "", url: str = "", created_at=None, metadata=None):
+    return {
+        "module": module,
+        "id": str(obj_id),
+        "title": title,
+        "subtitle": subtitle,
+        "status": status,
+        "url": url,
+        "created_at": created_at,
+        "metadata": metadata or {},
+    }
+
+
+def _append_limited(results: list[dict[str, Any]], rows):
+    remaining = max(0, SEARCH_RESULT_LIMIT - len(results))
+    if remaining:
+        results.extend(list(rows)[:remaining])
+
+
+def _can_view_billing(user) -> bool:
+    return getattr(user, "role", "") in BILLING_SEARCH_ROLES or getattr(user, "is_superuser", False)
+
+
+def build_operational_search(user, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    params = params or {}
+    query = str(params.get("q") or params.get("query") or "").strip()[:120]
+    status_filter = str(params.get("status") or "").strip()
+    modules = _split_modules(str(params.get("module") or params.get("modules") or ""))
+    can_view_billing = _can_view_billing(user)
+    results: list[dict[str, Any]] = []
+
+    if not query and not status_filter and not params.get("date_from") and not params.get("date_to"):
+        return {"query": query, "total": 0, "results": [], "grouped": {}}
+
+    if "campaigns" in modules:
+        queryset = Campaign.objects.select_related("client").order_by("-updated_at")
+        if query:
+            queryset = queryset.filter(Q(name__icontains=query) | Q(code__icontains=query) | Q(client__email__icontains=query) | Q(client__organization_name__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        queryset = _date_filter_date_field(queryset, "start_date", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="campaigns",
+                    obj_id=campaign.id,
+                    title=campaign.name,
+                    subtitle=f"{campaign.code} · {campaign.client.organization_name or campaign.client.email}",
+                    status=campaign.status,
+                    url="/campaigns",
+                    created_at=campaign.created_at,
+                    metadata={"code": campaign.code, "client": campaign.client.email},
+                )
+                for campaign in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if can_view_billing and "invoices" in modules:
+        queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+        if query:
+            queryset = queryset.filter(
+                Q(invoice_number__icontains=query)
+                | Q(campaign__name__icontains=query)
+                | Q(campaign__code__icontains=query)
+                | Q(client_legal_name__icontains=query)
+                | Q(campaign__client__email__icontains=query)
+            )
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        queryset = _date_filter(queryset, "created_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="invoices",
+                    obj_id=invoice.id,
+                    title=invoice.invoice_number or f"Draft invoice #{invoice.id}",
+                    subtitle=f"{invoice.campaign.name} · ₹{invoice.grand_total or invoice.total_amount}",
+                    status=invoice.status,
+                    url=f"/billing/invoices/{invoice.id}",
+                    created_at=invoice.created_at,
+                    metadata={"campaign": invoice.campaign.code, "amount": str(invoice.grand_total or invoice.total_amount)},
+                )
+                for invoice in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if can_view_billing and "clients" in modules:
+        queryset = User.objects.filter(role=User.Role.CLIENT).order_by("organization_name", "email")
+        if query:
+            queryset = queryset.filter(Q(email__icontains=query) | Q(organization_name__icontains=query) | Q(first_name__icontains=query) | Q(last_name__icontains=query))
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="clients",
+                    obj_id=client.id,
+                    title=client.organization_name or client.email,
+                    subtitle=client.email,
+                    status="client",
+                    url="/campaigns",
+                    created_at=client.created_at,
+                    metadata={"role": client.role},
+                )
+                for client in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "poes" in modules:
+        queryset = ProofOfExecution.objects.select_related("booking", "booking__campaign", "booking__media_unit", "booking__media_unit__site").order_by("-captured_at")
+        if query:
+            queryset = queryset.filter(
+                Q(booking__campaign__name__icontains=query)
+                | Q(booking__campaign__code__icontains=query)
+                | Q(booking__media_unit__unit_code__icontains=query)
+                | Q(booking__media_unit__site__name__icontains=query)
+                | Q(booking__media_unit__site__code__icontains=query)
+            )
+        if status_filter:
+            queryset = queryset.filter(verification_status=status_filter)
+        queryset = _date_filter(queryset, "captured_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="poes",
+                    obj_id=poe.id,
+                    title=f"POE #{poe.id} · {poe.booking.campaign.name}",
+                    subtitle=f"{poe.booking.media_unit.site.name} · {poe.booking.media_unit.unit_code}",
+                    status=poe.verification_status,
+                    url="/poe",
+                    created_at=poe.captured_at,
+                    metadata={"campaign": poe.booking.campaign.code, "booking_id": poe.booking_id},
+                )
+                for poe in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "jobs" in modules:
+        queryset = ImportExportJob.objects.filter(company_name=get_company_name()).select_related("created_by").order_by("-created_at")
+        if query:
+            queryset = queryset.filter(Q(resource_type__icontains=query) | Q(job_type__icontains=query) | Q(created_by__email__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        queryset = _date_filter(queryset, "created_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="jobs",
+                    obj_id=job.id,
+                    title=f"{job.get_job_type_display()} · {job.get_resource_type_display()}",
+                    subtitle=f"{job.rows_success} success · {job.rows_failed} failed",
+                    status=job.status,
+                    url="/operations",
+                    created_at=job.created_at,
+                    metadata={"job_type": job.job_type, "resource_type": job.resource_type},
+                )
+                for job in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "alerts" in modules:
+        queryset = AlertEvent.objects.select_related("rule").order_by("-created_at")
+        if query:
+            queryset = queryset.filter(Q(summary__icontains=query) | Q(metric__icontains=query) | Q(rule__name__icontains=query))
+        if status_filter:
+            if status_filter == "acknowledged":
+                queryset = queryset.filter(acknowledged_at__isnull=False)
+            elif status_filter == "open":
+                queryset = queryset.filter(acknowledged_at__isnull=True)
+            else:
+                queryset = queryset.filter(severity=status_filter)
+        queryset = _date_filter(queryset, "created_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="alerts",
+                    obj_id=alert.id,
+                    title=alert.summary,
+                    subtitle=alert.rule.name,
+                    status="acknowledged" if alert.acknowledged_at else alert.severity,
+                    url="/operations",
+                    created_at=alert.created_at,
+                    metadata={"metric": alert.metric, "observed_value": alert.observed_value},
+                )
+                for alert in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "audit" in modules:
+        queryset = AuditEvent.objects.select_related("actor").filter(company_name=get_company_name()).order_by("-created_at")
+        if query:
+            queryset = queryset.filter(Q(summary__icontains=query) | Q(event_type__icontains=query) | Q(entity_type__icontains=query) | Q(campaign_reference__icontains=query) | Q(client_reference__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(severity=status_filter)
+        queryset = _date_filter(queryset, "created_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="audit",
+                    obj_id=event.id,
+                    title=event.summary,
+                    subtitle=f"{event.event_type} · {event.actor.email if event.actor else 'system'}",
+                    status=event.severity,
+                    url="/operations",
+                    created_at=event.created_at,
+                    metadata={"entity_type": event.entity_type, "entity_id": event.entity_id},
+                )
+                for event in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "notifications" in modules:
+        queryset = Notification.objects.filter(Q(recipient=user) | Q(recipient_role=getattr(user, "role", "")), company_name=get_company_name()).order_by("-created_at")
+        if query:
+            queryset = queryset.filter(Q(title__icontains=query) | Q(message__icontains=query) | Q(event_type__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(Q(severity=status_filter) | Q(event_type=status_filter))
+        queryset = _date_filter(queryset, "created_at", params)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="notifications",
+                    obj_id=notification.id,
+                    title=notification.title,
+                    subtitle=notification.message[:120],
+                    status=notification.severity,
+                    url="/notifications",
+                    created_at=notification.created_at,
+                    metadata={"event_type": notification.event_type, "is_read": notification.is_read},
+                )
+                for notification in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "sites" in modules:
+        queryset = MediaSite.objects.order_by("name")
+        if query:
+            queryset = queryset.filter(Q(name__icontains=query) | Q(code__icontains=query) | Q(city__icontains=query) | Q(address__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(location_status=status_filter)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="sites",
+                    obj_id=site.id,
+                    title=site.name,
+                    subtitle=f"{site.code} · {site.city}, {site.state}",
+                    status=site.location_status,
+                    url="/inventory",
+                    created_at=site.created_at,
+                    metadata={"code": site.code, "site_type": site.site_type},
+                )
+                for site in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    if "units" in modules:
+        queryset = MediaUnit.objects.select_related("site").order_by("unit_code")
+        if query:
+            queryset = queryset.filter(Q(unit_code__icontains=query) | Q(site__name__icontains=query) | Q(site__code__icontains=query))
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        _append_limited(
+            results,
+            (
+                _result(
+                    module="units",
+                    obj_id=unit.id,
+                    title=unit.unit_code,
+                    subtitle=f"{unit.site.name} · {unit.width}x{unit.height}",
+                    status=unit.status,
+                    url="/inventory",
+                    created_at=unit.created_at,
+                    metadata={"site_code": unit.site.code, "monthly_rate": str(unit.monthly_rate)},
+                )
+                for unit in queryset[:SEARCH_MODULE_LIMIT]
+            ),
+        )
+
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for item in results[:SEARCH_RESULT_LIMIT]:
+        grouped.setdefault(item["module"], []).append(item)
+    return {"query": query, "total": len(results[:SEARCH_RESULT_LIMIT]), "results": results[:SEARCH_RESULT_LIMIT], "grouped": grouped}
 
 
 def cleanup_old_request_logs(*, days: int | None = None) -> int:

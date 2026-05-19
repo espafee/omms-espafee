@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { ReactNode } from "react";
 
+import { GlobalOperationalSearch } from "@/components/global-operational-search";
+
 type AppShellProps = {
   active:
     | "dashboard"
@@ -97,9 +99,12 @@ export function AppShell({
               <h1 className="workspace-title">{title}</h1>
               <p className="workspace-copy">{description}</p>
             </div>
-            <div className="topbar-chip">
-              <span className="topbar-chip-label">Role</span>
-              <strong>{roleLabel}</strong>
+            <div className="workspace-actions">
+              <GlobalOperationalSearch />
+              <div className="topbar-chip">
+                <span className="topbar-chip-label">Role</span>
+                <strong>{roleLabel}</strong>
+              </div>
             </div>
           </header>
         )}

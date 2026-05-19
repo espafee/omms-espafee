@@ -104,6 +104,15 @@ class MobileAdminAlertSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField()
 
 
+class MobileAdminSearchResultSerializer(serializers.Serializer):
+    module = serializers.CharField()
+    id = serializers.CharField()
+    title = serializers.CharField()
+    subtitle = serializers.CharField(allow_blank=True)
+    status = serializers.CharField(allow_blank=True)
+    url = serializers.CharField(allow_blank=True)
+
+
 class MobileAdminIssueSerializer(serializers.Serializer):
     issue_id = serializers.IntegerField()
     booking_id = serializers.IntegerField()

@@ -527,6 +527,209 @@ textarea::placeholder {
   color: var(--muted);
 }
 
+.workspace-actions {
+  min-width: min(520px, 48vw);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.global-search {
+  position: relative;
+  width: min(360px, 42vw);
+  z-index: 30;
+}
+
+.global-search-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+
+.global-search-row input,
+.global-search-row select,
+.saved-view-save input {
+  width: 100%;
+  min-height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: #f7fbf9;
+  color: #0f172a;
+  font: inherit;
+}
+
+.global-search-row input,
+.saved-view-save input {
+  padding: 0 12px;
+}
+
+.global-search-row select {
+  padding: 0 8px;
+  color: var(--muted);
+}
+
+.global-search-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: min(520px, 82vw);
+  max-height: 520px;
+  overflow: auto;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: var(--shadow-lg);
+}
+
+.global-search-empty {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.global-search-empty strong {
+  color: #0f172a;
+}
+
+.recent-searches,
+.saved-view-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recent-searches button,
+.saved-view-chip {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #f7fbf9;
+  color: #064e3b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.recent-searches button {
+  padding: 7px 10px;
+}
+
+.global-search-groups {
+  display: grid;
+  gap: 12px;
+}
+
+.global-search-group-title {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.global-search-result {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 10px;
+  padding: 10px;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.global-search-result:hover {
+  background: #f7fbf9;
+}
+
+.global-search-result strong,
+.global-search-result small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-search-result strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.global-search-result small {
+  grid-column: 2 / 4;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.global-search-result em {
+  color: #064e3b;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.module-badge {
+  align-self: start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #e8f5ef;
+  color: #064e3b;
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.saved-views-panel {
+  margin-top: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.saved-view-save {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+}
+
+.compact-action {
+  min-height: 38px;
+  padding: 0 14px;
+}
+
+.saved-view-chip {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
+}
+
+.saved-view-chip button {
+  min-height: 32px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.saved-view-chip button:first-child {
+  padding: 0 10px 0 12px;
+}
+
+.saved-view-chip button:last-child {
+  padding: 0 10px;
+  border-left: 1px solid var(--line);
+}
+
 .dashboard-error {
   margin-top: 22px;
 }
@@ -2712,6 +2915,28 @@ textarea::placeholder {
 
   .workspace-topbar {
     flex-direction: column;
+  }
+
+  .workspace-actions,
+  .global-search {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .workspace-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .global-search-row,
+  .saved-view-save {
+    grid-template-columns: 1fr;
+  }
+
+  .global-search-popover {
+    left: 0;
+    right: auto;
+    width: 100%;
   }
 
   .setup-header-topline,

@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
 
 
 class ApiRequestLogSerializer(serializers.ModelSerializer):
@@ -77,6 +77,46 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
             return None
         end = obj.completed_at or obj.updated_at
         return max(0, int((end - obj.started_at).total_seconds()))
+
+
+class OperationalSearchResultSerializer(serializers.Serializer):
+    module = serializers.CharField()
+    id = serializers.CharField()
+    title = serializers.CharField()
+    subtitle = serializers.CharField(allow_blank=True)
+    status = serializers.CharField(allow_blank=True)
+    url = serializers.CharField(allow_blank=True)
+    created_at = serializers.DateTimeField(allow_null=True)
+    metadata = serializers.DictField()
+
+
+class OperationalSearchSerializer(serializers.Serializer):
+    query = serializers.CharField(allow_blank=True)
+    total = serializers.IntegerField()
+    results = OperationalSearchResultSerializer(many=True)
+    grouped = serializers.DictField()
+
+
+class SavedOperationalViewSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SavedOperationalView
+        fields = [
+            "id",
+            "name",
+            "view_type",
+            "module",
+            "search_query",
+            "filters",
+            "is_default",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_filters(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Filters must be an object.")
+        return value
 
 
 class PoeAnalyticsSerializer(serializers.Serializer):
