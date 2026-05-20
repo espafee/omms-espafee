@@ -52,8 +52,19 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     bookings_ending_today = serializers.IntegerField()
     system_status = serializers.CharField()
     api_status = serializers.CharField()
+    environment_mode = serializers.CharField()
+    environment_mode_label = serializers.CharField()
+    environment_mode_message = serializers.CharField(allow_blank=True)
+    environment_write_blocking = serializers.BooleanField()
     failed_jobs = serializers.IntegerField()
     active_alerts = serializers.IntegerField()
+
+
+class MobileEnvironmentModeSerializer(serializers.Serializer):
+    mode = serializers.CharField()
+    label = serializers.CharField()
+    message = serializers.CharField(allow_blank=True)
+    is_write_blocking = serializers.BooleanField()
 
 
 class MobileAdminRunningCampaignSerializer(serializers.Serializer):

@@ -16,6 +16,7 @@ import {
   type DashboardWidget,
   updateDashboardProfile,
 } from "@/lib/dashboard";
+import { fetchOperationalMode, type OperationalMode } from "@/lib/environment";
 
 type StoredUser = {
   email?: string;
@@ -26,6 +27,7 @@ type WidgetContext = {
   dashboard: DashboardPayload | null;
   isLoading: boolean;
   profile: DashboardProfile;
+  operationalMode: OperationalMode | null;
 };
 
 type WidgetDefinition = {
@@ -110,9 +112,9 @@ function WidgetCard({
 const dashboardWidgetRegistry: Record<string, WidgetDefinition> = {
   operational_health: {
     requiresOperations: true,
-    render: () => (
+    render: ({ operationalMode }) => (
       <WidgetCard title="Operational health" category="Operations" testId="dashboard-widget-operational_health">
-        <DashboardMetric label="System status" value="View health" href="/operations" />
+        <DashboardMetric label="Environment mode" value={operationalMode?.label ?? "Normal"} href="/operations" />
         <DashboardMetric label="Live jobs" value="Monitor" href="/operations" />
         <DashboardMetric label="Request health" value="Open" href="/operations" />
       </WidgetCard>
@@ -323,6 +325,7 @@ export default function DashboardPage() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [dashboard, setDashboard] = useState<DashboardPayload | null>(null);
   const [profile, setProfile] = useState<DashboardProfile | null>(null);
+  const [operationalMode, setOperationalMode] = useState<OperationalMode | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -358,7 +361,9 @@ export default function DashboardPage() {
           setUser(currentUser);
         }
         const dashboardProfile = await fetchDashboardProfile();
+        const mode = await fetchOperationalMode().catch(() => null);
         setProfile(dashboardProfile);
+        setOperationalMode(mode);
         const summaries = await fetchDashboardData({
           includeBilling: dashboardProfile.can_view_finance && profileHasVisibleFinanceWidgets(dashboardProfile),
         });
@@ -477,7 +482,7 @@ export default function DashboardPage() {
       <section className="module-grid" data-testid="dashboard-widget-grid">
         {renderableWidgets.map((widget) => (
           <div key={widget.key} data-testid={`dashboard-widget-slot-${widget.key}`}>
-            {profile ? renderDashboardWidget(widget, { dashboard, isLoading, profile }) : null}
+            {profile ? renderDashboardWidget(widget, { dashboard, isLoading, profile, operationalMode }) : null}
           </div>
         ))}
       </section>

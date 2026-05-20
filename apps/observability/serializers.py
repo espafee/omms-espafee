@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import serializers
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
 
 
 class ApiRequestLogSerializer(serializers.ModelSerializer):
@@ -145,6 +145,20 @@ class DashboardProfileSerializer(serializers.Serializer):
     can_customize = serializers.BooleanField()
     can_view_finance = serializers.BooleanField()
     can_view_operations = serializers.BooleanField()
+
+
+class OperationalModeSerializer(serializers.ModelSerializer):
+    label = serializers.CharField(source="get_mode_display", read_only=True)
+    is_write_blocking = serializers.SerializerMethodField()
+    updated_by_email = serializers.EmailField(source="updated_by.email", read_only=True, allow_null=True)
+
+    class Meta:
+        model = OperationalMode
+        fields = ["mode", "label", "message", "is_write_blocking", "updated_at", "updated_by_email"]
+        read_only_fields = ["label", "is_write_blocking", "updated_at", "updated_by_email"]
+
+    def get_is_write_blocking(self, obj):
+        return obj.mode in {OperationalMode.Mode.MAINTENANCE, OperationalMode.Mode.READ_ONLY}
 
 
 class PoeAnalyticsSerializer(serializers.Serializer):

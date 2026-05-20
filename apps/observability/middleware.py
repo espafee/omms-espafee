@@ -1,9 +1,71 @@
 import time
 
 from django.conf import settings
+from django.http import JsonResponse
 from django.db import connection
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .services import log_api_request
+from core.roles import ADMIN
+
+from .models import OperationalMode
+from .services import get_operational_mode, log_api_request
+
+
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+class OperationalModeMiddleware:
+    exempt_prefixes = (
+        "/api/v1/users/auth/",
+        "/api/v1/observability/operational-mode/",
+        "/api/v1/observability/diagnostics/",
+        "/api/v1/observability/health/",
+        "/health/",
+    )
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.jwt_authentication = JWTAuthentication()
+
+    def __call__(self, request):
+        if self._should_block_request(request):
+            mode = get_operational_mode()
+            label = mode.get_mode_display()
+            return JsonResponse(
+                {
+                    "detail": mode.message or f"OMMS is currently in {label.lower()} mode.",
+                    "code": "operational_mode_blocked",
+                    "mode": mode.mode,
+                    "label": label,
+                },
+                status=423 if mode.mode == OperationalMode.Mode.READ_ONLY else 503,
+            )
+        return self.get_response(request)
+
+    def _should_block_request(self, request) -> bool:
+        if request.method in SAFE_METHODS:
+            return False
+        path = request.path or ""
+        if not path.startswith("/api/"):
+            return False
+        if any(path.startswith(prefix) for prefix in self.exempt_prefixes):
+            return False
+        try:
+            mode = get_operational_mode()
+        except Exception:
+            return False
+        if mode.mode not in {OperationalMode.Mode.MAINTENANCE, OperationalMode.Mode.READ_ONLY}:
+            return False
+        user = getattr(request, "user", None)
+        if not user or not getattr(user, "is_authenticated", False):
+            try:
+                authenticated = self.jwt_authentication.authenticate(request)
+            except Exception:
+                authenticated = None
+            if authenticated:
+                user = authenticated[0]
+                request.user = user
+        return not bool(user and getattr(user, "is_authenticated", False) and (getattr(user, "is_superuser", False) or getattr(user, "role", "") == ADMIN))
 
 
 class ApiRequestLoggingMiddleware:

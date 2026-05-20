@@ -905,3 +905,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Active widgets are derived from `GET /api/v1/observability/dashboard-profile/`, sorted by saved `sort_order`, and rendered through a registry/factory so future drag/drop ordering can use the same profile contract.
 - Each widget has its own render component and permission metadata. Unknown widget keys are ignored safely, finance widgets require `can_view_finance`, and operations widgets require `can_view_operations`.
 - Existing dashboard summary APIs remain stable. Finance summary requests are still skipped unless at least one active renderable finance widget is visible.
+
+## Maintenance Mode And Environment Control Foundation
+
+- OMMS now has a singleton `OperationalMode` record with four safe states: `normal`, `maintenance`, `degraded`, and `read_only`.
+- `GET/PATCH /api/v1/observability/operational-mode/` lets all authenticated users read the current mode while only admin/superuser roles can update it.
+- Unsafe API writes from non-admin users are blocked during `maintenance` and `read_only` through `OperationalModeMiddleware`; safe GET/HEAD/OPTIONS, login/auth, diagnostics, health, and the mode endpoint remain available.
+- System health diagnostics now include `environment_mode`, add mode-related health signals, and mark maintenance as degraded without exposing secrets or environment dumps.
+- The web app shell displays a compact global status banner for non-normal modes. The Operations System Status panel shows the current mode and gives admins a controlled mode selector/message field.
+- The dashboard operational health widget reads the same operational-mode API so status language stays consistent across dashboard surfaces.
+- Mobile sync: mobile admin receives the environment mode in its dashboard overview; field staff POE upload fetches `/mobile/environment-mode/`, shows a user-facing notice, and disables submission when writes are blocked.

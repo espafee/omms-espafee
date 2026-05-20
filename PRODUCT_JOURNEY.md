@@ -129,3 +129,9 @@ The dashboard also stops requesting billing summary data when all finance widget
 The dashboard has moved from grouped static panels to a true widget-rendering model. Each dashboard profile widget key now maps to a concrete widget component, and the page renders the saved active widgets in preference order.
 
 This makes customization behave like users expect: selecting Campaign Performance shows that widget, hiding Billing Risk removes that widget, and future widgets can be added through the registry without reshaping the whole dashboard page. Unknown or unauthorized widgets are ignored safely.
+
+## Maintenance Mode And Environment Control
+
+OMMS now has a first controlled-environment layer for deployments, migrations, and incidents. Admins can place the platform into normal, degraded, maintenance, or read-only mode from Operations, with a clear global banner communicating the current state to users.
+
+The implementation is conservative: safe reads and login stay available, admin diagnostics remain reachable, and non-admin write actions are blocked only in maintenance/read-only modes. Mobile follows the same source of truth, showing field users when changes are temporarily disabled and preventing POE submission while the backend is write-blocking.

@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { ReactNode } from "react";
+import { ReactNode, useEffect, useState } from "react";
 
 import { GlobalOperationalSearch } from "@/components/global-operational-search";
+import { getAccessToken } from "@/lib/auth";
+import { fetchOperationalMode, type OperationalMode } from "@/lib/environment";
 
 type AppShellProps = {
   active:
@@ -38,6 +40,32 @@ export function AppShell({
   onLogout,
   children,
 }: AppShellProps) {
+  const [operationalMode, setOperationalMode] = useState<OperationalMode | null>(null);
+
+  useEffect(() => {
+    if (!getAccessToken()) {
+      return;
+    }
+    let isMounted = true;
+    fetchOperationalMode()
+      .then((mode) => {
+        if (isMounted) {
+          setOperationalMode(mode);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setOperationalMode(null);
+        }
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const showModeBanner = operationalMode && operationalMode.mode !== "normal";
+  const modeBannerClass = operationalMode?.mode === "degraded" ? "mode-banner mode-banner-warning" : "mode-banner";
+
   return (
     <main className="dashboard-shell">
       <aside className="sidebar">
@@ -92,6 +120,13 @@ export function AppShell({
       </aside>
 
       <section className="workspace">
+        {showModeBanner ? (
+          <div className={modeBannerClass} role="status">
+            <strong>{operationalMode.label}</strong>
+            <span>{operationalMode.message || (operationalMode.is_write_blocking ? "Changes are temporarily disabled." : "OMMS is operating with elevated caution.")}</span>
+          </div>
+        ) : null}
+
         {hideWorkspaceHeader ? null : (
           <header className="workspace-topbar">
             <div>

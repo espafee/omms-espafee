@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
+from .models import ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
 
 
 @admin.register(ApiRequestLog)
@@ -38,3 +38,9 @@ class DashboardWidgetPreferenceAdmin(admin.ModelAdmin):
     list_display = ("user", "company_name", "widget_key", "is_visible", "sort_order", "updated_at")
     list_filter = ("is_visible", "company_name", "updated_at")
     search_fields = ("user__email", "widget_key", "company_name")
+
+
+@admin.register(OperationalMode)
+class OperationalModeAdmin(admin.ModelAdmin):
+    list_display = ("mode", "message", "updated_by", "updated_at")
+    readonly_fields = ("singleton_key", "created_at", "updated_at")

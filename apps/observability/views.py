@@ -22,6 +22,7 @@ from .serializers import (
     ImportExportJobSerializer,
     DashboardProfileSerializer,
     OperationalSearchSerializer,
+    OperationalModeSerializer,
     SavedOperationalViewSerializer,
 )
 from .services import (
@@ -35,6 +36,7 @@ from .services import (
     build_empty_operations_summary,
     build_operations_summary,
     build_operational_search,
+    get_operational_mode,
     build_poe_analytics,
     build_role_activity,
     confirm_inventory_sites_import,
@@ -49,6 +51,7 @@ from .services import (
     reset_dashboard_widget_preferences,
     SavedOperationalViewService,
     save_dashboard_widget_preferences,
+    update_operational_mode,
     validate_inventory_sites_import,
 )
 
@@ -221,6 +224,26 @@ class HealthView(APIView):
 
     def get(self, request):
         return Response({"status": "ok", "service": "omms", "alive": True})
+
+
+class OperationalModeView(APIView):
+    permission_classes = [RoleBasedPermission]
+    allowed_roles = ALL_ROLES
+    write_roles = (ADMIN,)
+
+    def get(self, request):
+        return Response(OperationalModeSerializer(get_operational_mode()).data)
+
+    def patch(self, request):
+        try:
+            mode = update_operational_mode(
+                mode=request.data.get("mode", ""),
+                message=request.data.get("message", ""),
+                actor=request.user,
+            )
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(OperationalModeSerializer(mode).data)
 
 
 class RoleActivityView(APIView):

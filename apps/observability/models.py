@@ -214,6 +214,32 @@ class DashboardWidgetPreference(TimeStampedModel):
         return f"{self.user_id} {self.widget_key}: {'visible' if self.is_visible else 'hidden'}"
 
 
+class OperationalMode(TimeStampedModel):
+    class Mode(models.TextChoices):
+        NORMAL = "normal", "Normal"
+        MAINTENANCE = "maintenance", "Maintenance"
+        DEGRADED = "degraded", "Degraded"
+        READ_ONLY = "read_only", "Read Only"
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    mode = models.CharField(max_length=20, choices=Mode.choices, default=Mode.NORMAL, db_index=True)
+    message = models.CharField(max_length=255, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        related_name="operational_mode_updates",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        verbose_name = "operational mode"
+        verbose_name_plural = "operational mode"
+
+    def __str__(self) -> str:
+        return self.get_mode_display()
+
+
 class AlertRule(TimeStampedModel):
     class Metric(models.TextChoices):
         SLOW_REQUESTS = "slow_requests", "Slow Requests"

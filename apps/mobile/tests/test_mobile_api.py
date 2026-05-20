@@ -15,6 +15,7 @@ from apps.billing.models import Invoice
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.issues.models import Issue
+from apps.observability.models import OperationalMode
 from apps.poe.models import ProofOfExecution, ProofOfExecutionMedia
 from apps.users.models import User
 
@@ -276,6 +277,10 @@ class MobileApiTests(TestCase):
                 "api_status",
                 "failed_jobs",
                 "active_alerts",
+                "environment_mode",
+                "environment_mode_label",
+                "environment_mode_message",
+                "environment_write_blocking",
             },
         )
         self.assertEqual(response.data["overdue_invoices"], 1)
@@ -284,6 +289,22 @@ class MobileApiTests(TestCase):
         self.assertIn("campaigns_ending_soon", response.data)
         self.assertIn("critical_campaigns", response.data)
         self.assertIn(response.data["system_status"], {"healthy", "warning", "degraded"})
+        self.assertEqual(response.data["environment_mode"], "normal")
+        self.assertFalse(response.data["environment_write_blocking"])
+
+    def test_mobile_environment_mode_returns_write_blocking_status(self):
+        OperationalMode.objects.update_or_create(
+            singleton_key=1,
+            defaults={"mode": OperationalMode.Mode.READ_ONLY, "message": "Migration window"},
+        )
+        self._authenticate(self.field_staff)
+
+        response = self.client.get("/api/v1/mobile/environment-mode/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["mode"], OperationalMode.Mode.READ_ONLY)
+        self.assertEqual(response.data["message"], "Migration window")
+        self.assertTrue(response.data["is_write_blocking"])
 
     def test_mobile_admin_overview_rejects_field_staff(self):
         self._authenticate(self.field_staff)

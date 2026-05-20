@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { AppShell } from "@/components/app-shell";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import { formatCurrency } from "@/lib/dashboard";
+import { updateOperationalMode } from "@/lib/environment";
 import {
   acknowledgeAlertEvent,
   confirmImportJob,
@@ -177,6 +178,9 @@ export default function OperationsPage() {
   const [lastUpdatedAt, setLastUpdatedAt] = useState<Date | null>(null);
   const [liveTick, setLiveTick] = useState(() => Date.now());
   const [isTabVisible, setIsTabVisible] = useState(true);
+  const [modeDraft, setModeDraft] = useState("normal");
+  const [modeMessageDraft, setModeMessageDraft] = useState("");
+  const [isSavingMode, setIsSavingMode] = useState(false);
 
   const load = useCallback(
     async (nextFilters: OperationsFilters, options: { silent?: boolean } = {}) => {
@@ -206,6 +210,11 @@ export default function OperationsPage() {
         const warnings: string[] = [];
         if (summaryResult.status === "fulfilled") {
           setSummary(summaryResult.value);
+          const environmentMode = summaryResult.value.system_health.environment_mode;
+          if (environmentMode) {
+            setModeDraft(environmentMode.mode);
+            setModeMessageDraft(environmentMode.message ?? "");
+          }
           if (summaryResult.value.warnings?.length) {
             warnings.push(...summaryResult.value.warnings);
           }
@@ -499,6 +508,21 @@ export default function OperationsPage() {
       setError(ackError instanceof Error ? ackError.message : "Unable to acknowledge alert.");
     } finally {
       setAcknowledgingAlertId(null);
+    }
+  }
+
+  async function handleModeSave() {
+    setError("");
+    setMessage("");
+    setIsSavingMode(true);
+    try {
+      await updateOperationalMode({ mode: modeDraft, message: modeMessageDraft });
+      await load(filters, { silent: true });
+      setMessage("Environment mode updated.");
+    } catch (modeError) {
+      setError(modeError instanceof Error ? modeError.message : "Unable to update environment mode.");
+    } finally {
+      setIsSavingMode(false);
     }
   }
 
@@ -834,6 +858,7 @@ export default function OperationsPage() {
           <div className="ops-health-grid">
             <div><p className="stat-label">API</p><strong>{statusLabel(systemHealth?.api_status)}</strong></div>
             <div><p className="stat-label">Database</p><strong>{systemHealth?.database?.ok ? "Connected" : "Degraded"}</strong></div>
+            <div><p className="stat-label">Mode</p><strong>{systemHealth?.environment_mode?.label ?? "Normal"}</strong><span className="site-copy">{systemHealth?.environment_mode?.is_write_blocking ? "Writes blocked" : "Writes enabled"}</span></div>
             <div><p className="stat-label">Redis</p><strong>{systemHealth?.redis?.configured ? "Configured" : "Not configured"}</strong></div>
             <div><p className="stat-label">Celery</p><strong>{systemHealth?.celery?.mode ?? "..."}</strong><span className="site-copy">{systemHealth?.celery?.worker_ready ?? "unknown"} worker</span></div>
             <div><p className="stat-label">Failed jobs</p><strong>{systemHealth?.recent_failed_background_jobs ?? 0}</strong></div>
@@ -847,6 +872,31 @@ export default function OperationsPage() {
           </div>
           {healthSignals.length ? (
             <p className="site-copy">Signals: {healthSignals.map(statusLabel).join(", ")}</p>
+          ) : null}
+          {user?.role === "admin" ? (
+            <div className="ops-mode-controls">
+              <label className="field">
+                <span>Environment mode</span>
+                <select value={modeDraft} onChange={(event) => setModeDraft(event.target.value)} disabled={isSavingMode}>
+                  <option value="normal">Normal</option>
+                  <option value="maintenance">Maintenance</option>
+                  <option value="degraded">Degraded</option>
+                  <option value="read_only">Read only</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>Message</span>
+                <input
+                  value={modeMessageDraft}
+                  onChange={(event) => setModeMessageDraft(event.target.value)}
+                  placeholder="Optional user-facing status note"
+                  disabled={isSavingMode}
+                />
+              </label>
+              <button className="ghost" type="button" onClick={handleModeSave} disabled={isSavingMode}>
+                {isSavingMode ? "Saving..." : "Update mode"}
+              </button>
+            </div>
           ) : null}
         </article>
 

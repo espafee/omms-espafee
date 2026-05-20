@@ -121,6 +121,7 @@ class MobileAdminOperationsService:
         billing = build_collection_efficiency_analytics()
         campaigns = build_campaign_performance_analytics()
         system_health = build_system_health_diagnostics()
+        environment_mode = system_health.get("environment_mode", {})
         active_alerts = len([alert for alert in MobileAdminOperationsService.get_alerts() if alert["severity"] in {"warning", "danger"}])
         return {
             "active_campaigns": _active_campaign_queryset(today).count(),
@@ -144,6 +145,10 @@ class MobileAdminOperationsService:
             "bookings_ending_today": Booking.objects.filter(end_date=today).exclude(status=Booking.Status.CANCELLED).count(),
             "system_status": system_health["status"],
             "api_status": system_health["api_status"],
+            "environment_mode": environment_mode.get("mode", "normal"),
+            "environment_mode_label": environment_mode.get("label", "Normal"),
+            "environment_mode_message": environment_mode.get("message", ""),
+            "environment_write_blocking": bool(environment_mode.get("is_write_blocking", False)),
             "failed_jobs": system_health["recent_failed_background_jobs"],
             "active_alerts": active_alerts,
         }

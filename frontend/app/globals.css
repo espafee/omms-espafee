@@ -785,6 +785,34 @@ textarea::placeholder {
   margin-top: 22px;
 }
 
+.mode-banner {
+  margin-bottom: 16px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(6, 78, 59, 0.18);
+  background: var(--accent-soft);
+  padding: 12px 14px;
+  color: var(--accent);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.mode-banner strong {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.mode-banner-warning {
+  border-color: rgba(217, 119, 6, 0.2);
+  background: #fffbeb;
+  color: #92400e;
+}
+
 .summary-row {
   margin-top: 28px;
   display: grid;
@@ -2204,6 +2232,18 @@ textarea::placeholder {
   font-size: 16px;
 }
 
+.ops-mode-controls {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(160px, 0.45fr) minmax(240px, 1fr) auto;
+  margin-top: 14px;
+}
+
+.ops-mode-controls .ghost {
+  min-height: 46px;
+}
+
 .compact-feed {
   max-height: 360px;
   overflow: auto;
@@ -3084,7 +3124,8 @@ textarea::placeholder {
   .notification-preference-card,
   .notification-toggle-row,
   .alert-threshold-card,
-  .alert-threshold-controls {
+  .alert-threshold-controls,
+  .ops-mode-controls {
     grid-template-columns: 1fr;
   }
 

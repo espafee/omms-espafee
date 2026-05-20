@@ -189,6 +189,14 @@ export type OperationsSummary = {
     };
     redis: { configured: boolean };
     database: { ok: boolean };
+    environment_mode?: {
+      mode: string;
+      label: string;
+      message: string;
+      is_write_blocking: boolean;
+      updated_at: string | null;
+      updated_by_email: string | null;
+    };
     celery_mode: string;
     broker_configured: boolean;
     active_jobs: number;

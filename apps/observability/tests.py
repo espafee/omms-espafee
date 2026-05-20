@@ -9,6 +9,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.billing.models import Invoice, Payment
 from apps.bookings.models import Booking
@@ -16,7 +17,7 @@ from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.notifications.models import EmailNotificationLog, Notification, NotificationPreference
 from apps.notifications.services import NotificationService
-from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
+from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
 from apps.observability.services import (
     build_campaign_performance_analytics,
     build_dashboard_profile,
@@ -488,6 +489,58 @@ class ObservabilityFoundationTests(TestCase):
         rendered = str(allowed.data).lower()
         self.assertNotIn("secret_key", rendered)
         self.assertNotIn("password", rendered)
+
+    def test_operational_mode_read_update_and_restrictions(self):
+        self.client.force_authenticate(self.admin)
+
+        response = self.client.get(reverse("observability-operational-mode"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["mode"], OperationalMode.Mode.NORMAL)
+
+        update_response = self.client.patch(
+            reverse("observability-operational-mode"),
+            {"mode": OperationalMode.Mode.READ_ONLY, "message": "Deployment in progress"},
+            format="json",
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(update_response.data["mode"], OperationalMode.Mode.READ_ONLY)
+        self.assertTrue(update_response.data["is_write_blocking"])
+
+        self.client.force_authenticate(self.operations)
+        denied = self.client.patch(
+            reverse("observability-operational-mode"),
+            {"mode": OperationalMode.Mode.NORMAL},
+            format="json",
+        )
+        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_read_only_mode_blocks_non_admin_writes_but_allows_get_and_admin_writes(self):
+        OperationalMode.objects.update_or_create(
+            singleton_key=1,
+            defaults={"mode": OperationalMode.Mode.READ_ONLY, "message": "Deployment in progress"},
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.operations).access_token}")
+
+        get_response = client.get(reverse("observability-operational-mode"))
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+
+        blocked = client.patch(
+            reverse("observability-dashboard-profile"),
+            {"widgets": [{"widget_key": "alerts", "is_visible": False, "sort_order": 1}]},
+            format="json",
+        )
+        self.assertEqual(blocked.status_code, 423)
+        self.assertEqual(blocked.json()["code"], "operational_mode_blocked")
+
+        admin_client = APIClient()
+        admin_client.credentials(HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.admin).access_token}")
+        allowed = admin_client.patch(
+            reverse("observability-dashboard-profile"),
+            {"widgets": [{"widget_key": "alerts", "is_visible": False, "sort_order": 1}]},
+            format="json",
+        )
+        self.assertEqual(allowed.status_code, status.HTTP_200_OK)
 
     def test_system_health_diagnostics_reports_safe_status_flags(self):
         ApiRequestLog.objects.create(

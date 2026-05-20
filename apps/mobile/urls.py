@@ -9,11 +9,13 @@ from .views import (
     MobileAdminPoeTrackerView,
     MobileAdminRunningCampaignsView,
     MobileAdminSearchView,
+    MobileEnvironmentModeView,
     MobilePoeSubmitView,
 )
 
 urlpatterns = [
     path("assigned-work/", AssignedWorkView.as_view(), name="mobile-assigned-work"),
+    path("environment-mode/", MobileEnvironmentModeView.as_view(), name="mobile-environment-mode"),
     path("poe/submit/", MobilePoeSubmitView.as_view(), name="mobile-poe-submit"),
     path("admin/overview/", MobileAdminOverviewView.as_view(), name="mobile-admin-overview"),
     path("admin/running-campaigns/", MobileAdminRunningCampaignsView.as_view(), name="mobile-admin-running-campaigns"),

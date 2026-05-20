@@ -31,7 +31,7 @@ from core.repositories import BaseRepository
 from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, OPERATIONS, SALES
 from core.services import BaseService
 
-from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, SavedOperationalView
+from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
 
 
 SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret", "private_key", "file", "image"}
@@ -847,6 +847,43 @@ def get_deployment_environment_metadata() -> dict[str, Any]:
     }
 
 
+def get_operational_mode() -> OperationalMode:
+    mode, _ = OperationalMode.objects.get_or_create(singleton_key=1)
+    return mode
+
+
+def update_operational_mode(*, mode: str, message: str = "", actor=None) -> OperationalMode:
+    if mode not in OperationalMode.Mode.values:
+        raise ValueError("Unsupported operational mode.")
+    operational_mode = get_operational_mode()
+    operational_mode.mode = mode
+    operational_mode.message = message.strip()[:255]
+    operational_mode.updated_by = actor if actor and getattr(actor, "is_authenticated", False) else None
+    operational_mode.save(update_fields=["mode", "message", "updated_by", "updated_at"])
+    record_audit_event(
+        event_type="environment.mode_updated",
+        entity_type="operational_mode",
+        entity_id=str(operational_mode.pk),
+        actor=actor,
+        severity=AuditEvent.Severity.WARNING if mode != OperationalMode.Mode.NORMAL else AuditEvent.Severity.INFO,
+        summary=f"Environment mode changed to {operational_mode.get_mode_display()}.",
+        metadata={"mode": mode, "message": operational_mode.message},
+    )
+    return operational_mode
+
+
+def build_operational_mode_payload() -> dict[str, Any]:
+    mode = get_operational_mode()
+    return {
+        "mode": mode.mode,
+        "label": mode.get_mode_display(),
+        "message": mode.message,
+        "is_write_blocking": mode.mode in {OperationalMode.Mode.MAINTENANCE, OperationalMode.Mode.READ_ONLY},
+        "updated_at": mode.updated_at,
+        "updated_by_email": mode.updated_by.email if mode.updated_by else None,
+    }
+
+
 def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     now = now or timezone.now()
     since = now - timedelta(hours=24)
@@ -864,6 +901,10 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
     broker_configured = bool(getattr(settings, "CELERY_BROKER_URL", ""))
     beat_configured = bool(getattr(settings, "CELERY_BEAT_SCHEDULE", {}))
     active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING]
+    try:
+        operational_mode = get_operational_mode()
+    except Exception:
+        operational_mode = None
     if database_ok:
         try:
             recent_failed_requests = ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
@@ -907,8 +948,12 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
         signals.append("failed_background_jobs")
     if recent_slow_requests >= 25:
         signals.append("slow_request_spike")
+    if operational_mode and operational_mode.mode != OperationalMode.Mode.NORMAL:
+        signals.append(f"environment_{operational_mode.mode}")
 
-    if not database_ok or not diagnostic_query_ok or recent_failed_requests >= 25 or recent_failed_jobs >= 5:
+    if operational_mode and operational_mode.mode == OperationalMode.Mode.MAINTENANCE:
+        status_value = "degraded"
+    elif not database_ok or not diagnostic_query_ok or recent_failed_requests >= 25 or recent_failed_jobs >= 5:
         status_value = "degraded"
     elif signals:
         status_value = "warning"
@@ -936,6 +981,16 @@ def build_system_health_diagnostics(*, now=None) -> dict[str, Any]:
         "last_successful_export": latest_successful_export.completed_at if latest_successful_export else None,
         "signals": signals,
         "deployment": get_deployment_environment_metadata(),
+        "environment_mode": build_operational_mode_payload()
+        if operational_mode
+        else {
+            "mode": "unknown",
+            "label": "Unknown",
+            "message": "",
+            "is_write_blocking": False,
+            "updated_at": None,
+            "updated_by_email": None,
+        },
     }
 
 

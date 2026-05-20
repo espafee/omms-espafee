@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.poe.exceptions import DuplicateProofOfExecutionError
-from apps.observability.services import build_operational_search
+from apps.observability.services import build_operational_mode_payload, build_operational_search
 
 from .admin_services import MobileAdminOperationsService
 from .permissions import IsMobileAdmin
@@ -20,6 +20,7 @@ from .serializers import (
     MobileAdminPoeTrackerSerializer,
     MobileAdminRunningCampaignSerializer,
     MobileAdminSearchResultSerializer,
+    MobileEnvironmentModeSerializer,
     MobilePoeSubmitResponseSerializer,
     MobilePoeSubmitSerializer,
 )
@@ -31,6 +32,14 @@ class AssignedWorkView(APIView):
 
     def get(self, request, *args, **kwargs):
         serializer = AssignedWorkSerializer(MobileWorkService.get_assigned_work(request.user), many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class MobileEnvironmentModeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        serializer = MobileEnvironmentModeSerializer(build_operational_mode_payload())
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
