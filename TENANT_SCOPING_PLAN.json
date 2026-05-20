@@ -1,44 +1,78 @@
 {
-  "phase": "1C",
-  "intent": "inventory_campaign_root_scoping",
-  "next_phase": "1D",
+  "phase": "1D",
+  "intent": "derived_operational_scoping",
+  "completed_phases": ["1A_tenant_identity", "1B_ownership_audit", "1C_inventory_campaign_roots"],
   "root_models": [
     {
       "model": "inventory.MediaSite",
       "tenant_owner": "tenant",
       "status": "implemented_nullable_fk_backfilled",
-      "constraint_changes": ["code unique per tenant"],
-      "surfaces": ["inventory API", "import preview", "inventory export", "operational search", "mobile admin search"]
+      "constraint_changes": ["future: code unique per tenant"],
+      "surfaces": ["inventory API", "inventory export", "operational search", "mobile admin search"]
     },
     {
       "model": "campaigns.Campaign",
       "tenant_owner": "tenant or client.tenant",
       "status": "implemented_nullable_fk_backfilled",
-      "constraint_changes": ["code unique per tenant"],
+      "constraint_changes": ["future: code unique per tenant"],
       "surfaces": ["campaign API", "booking API", "POE", "billing", "operations dashboard", "mobile admin"]
-    },
+    }
+  ],
+  "derived_models_phase_1d": [
     {
-      "model": "billing.Invoice",
+      "model": "bookings.Booking",
       "tenant_owner": "campaign.tenant",
-      "constraint_changes": ["invoice_number unique per tenant", "invoice sequence scoped by tenant"],
-      "surfaces": ["billing API", "client statement", "exports", "collection analytics"]
+      "status": "derived_queryset_and_write_validation",
+      "constraint_changes": [],
+      "surfaces": ["booking API", "booking summary", "mobile assigned work", "mobile admin activity"]
     },
     {
       "model": "poe.ProofOfExecution",
       "tenant_owner": "booking.campaign.tenant",
-      "constraint_changes": ["client_upload_id unique per tenant when non-empty"],
-      "surfaces": ["POE review", "SLA analytics", "heatmap", "mobile upload"]
+      "status": "derived_queryset_serializer_service_validation",
+      "constraint_changes": ["future: client_upload_id unique per tenant when non-empty"],
+      "surfaces": ["POE review", "POE verify", "POE media", "SLA analytics", "heatmap", "mobile upload", "POE export"]
     },
     {
-      "model": "observability.ImportExportJob",
-      "tenant_owner": "tenant",
+      "model": "issues.Issue",
+      "tenant_owner": "booking.campaign.tenant",
+      "status": "derived_queryset_and_task_assignment_validation",
       "constraint_changes": [],
-      "surfaces": ["import/export workbench", "retry workflow", "download", "operations dashboard"]
+      "surfaces": ["issue API", "issue tasks", "mobile admin issues", "mobile admin alerts"]
+    },
+    {
+      "model": "mobile.AssignedWork",
+      "tenant_owner": "booking.campaign.tenant plus assignment",
+      "status": "scoped",
+      "constraint_changes": [],
+      "surfaces": ["assigned work", "POE submission target validation"]
+    },
+    {
+      "model": "mobile.AdminSurfaces",
+      "tenant_owner": "campaign/site derived paths",
+      "status": "scoped_for_company_admins_platform_global_preserved",
+      "constraint_changes": [],
+      "surfaces": ["overview", "running campaigns", "POE tracker", "daily activity", "alerts", "issues", "search"]
     }
+  ],
+  "hardened_services_phase_1d": [
+    "booking repositories/serializers/services",
+    "POE repositories/serializers/services/views",
+    "issue serializers/views",
+    "mobile services/admin services/views",
+    "POE analytics and SLA intelligence",
+    "operational heatmap POE/booking aggregates",
+    "operational search for campaign/site/unit/POE/invoice/client modules",
+    "export payload generation for inventory/campaign/POE/invoice/client statement data"
   ],
   "blocked_changes": [
     "Do not change global uniqueness constraints until production data conflicts are audited.",
     "Do not add broad tenant FKs to remaining operational records in one migration.",
-    "Do not replace company_name scoping with tenant scoping without backfilling historical records."
-  ]
+    "Do not replace company_name job scoping with tenant scoping without backfilling historical jobs.",
+    "Do not change billing invoice/estimate sequences until Phase 1E billing sequence design is approved."
+  ],
+  "next_phase": {
+    "phase": "1E",
+    "recommendation": "billing and finance tenant scoping, invoice/estimate sequence audit, ImportExportJob tenant FK design, tenant-aware alert rule ownership"
+  }
 }

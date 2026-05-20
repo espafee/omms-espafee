@@ -77,6 +77,8 @@ def scope_queryset_to_tenant_path(queryset: QuerySet, user, tenant_path: str = "
 
 
 def scope_users_to_requesting_tenant(queryset: QuerySet, user) -> QuerySet:
+    if user is None:
+        return queryset
     if is_platform_super_admin(user):
         return queryset
 

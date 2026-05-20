@@ -67,3 +67,17 @@ Inventory and campaign root APIs now combine role checks with tenant checks:
 - clients still only see campaigns and inventory linked to their own campaign access
 - company users cannot create campaigns with another tenant's client/account manager
 - company users cannot create media units, rate cards, or inventory images against another tenant's site/unit
+
+## Phase 1D Enforcement Update
+
+Dependent operational workflows now inherit tenant boundaries from the Phase 1C roots:
+
+- company admins and operators can access only bookings whose campaign belongs to their tenant
+- booking creation validates that the campaign, media unit/site, and assigned user are in the same tenant
+- POE review, media upload, verification, SLA analytics, and duplicate upload checks use `booking.campaign.tenant`
+- issue visibility, issue creation, and issue task assignment use `booking.campaign.tenant`
+- field staff mobile APIs remain assignment-only and now additionally require assigned bookings to belong to the user's tenant
+- mobile admin operational summaries are tenant-scoped for company admins
+- platform superadmins retain cross-tenant visibility for support and diagnostics
+
+Finance and billing are partially tenant-filtered where they appear in operations/mobile summaries, but full billing API and invoice-number enforcement remain a Phase 1E responsibility.

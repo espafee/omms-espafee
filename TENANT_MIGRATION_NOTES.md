@@ -90,3 +90,31 @@ Not yet changed:
 - bookings, POE, billing, import/export, search, dashboards, notifications, setup, and mobile admin aggregation
 
 Phase 1D should derive bookings, POEs, issues, and mobile assigned-work/admin views from `Campaign.tenant`.
+
+## Phase 1D Derived Tenant Scoping
+
+Implemented without adding tenant fields to dependent operational records:
+
+- bookings derive ownership from `booking.campaign.tenant`
+- POE records and media derive ownership from `poe.booking.campaign.tenant`
+- issues and issue tasks derive ownership from `issue.booking.campaign.tenant`
+- mobile assigned work derives ownership from `booking.campaign.tenant` and still requires assignment for field staff
+- mobile admin overview, running campaigns, POE tracker, daily activity, alerts, and issues are filtered through derived tenant paths
+- POE analytics, POE SLA intelligence, operational heatmap POE/booking aggregates, operational search for campaigns/sites/units/POEs/invoices/clients, and export payload builders now accept the requesting user and apply derived tenant scoping where supported
+
+Validation rules now enforced:
+
+- company users cannot list or retrieve another tenant's bookings, POEs, or issues
+- booking creation rejects cross-tenant campaign/media-unit combinations
+- POE creation and verification reject cross-tenant bookings/records
+- issue task assignment rejects assignees outside the issue tenant
+- platform super admins retain global visibility
+
+Still intentionally deferred:
+
+- adding tenant FKs directly to `Booking`, `ProofOfExecution`, `Issue`, `ImportExportJob`, `AlertEvent`, or billing records
+- changing booking numbers, POE upload IDs, invoice numbers, estimate numbers, or media-unit unique constraints
+- tenant-specific alert-rule ownership and notification fanout rules
+- billing sequence and invoice-number tenant uniqueness
+
+Phase 1E should focus on billing/finance scoping and invoice sequence strategy only after duplicate invoice/estimate number audits are complete.

@@ -88,7 +88,7 @@ class ProofOfExecutionVerifyView(APIView):
     write_roles = (ADMIN, OPERATIONS)
 
     def post(self, request, *args, **kwargs):
-        serializer = ProofOfExecutionVerifyRequestSerializer(data=request.data)
+        serializer = ProofOfExecutionVerifyRequestSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
         poe_record = serializer.validated_data["poe_record"]

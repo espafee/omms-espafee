@@ -112,3 +112,20 @@ Inventory and campaign repositories now scope root and direct child querysets by
 - client users keep the stricter client-owned campaign behavior
 
 Global uniqueness remains unchanged for `MediaSite.code` and `Campaign.code`. Scoped uniqueness should be introduced only after duplicate-code audits are complete.
+
+## Phase 1D Derived Operational Scoping
+
+Phase 1D keeps the database schema stable and scopes dependent workflows through the Phase 1C roots:
+
+- `Booking` ownership is derived from `Booking.campaign.tenant`.
+- `ProofOfExecution` ownership is derived from `ProofOfExecution.booking.campaign.tenant`.
+- `ProofOfExecutionMedia` and verification logs inherit the POE tenant path.
+- `Issue` and `IssueTask` ownership is derived from `Issue.booking.campaign.tenant`.
+- Mobile assigned work is both tenant-scoped and assignment-scoped for field staff.
+- Mobile admin operational surfaces are tenant-scoped for company admins and global only for platform super admins.
+
+This preserves beta data and avoids a destructive rewrite while still blocking the highest-risk cross-tenant surfaces: booking access, POE review/upload, issue management, mobile work assignment, mobile admin summaries, POE analytics, heatmap aggregates, operational search, and export payloads.
+
+Platform super admins continue to see all tenants. Company admins and company operators only see data whose root campaign/site belongs to their tenant. Field staff remain limited to assigned work.
+
+Phase 1D does not solve global identifier uniqueness. `MediaUnit.unit_code`, `ProofOfExecution.client_upload_id`, invoice numbers, estimate numbers, and billing sequences remain globally constrained until a dedicated scoped-uniqueness migration is planned.

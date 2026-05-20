@@ -191,7 +191,9 @@ class PoeAnalyticsView(APIView):
     allowed_roles = OBSERVABILITY_ROLES
 
     def get(self, request):
-        payload = build_poe_analytics(request.query_params)
+        filters = request.query_params.copy()
+        filters["_user"] = request.user
+        payload = build_poe_analytics(filters)
         return Response(payload)
 
 
@@ -263,7 +265,9 @@ class RoleActivityView(APIView):
     allowed_roles = OBSERVABILITY_ROLES
 
     def get(self, request):
-        return Response(build_role_activity(request.query_params))
+        filters = request.query_params.copy()
+        filters["_user"] = request.user
+        return Response(build_role_activity(filters))
 
 
 class OperationsSummaryView(APIView):

@@ -97,3 +97,26 @@ Setup and training:
 4. Setup/training/plan gates fifth, when tenant-specific company profile and plan foundation are ready.
 
 Each step should add two-tenant tests proving that admins, operations, finance, mobile admin, exports, search, and dashboards cannot see the other tenant.
+
+## Phase 1D Audit Result
+
+Derived scoping has been added for the safe operational dependents of inventory and campaign roots:
+
+| Surface | Tenant path | Phase 1D status |
+| --- | --- | --- |
+| Booking list/detail/create | `booking.campaign.tenant` and `booking.media_unit.site.tenant` | scoped and same-tenant validated |
+| POE review/API | `poe.booking.campaign.tenant` | scoped for records, media, verification requests, and duplicate-upload lookup |
+| Issues/tasks | `issue.booking.campaign.tenant` | scoped for admin-like users; field staff remains self/task restricted |
+| Mobile assigned work | `booking.campaign.tenant` plus assignment | scoped |
+| Mobile admin summaries | campaign, booking, POE, issue tenant paths | scoped |
+| POE analytics/SLA | `poe.booking.campaign.tenant` | scoped via requesting user filters |
+| Operational heatmap | POE and booking tenant paths | scoped for Phase 1 data sources |
+| Operational search | campaign/site/unit/POE/invoice/client tenant paths | scoped where root ownership exists |
+| Export payload builders | site, campaign, POE, invoice tenant paths | scoped using export actor |
+
+Remaining audit findings:
+
+- `AlertRule` and `AlertEvent` still need a tenant-aware design; current Phase 1D leaves rules as platform/global operational thresholds.
+- `ImportExportJob` still relies on `company_name` for job ownership. Export payloads are now actor-scoped, but job ownership itself should receive a real tenant FK in a later phase.
+- Billing APIs and invoice/estimate sequence ownership need a dedicated Phase 1E because number uniqueness and finance visibility are higher-risk than derived filters.
+- `ProofOfExecution.client_upload_id` remains globally unique. A future tenant-scoped unique constraint requires data-audit and migration planning.

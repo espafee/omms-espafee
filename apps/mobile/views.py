@@ -63,7 +63,7 @@ class MobileAdminOverviewView(APIView):
     permission_classes = [IsAuthenticated, IsMobileAdmin]
 
     def get(self, request, *args, **kwargs):
-        serializer = MobileAdminOverviewSerializer(MobileAdminOperationsService.get_overview())
+        serializer = MobileAdminOverviewSerializer(MobileAdminOperationsService.get_overview(user=request.user))
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -71,7 +71,7 @@ class MobileAdminRunningCampaignsView(APIView):
     permission_classes = [IsAuthenticated, IsMobileAdmin]
 
     def get(self, request, *args, **kwargs):
-        serializer = MobileAdminRunningCampaignSerializer(MobileAdminOperationsService.get_running_campaigns(), many=True)
+        serializer = MobileAdminRunningCampaignSerializer(MobileAdminOperationsService.get_running_campaigns(user=request.user), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -83,6 +83,7 @@ class MobileAdminPoeTrackerView(APIView):
             MobileAdminOperationsService.get_poe_tracker(
                 status_filter=request.query_params.get("status"),
                 request=request,
+                user=request.user,
             ),
             many=True,
         )
@@ -93,7 +94,7 @@ class MobileAdminDailyActivityView(APIView):
     permission_classes = [IsAuthenticated, IsMobileAdmin]
 
     def get(self, request, *args, **kwargs):
-        serializer = MobileAdminDailyActivitySerializer(MobileAdminOperationsService.get_daily_activity())
+        serializer = MobileAdminDailyActivitySerializer(MobileAdminOperationsService.get_daily_activity(user=request.user))
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -101,7 +102,7 @@ class MobileAdminAlertsView(APIView):
     permission_classes = [IsAuthenticated, IsMobileAdmin]
 
     def get(self, request, *args, **kwargs):
-        serializer = MobileAdminAlertSerializer(MobileAdminOperationsService.get_alerts(), many=True)
+        serializer = MobileAdminAlertSerializer(MobileAdminOperationsService.get_alerts(user=request.user), many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
@@ -121,7 +122,7 @@ class MobileAdminIssuesView(APIView):
 
     def get(self, request, *args, **kwargs):
         serializer = MobileAdminIssueSerializer(
-            MobileAdminOperationsService.get_issues(request=request),
+            MobileAdminOperationsService.get_issues(request=request, user=request.user),
             many=True,
         )
         return Response(serializer.data, status=status.HTTP_200_OK)

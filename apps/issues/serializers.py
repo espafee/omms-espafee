@@ -2,6 +2,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.bookings.models import Assignment, Booking
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 from core.images import build_public_media_url
 from core.roles import FIELD_STAFF
 
@@ -17,7 +18,7 @@ def is_admin_like_user(user) -> bool:
         and user.is_authenticated
         and (
             getattr(user, "is_staff", False)
-            or getattr(user, "is_superuser", False)
+            or is_platform_super_admin(user)
             or getattr(user, "role", None) in {"admin", "super_admin", "owner"}
         )
     )
@@ -84,6 +85,13 @@ class IssueSerializer(serializers.ModelSerializer):
             "resolved_at",
         ]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["booking"].queryset = self.fields["booking"].queryset.filter(campaign__tenant=get_user_tenant(user))
+
     def get_image_url(self, obj):
         return build_public_media_url(obj.image, request=self.context.get("request"))
 
@@ -102,6 +110,8 @@ class IssueSerializer(serializers.ModelSerializer):
     def validate_booking(self, booking: Booking):
         request = self.context.get("request")
         user = request.user if request else None
+        if user:
+            require_same_tenant(user, booking.campaign.tenant, message="You can only report issues for your own company bookings.")
         if is_admin_like_user(user):
             return booking
         if getattr(user, "role", None) == FIELD_STAFF and booking.assignments.filter(
@@ -223,3 +233,10 @@ class IssueTaskAssignSerializer(serializers.Serializer):
     )
     due_at = serializers.DateTimeField()
     notes = serializers.CharField(required=False, allow_blank=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["assigned_to"].queryset = self.fields["assigned_to"].queryset.filter(tenant=get_user_tenant(user))

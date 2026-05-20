@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from apps.bookings.models import Booking
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 from core.images import build_public_media_url
 
 from .models import ProofOfExecution, ProofOfExecutionMedia, ProofOfExecutionVerificationLog
@@ -31,6 +33,15 @@ class ProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.ModelSe
         ]
         read_only_fields = ["id", "image_url", "captured_by", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["poe_record"].queryset = self.fields["poe_record"].queryset.filter(
+                booking__campaign__tenant=get_user_tenant(user)
+            )
+
     def validate(self, attrs):
         image = attrs.get("image")
         media_url = attrs.get("media_url")
@@ -39,6 +50,11 @@ class ProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.ModelSe
             raise serializers.ValidationError(
                 {"non_field_errors": ["Either an uploaded image or a media URL is required."]}
             )
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        poe_record = attrs.get("poe_record") or getattr(self.instance, "poe_record", None)
+        if user and poe_record:
+            require_same_tenant(user, poe_record.booking.campaign.tenant, message="You can only upload media for your own company POEs.")
         return attrs
 
     def get_image_url(self, obj):
@@ -114,6 +130,21 @@ class ProofOfExecutionSerializer(serializers.ModelSerializer):
             "client_upload_id": {"validators": []},
         }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["booking"].queryset = self.fields["booking"].queryset.filter(campaign__tenant=get_user_tenant(user))
+            self.fields["checked_by"].queryset = self.fields["checked_by"].queryset.filter(tenant=get_user_tenant(user))
+
+    def validate_booking(self, value: Booking):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.campaign.tenant, message="You can only upload POE for your own company bookings.")
+        return value
+
     def get_location_confidence(self, obj):
         return build_location_confidence(obj)
 
@@ -137,6 +168,22 @@ class ProofOfExecutionVerifyRequestSerializer(serializers.Serializer):
         default="250.00",
         min_value=0,
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["poe_record"].queryset = self.fields["poe_record"].queryset.filter(
+                booking__campaign__tenant=get_user_tenant(user)
+            )
+
+    def validate_poe_record(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.booking.campaign.tenant, message="You can only verify POEs in your own company.")
+        return value
 
 
 class ProofOfExecutionRejectRequestSerializer(serializers.Serializer):

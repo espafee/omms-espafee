@@ -8,6 +8,7 @@ from apps.bookings.models import Booking
 from apps.bookings.models import Assignment
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import ProofOfExecutionMediaService, ProofOfExecutionService
+from apps.tenants.services import is_platform_super_admin, require_same_tenant, scope_queryset_to_tenant_path
 from core.roles import ADMIN
 
 
@@ -30,6 +31,12 @@ def user_can_access_booking(user, booking: Booking) -> bool:
     if not user or not user.is_authenticated:
         return False
     if is_admin_like_user(user):
+        if is_platform_super_admin(user):
+            return True
+        try:
+            require_same_tenant(user, booking.campaign.tenant, message="You do not have permission to access this booking.")
+        except PermissionDenied:
+            return False
         return True
     return booking.assignments.filter(
         user=user,
@@ -51,6 +58,7 @@ class MobileWorkService:
             .exclude(status=Booking.Status.CANCELLED)
             .order_by("start_date", "id")
         )
+        queryset = scope_queryset_to_tenant_path(queryset, user, "campaign__tenant")
         if is_admin_like_user(user):
             return queryset
         return queryset.filter(

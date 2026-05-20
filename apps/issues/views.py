@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from apps.bookings.models import Assignment
+from apps.tenants.services import is_platform_super_admin, require_same_tenant, scope_queryset_to_tenant_path
 from core.roles import FIELD_STAFF
 
 from .models import Issue, IssueEvent, IssueReportToken, IssueTask
@@ -41,6 +42,8 @@ class IssuePermission(BasePermission):
         return False
 
     def has_object_permission(self, request, view, obj):
+        if is_admin_like_user(request.user) and not is_platform_super_admin(request.user):
+            return obj.booking.campaign.tenant_id == getattr(request.user, "tenant_id", None)
         if is_admin_like_user(request.user):
             return True
         if getattr(request.user, "role", None) == FIELD_STAFF and request.method in {"GET", "HEAD", "OPTIONS"}:
@@ -72,7 +75,7 @@ class IssueViewSet(ModelViewSet):
             "reported_by",
         )
         if is_admin_like_user(self.request.user):
-            return queryset
+            return scope_queryset_to_tenant_path(queryset, self.request.user, "booking__campaign__tenant")
         return queryset.filter(Q(reported_by=self.request.user) | Q(tasks__assigned_to=self.request.user)).distinct()
 
     def perform_create(self, serializer):
@@ -85,6 +88,7 @@ class IssueViewSet(ModelViewSet):
             .order_by("-assigned_at")
             .first()
         )
+        require_same_tenant(self.request.user, booking.campaign.tenant, message="You can only create issues for your own company bookings.")
         if is_admin_like_user(self.request.user) and assignment is None:
             assignment = booking.assignments.exclude(status=Assignment.Status.CANCELLED).order_by("-assigned_at").first()
 
@@ -96,8 +100,10 @@ class IssueViewSet(ModelViewSet):
     @action(detail=True, methods=["post"], url_path="assign-task")
     def assign_task(self, request, pk=None):
         issue = self.get_object()
-        serializer = IssueTaskAssignSerializer(data=request.data)
+        serializer = IssueTaskAssignSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
+        if serializer.validated_data["assigned_to"].tenant_id != issue.booking.campaign.tenant_id:
+            return Response({"assigned_to": ["Assigned user must belong to the issue tenant."]}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
@@ -158,6 +164,8 @@ class IssueTaskPermission(BasePermission):
         return bool(user and user.is_authenticated and (is_admin_like_user(user) or getattr(user, "role", None) == FIELD_STAFF))
 
     def has_object_permission(self, request, view, obj):
+        if is_admin_like_user(request.user) and not is_platform_super_admin(request.user):
+            return obj.issue.booking.campaign.tenant_id == getattr(request.user, "tenant_id", None)
         if is_admin_like_user(request.user):
             return True
         return obj.assigned_to_id == request.user.id
@@ -181,7 +189,7 @@ class IssueTaskViewSet(ModelViewSet):
             "assigned_by",
         )
         if is_admin_like_user(self.request.user):
-            return queryset
+            return scope_queryset_to_tenant_path(queryset, self.request.user, "issue__booking__campaign__tenant")
         return queryset.filter(assigned_to=self.request.user)
 
     def perform_update(self, serializer):

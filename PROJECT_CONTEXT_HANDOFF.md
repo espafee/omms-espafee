@@ -1049,3 +1049,14 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - New sites and campaigns automatically attach to the requesting company tenant; platform superadmins may pass tenant explicitly or fall back to the default beta tenant.
 - Global uniqueness for site/campaign codes remains unchanged. Tenant-scoped uniqueness is intentionally deferred until duplicate-code audits are complete.
 - Phase 1D should scope bookings, POE, issues, and mobile assigned/admin views from `Campaign.tenant`.
+
+## SaaS Derived Tenant Scoping Phase 1D
+
+- Bookings, POEs, issues, and mobile operational surfaces are now scoped through the existing roots instead of adding new tenant FKs.
+- Booking visibility and writes derive from `booking.campaign.tenant`; booking creation rejects cross-tenant campaign/media-unit combinations.
+- POE review, POE media, verification requests, duplicate-upload lookup, POE analytics, POE SLA intelligence, and POE export data derive from `poe.booking.campaign.tenant`.
+- Issue visibility, creation, and task assignment derive from `issue.booking.campaign.tenant`.
+- Mobile assigned work is both tenant-scoped and assignment-scoped; mobile admin overview/running campaigns/POE tracker/daily activity/alerts/issues now use tenant-filtered querysets.
+- Operational search and export builders now apply requesting-user tenant filters where Phase 1C roots support it.
+- Platform superadmins retain global visibility; company users remain tenant-only; field staff remain assigned-work-only.
+- No billing sequences, invoice numbers, estimate numbers, POE upload ID uniqueness, or direct dependent-model tenant FKs were changed. Phase 1E should address billing/finance scoping and sequence design separately.

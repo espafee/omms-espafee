@@ -28,6 +28,7 @@ from apps.issues.models import Issue
 from apps.notifications.models import EmailNotificationLog, Notification
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import get_poe_sla_status, get_poe_sla_thresholds, resolve_review_sla_status
+from apps.tenants.services import is_platform_super_admin, scope_queryset_to_tenant_path, scope_users_to_requesting_tenant
 from apps.users.models import User
 from core.repositories import BaseRepository
 from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, OPERATIONS, SALES
@@ -556,7 +557,7 @@ def _append_limited(results: list[dict[str, Any]], rows):
 
 
 def _can_view_billing(user) -> bool:
-    return getattr(user, "role", "") in BILLING_SEARCH_ROLES or getattr(user, "is_superuser", False)
+    return getattr(user, "role", "") in BILLING_SEARCH_ROLES or is_platform_super_admin(user)
 
 
 def build_operational_search(user, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -571,7 +572,10 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         return {"query": query, "total": 0, "results": [], "grouped": {}}
 
     if "campaigns" in modules:
-        queryset = Campaign.objects.select_related("client").order_by("-updated_at")
+        queryset = scope_queryset_to_tenant_path(
+            Campaign.objects.select_related("client").order_by("-updated_at"),
+            user,
+        )
         if query:
             queryset = queryset.filter(Q(name__icontains=query) | Q(code__icontains=query) | Q(client__email__icontains=query) | Q(client__organization_name__icontains=query))
         if status_filter:
@@ -595,7 +599,11 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if can_view_billing and "invoices" in modules:
-        queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+        queryset = scope_queryset_to_tenant_path(
+            Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at"),
+            user,
+            "campaign__tenant",
+        )
         if query:
             queryset = queryset.filter(
                 Q(invoice_number__icontains=query)
@@ -625,7 +633,10 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if can_view_billing and "clients" in modules:
-        queryset = User.objects.filter(role=User.Role.CLIENT).order_by("organization_name", "email")
+        queryset = scope_users_to_requesting_tenant(
+            User.objects.filter(role=User.Role.CLIENT).order_by("organization_name", "email"),
+            user,
+        )
         if query:
             queryset = queryset.filter(Q(email__icontains=query) | Q(organization_name__icontains=query) | Q(first_name__icontains=query) | Q(last_name__icontains=query))
         _append_limited(
@@ -646,7 +657,11 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "poes" in modules:
-        queryset = ProofOfExecution.objects.select_related("booking", "booking__campaign", "booking__media_unit", "booking__media_unit__site").order_by("-captured_at")
+        queryset = scope_queryset_to_tenant_path(
+            ProofOfExecution.objects.select_related("booking", "booking__campaign", "booking__media_unit", "booking__media_unit__site").order_by("-captured_at"),
+            user,
+            "booking__campaign__tenant",
+        )
         if query:
             queryset = queryset.filter(
                 Q(booking__campaign__name__icontains=query)
@@ -777,7 +792,7 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "sites" in modules:
-        queryset = MediaSite.objects.order_by("name")
+        queryset = scope_queryset_to_tenant_path(MediaSite.objects.order_by("name"), user)
         if query:
             queryset = queryset.filter(Q(name__icontains=query) | Q(code__icontains=query) | Q(city__icontains=query) | Q(address__icontains=query))
         if status_filter:
@@ -800,7 +815,7 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "units" in modules:
-        queryset = MediaUnit.objects.select_related("site").order_by("unit_code")
+        queryset = scope_queryset_to_tenant_path(MediaUnit.objects.select_related("site").order_by("unit_code"), user, "site__tenant")
         if query:
             queryset = queryset.filter(Q(unit_code__icontains=query) | Q(site__name__icontains=query) | Q(site__code__icontains=query))
         if status_filter:
@@ -1146,12 +1161,16 @@ def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
 
 def build_poe_analytics(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
-    queryset = ProofOfExecution.objects.select_related(
-        "booking",
-        "booking__campaign",
-        "booking__media_unit",
-        "booking__media_unit__site",
-        "checked_by",
+    queryset = scope_queryset_to_tenant_path(
+        ProofOfExecution.objects.select_related(
+            "booking",
+            "booking__campaign",
+            "booking__media_unit",
+            "booking__media_unit__site",
+            "checked_by",
+        ),
+        filters.get("_user"),
+        "booking__campaign__tenant",
     )
     if filters.get("campaign"):
         queryset = queryset.filter(booking__campaign_id=filters["campaign"])
@@ -1220,7 +1239,11 @@ def build_poe_sla_intelligence(filters: dict[str, Any] | None = None, *, now=Non
     filters = filters or {}
     now = now or timezone.now()
     thresholds = get_poe_sla_thresholds()
-    queryset = ProofOfExecution.objects.select_related("checked_by", "booking__campaign").all()
+    queryset = scope_queryset_to_tenant_path(
+        ProofOfExecution.objects.select_related("checked_by", "booking__campaign").all(),
+        filters.get("_user"),
+        "booking__campaign__tenant",
+    )
     if filters.get("date_from"):
         queryset = queryset.filter(captured_at__date__gte=filters["date_from"])
     if filters.get("date_to"):
@@ -1349,6 +1372,8 @@ def build_operational_heatmap_intelligence(filters: dict[str, Any] | None = None
         "booking__media_unit__site",
     ).all()
     booking_queryset = Booking.objects.select_related("campaign", "media_unit__site").exclude(status=Booking.Status.CANCELLED)
+    poe_queryset = scope_queryset_to_tenant_path(poe_queryset, filters.get("_user"), "booking__campaign__tenant")
+    booking_queryset = scope_queryset_to_tenant_path(booking_queryset, filters.get("_user"), "campaign__tenant")
     job_queryset = _company_filter(ImportExportJob.objects.all(), filters)
     alert_queryset = AlertEvent.objects.select_related("rule").all()
 
@@ -1975,7 +2000,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     filters = filters or {}
     user = filters.get("_user")
     can_view_finance = bool(
-        getattr(user, "is_superuser", False)
+        is_platform_super_admin(user)
         or getattr(user, "role", None) in {"admin", "finance"}
         or user is None
     )
@@ -2015,8 +2040,13 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
 
     now = timezone.now()
     today = timezone.localdate()
-    campaigns_running = Campaign.objects.filter(status=Campaign.Status.ACTIVE, start_date__lte=today, end_date__gte=today).count()
-    invoice_queryset = Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED])
+    campaign_queryset = scope_queryset_to_tenant_path(Campaign.objects.all(), user)
+    campaigns_running = campaign_queryset.filter(status=Campaign.Status.ACTIVE, start_date__lte=today, end_date__gte=today).count()
+    invoice_queryset = scope_queryset_to_tenant_path(
+        Invoice.objects.exclude(status__in=[Invoice.Status.DRAFT, Invoice.Status.CANCELLED]),
+        user,
+        "campaign__tenant",
+    )
     billing_intelligence = build_collection_efficiency_analytics(invoice_queryset) if can_view_finance else {
         "total_invoiced_amount": Decimal("0.00"),
         "collected_amount": Decimal("0.00"),
@@ -2033,7 +2063,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     active_job_statuses = [ImportExportJob.Status.CONFIRMED, ImportExportJob.Status.PROCESSING, ImportExportJob.Status.RUNNING, ImportExportJob.Status.PENDING]
     failed_request_count = request_queryset.filter(status_code__gte=500).count()
     total_request_count = request_queryset.count()
-    active_users_today = User.objects.filter(last_login__date=today).count()
+    active_users_today = scope_users_to_requesting_tenant(User.objects.filter(last_login__date=today), user).count()
     export_activity_today = job_queryset.filter(job_type=ImportExportJob.JobType.EXPORT, created_at__date=today).count()
     latest_successful_import = job_queryset.filter(job_type=ImportExportJob.JobType.IMPORT, status=ImportExportJob.Status.COMPLETED).order_by("-completed_at", "-updated_at").first()
     latest_successful_export = job_queryset.filter(job_type=ImportExportJob.JobType.EXPORT, status=ImportExportJob.Status.COMPLETED).order_by("-completed_at", "-updated_at").first()
@@ -2058,7 +2088,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         )
         .order_by("day")
     )
-    poe_queryset = ProofOfExecution.objects.all()
+    poe_queryset = scope_queryset_to_tenant_path(ProofOfExecution.objects.all(), user, "booking__campaign__tenant")
     if filters.get("date_from"):
         poe_queryset = poe_queryset.filter(captured_at__date__gte=filters["date_from"])
     if filters.get("date_to"):
@@ -2077,7 +2107,8 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         )
         .order_by("day")
     ) if can_view_finance else []
-    payment_activity = _daily_counts(Payment.objects.all(), date_field="payment_date", value_name="payments") if can_view_finance else []
+    payment_queryset = scope_queryset_to_tenant_path(Payment.objects.all(), user, "invoice__campaign__tenant")
+    payment_activity = _daily_counts(payment_queryset, date_field="payment_date", value_name="payments") if can_view_finance else []
     operations_activity = (
         audit_queryset.annotate(day=TruncDate("created_at"))
         .values("day")
@@ -2213,7 +2244,10 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
 
 def build_role_activity(filters: dict[str, Any] | None = None) -> dict[str, Any]:
     filters = filters or {}
+    user = filters.get("_user")
     queryset = AuditEvent.objects.select_related("actor")
+    if user is not None and not is_platform_super_admin(user):
+        queryset = queryset.filter(actor__tenant=getattr(user, "tenant", None))
     if filters.get("role"):
         queryset = queryset.filter(actor__role=filters["role"])
     if filters.get("user"):
@@ -2940,8 +2974,9 @@ def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExport
 
 
 def _inventory_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
+    filters = filters or {}
     rows = list(
-        MediaSite.objects.order_by("code").values_list(
+        scope_queryset_to_tenant_path(MediaSite.objects.order_by("code"), filters.get("_user")).values_list(
             "code", "name", "site_type", "address", "city", "state", "latitude", "longitude", "location_status"
         )
     )
@@ -2950,7 +2985,10 @@ def _inventory_export_payload(filters=None) -> tuple[str, list[str], list[list[A
 
 def _campaign_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
-    queryset = Campaign.objects.select_related("client", "account_manager").order_by("-created_at")
+    queryset = scope_queryset_to_tenant_path(
+        Campaign.objects.select_related("client", "account_manager").order_by("-created_at"),
+        filters.get("_user"),
+    )
     if filters.get("status"):
         queryset = queryset.filter(status=filters["status"])
     if filters.get("client"):
@@ -2964,7 +3002,11 @@ def _campaign_export_payload(filters=None) -> tuple[str, list[str], list[list[An
 
 def _invoice_payment_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
-    queryset = Invoice.objects.select_related("campaign", "campaign__client").prefetch_related("payments").order_by("-created_at")
+    queryset = scope_queryset_to_tenant_path(
+        Invoice.objects.select_related("campaign", "campaign__client").prefetch_related("payments").order_by("-created_at"),
+        filters.get("_user"),
+        "campaign__tenant",
+    )
     if filters.get("status"):
         queryset = queryset.filter(status=filters["status"])
     if filters.get("client"):
@@ -3012,7 +3054,11 @@ def _invoice_payment_export_payload(filters=None) -> tuple[str, list[str], list[
 
 def _poe_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
-    queryset = ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site", "checked_by").order_by("-captured_at")
+    queryset = scope_queryset_to_tenant_path(
+        ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site", "checked_by").order_by("-captured_at"),
+        filters.get("_user"),
+        "booking__campaign__tenant",
+    )
     if filters.get("campaign"):
         queryset = queryset.filter(booking__campaign_id=filters["campaign"])
     if filters.get("status"):
@@ -3036,7 +3082,11 @@ def _poe_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
 def _client_statement_export_payload(filters=None) -> tuple[str, list[str], list[list[Any]]]:
     filters = filters or {}
     client_id = filters.get("client")
-    queryset = Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at")
+    queryset = scope_queryset_to_tenant_path(
+        Invoice.objects.select_related("campaign", "campaign__client").order_by("-created_at"),
+        filters.get("_user"),
+        "campaign__tenant",
+    )
     if client_id:
         queryset = queryset.filter(campaign__client_id=client_id)
     rows = []
@@ -3076,7 +3126,8 @@ def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
 
     try:
         builder = EXPORT_PAYLOAD_BUILDERS[job.resource_type]
-        filename, header, rows = builder(job.filters.get("export_filters", {}))
+        export_filters = {**job.filters.get("export_filters", {}), "_user": actor}
+        filename, header, rows = builder(export_filters)
         output = StringIO()
         writer = csv.writer(output)
         writer.writerow(header)

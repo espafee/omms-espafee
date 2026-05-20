@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking
 from apps.billing.models import Invoice, Payment
-from apps.tenants.services import require_same_tenant, resolve_write_tenant
+from apps.tenants.services import is_platform_super_admin, require_same_tenant, resolve_write_tenant, scope_queryset_to_tenant_path
 from apps.poe.models import ProofOfExecution
 from core.services import BaseService
 
@@ -23,7 +23,7 @@ ZERO = Decimal("0.00")
 def _can_view_campaign_billing(user=None) -> bool:
     return bool(
         user is None
-        or getattr(user, "is_superuser", False)
+        or is_platform_super_admin(user)
         or getattr(user, "role", None) in {"admin", "finance"}
     )
 
@@ -37,7 +37,7 @@ def _invoice_balance(invoice) -> Decimal:
 def build_campaign_performance_analytics(*, user=None, queryset=None, today=None) -> dict:
     today = today or timezone.localdate()
     can_view_billing = _can_view_campaign_billing(user)
-    queryset = queryset or Campaign.objects.all()
+    queryset = queryset or scope_queryset_to_tenant_path(Campaign.objects.all(), user)
     campaigns = list(
         queryset.select_related("client").prefetch_related(
             "bookings__poe_records",

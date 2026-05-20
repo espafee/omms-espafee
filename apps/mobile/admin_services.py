@@ -6,6 +6,7 @@ from django.db.models import Q
 from django.utils import timezone
 
 from apps.bookings.models import Assignment, Booking
+from apps.billing.models import Invoice
 from apps.billing.services import build_collection_efficiency_analytics
 from apps.campaigns.models import Campaign
 from apps.campaigns.services import build_campaign_performance_analytics
@@ -18,6 +19,7 @@ from apps.observability.services import (
     build_system_health_diagnostics,
 )
 from apps.poe.models import ProofOfExecution
+from apps.tenants.services import scope_queryset_to_tenant_path
 from core.images import build_public_media_url
 
 
@@ -30,21 +32,43 @@ STATUS_FILTER_MAP = {
 }
 
 
-def _base_booking_queryset():
-    return (
+def _base_booking_queryset(user=None):
+    queryset = (
         Booking.objects.select_related("campaign", "campaign__client", "media_unit", "media_unit__site")
         .prefetch_related("assignments__user", "poe_records__media_items", "poe_records__verification_logs")
         .exclude(status=Booking.Status.CANCELLED)
     )
+    return scope_queryset_to_tenant_path(queryset, user, "campaign__tenant")
 
 
-def _active_campaign_queryset(today):
-    return (
+def _active_campaign_queryset(today, user=None):
+    queryset = (
         Campaign.objects.select_related("client")
         .filter(Q(status=Campaign.Status.ACTIVE) | Q(start_date__lte=today, end_date__gte=today))
         .distinct()
         .order_by("end_date", "id")
     )
+    return scope_queryset_to_tenant_path(queryset, user)
+
+
+def _poe_queryset(user=None):
+    queryset = ProofOfExecution.objects.select_related(
+        "checked_by",
+        "booking",
+        "booking__campaign",
+        "booking__media_unit",
+        "booking__media_unit__site",
+    ).prefetch_related("booking__assignments__user", "media_items", "verification_logs")
+    return scope_queryset_to_tenant_path(queryset, user, "booking__campaign__tenant")
+
+
+def _issue_queryset(user=None):
+    queryset = Issue.objects.select_related(
+        "booking__campaign",
+        "booking__media_unit__site",
+        "reported_by",
+    )
+    return scope_queryset_to_tenant_path(queryset, user, "booking__campaign__tenant")
 
 
 def _latest_poe(booking):
@@ -68,10 +92,10 @@ def _active_assignment(booking):
     return booking.assignments.select_related("user").filter(status=Assignment.Status.PENDING).first()
 
 
-def _overdue_assignment_bookings(today):
+def _overdue_assignment_bookings(today, user=None):
     return [
         booking
-        for booking in _base_booking_queryset().filter(
+        for booking in _base_booking_queryset(user).filter(
             assignments__status=Assignment.Status.PENDING,
             start_date__lte=today,
         ).distinct()
@@ -119,14 +143,16 @@ def _latest_image_url(poe_record, request=None):
 
 class MobileAdminOperationsService:
     @staticmethod
-    def get_overview():
+    def get_overview(user=None):
         today = timezone.localdate()
-        bookings = _base_booking_queryset()
-        poe_sla = build_poe_sla_intelligence()
-        billing = build_collection_efficiency_analytics()
-        campaigns = build_campaign_performance_analytics()
+        tenant_filters = {"_user": user}
+        bookings = _base_booking_queryset(user)
+        poe_sla = build_poe_sla_intelligence(tenant_filters)
+        billing_queryset = scope_queryset_to_tenant_path(Invoice.objects.all(), user, "campaign__tenant")
+        billing = build_collection_efficiency_analytics(billing_queryset)
+        campaigns = build_campaign_performance_analytics(user=user)
         system_health = build_system_health_diagnostics()
-        heatmap = build_operational_heatmap_intelligence()
+        heatmap = build_operational_heatmap_intelligence(tenant_filters)
         predictive = build_predictive_operations_intelligence(
             poe_sla=poe_sla,
             campaign_performance=campaigns,
@@ -138,18 +164,19 @@ class MobileAdminOperationsService:
         environment_mode = system_health.get("environment_mode", {})
         top_busy_region = heatmap.get("top_busy_region") or {}
         top_suspicious_region = heatmap.get("top_suspicious_region") or {}
-        active_alerts = len([alert for alert in MobileAdminOperationsService.get_alerts() if alert["severity"] in {"warning", "danger"}])
+        active_alerts = len([alert for alert in MobileAdminOperationsService.get_alerts(user=user) if alert["severity"] in {"warning", "danger"}])
+        poe_queryset = _poe_queryset(user)
         return {
-            "active_campaigns": _active_campaign_queryset(today).count(),
+            "active_campaigns": _active_campaign_queryset(today, user).count(),
             "campaigns_at_risk": campaigns["at_risk_count"],
             "campaigns_ending_soon": campaigns["ending_soon_count"],
             "critical_campaigns": campaigns["critical_count"],
             "poe_pending": sum(1 for booking in bookings if _is_poe_pending(booking)),
-            "poe_completed_today": ProofOfExecution.objects.filter(
+            "poe_completed_today": poe_queryset.filter(
                 captured_at__date=today,
                 verification_status=ProofOfExecution.VerificationStatus.VERIFIED,
             ).count(),
-            "suspicious_poe": ProofOfExecution.objects.filter(
+            "suspicious_poe": poe_queryset.filter(
                 verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS
             ).count(),
             "poe_sla_warnings": poe_sla["warning_count"],
@@ -157,8 +184,8 @@ class MobileAdminOperationsService:
             "overdue_invoices": billing["overdue_invoice_count"],
             "overdue_invoice_value": billing["overdue_amount"],
             "collection_efficiency": billing["collection_efficiency_percentage"],
-            "bookings_starting_today": Booking.objects.filter(start_date=today).exclude(status=Booking.Status.CANCELLED).count(),
-            "bookings_ending_today": Booking.objects.filter(end_date=today).exclude(status=Booking.Status.CANCELLED).count(),
+            "bookings_starting_today": _base_booking_queryset(user).filter(start_date=today).count(),
+            "bookings_ending_today": _base_booking_queryset(user).filter(end_date=today).count(),
             "system_status": system_health["status"],
             "api_status": system_health["api_status"],
             "environment_mode": environment_mode.get("mode", "normal"),
@@ -177,10 +204,10 @@ class MobileAdminOperationsService:
         }
 
     @staticmethod
-    def get_running_campaigns():
+    def get_running_campaigns(user=None):
         today = timezone.localdate()
         items = []
-        for campaign in _active_campaign_queryset(today).prefetch_related("bookings__poe_records"):
+        for campaign in _active_campaign_queryset(today, user).prefetch_related("bookings__poe_records"):
             campaign_bookings = [booking for booking in campaign.bookings.all() if booking.status != Booking.Status.CANCELLED]
             total_units = len({booking.media_unit_id for booking in campaign_bookings})
             poe_completed = sum(1 for booking in campaign_bookings if _has_verified_poe(booking))
@@ -203,14 +230,8 @@ class MobileAdminOperationsService:
         return items
 
     @staticmethod
-    def get_poe_tracker(*, status_filter=None, request=None):
-        queryset = ProofOfExecution.objects.select_related(
-            "booking",
-            "booking__campaign",
-            "booking__media_unit",
-            "booking__media_unit__site",
-        ).prefetch_related("booking__assignments__user", "media_items", "verification_logs")
-
+    def get_poe_tracker(*, status_filter=None, request=None, user=None):
+        queryset = _poe_queryset(user)
         mapped_status = STATUS_FILTER_MAP.get(status_filter or "")
         if mapped_status:
             queryset = queryset.filter(verification_status=mapped_status)
@@ -237,15 +258,15 @@ class MobileAdminOperationsService:
         return items
 
     @staticmethod
-    def get_daily_activity():
+    def get_daily_activity(user=None):
         today = timezone.localdate()
-        active_bookings = _base_booking_queryset().filter(start_date__lte=today, end_date__gte=today)
-        overdue_assignment_ids = {booking.id for booking in _overdue_assignment_bookings(today)}
+        active_bookings = _base_booking_queryset(user).filter(start_date__lte=today, end_date__gte=today)
+        overdue_assignment_ids = {booking.id for booking in _overdue_assignment_bookings(today, user)}
         return {
             "date": today,
             "installations_due_today": [
                 _activity_item(booking, due_date=booking.start_date, status="installation_due")
-                for booking in _base_booking_queryset().filter(start_date=today)
+                for booking in _base_booking_queryset(user).filter(start_date=today)
             ],
             "poe_pending_today": [
                 _activity_item(booking, due_date=today, status="poe_pending")
@@ -254,22 +275,22 @@ class MobileAdminOperationsService:
             ],
             "overdue_items": [
                 _activity_item(booking, due_date=booking.end_date, status="overdue")
-                for booking in _base_booking_queryset().filter(end_date__lt=today)
+                for booking in _base_booking_queryset(user).filter(end_date__lt=today)
                 if not _has_verified_poe(booking) and booking.id not in overdue_assignment_ids
             ]
             + [
                 _activity_item(booking, due_date=booking.start_date, status="overdue")
-                for booking in _overdue_assignment_bookings(today)
+                for booking in _overdue_assignment_bookings(today, user)
             ],
         }
 
     @staticmethod
-    def get_alerts():
+    def get_alerts(user=None):
         today = timezone.localdate()
         now = timezone.now()
         alerts = []
 
-        for booking in _base_booking_queryset().filter(end_date__lt=today):
+        for booking in _base_booking_queryset(user).filter(end_date__lt=today):
             if not _has_verified_poe(booking):
                 alerts.append(
                     {
@@ -282,7 +303,7 @@ class MobileAdminOperationsService:
                     }
                 )
 
-        for booking in _overdue_assignment_bookings(today):
+        for booking in _overdue_assignment_bookings(today, user):
             assignment = _active_assignment(booking)
             assigned_to = assignment.user.get_full_name() or assignment.user.email if assignment else "field staff"
             alerts.append(
@@ -296,7 +317,7 @@ class MobileAdminOperationsService:
                 }
             )
 
-        for poe_record in ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site").filter(
+        for poe_record in _poe_queryset(user).filter(
             verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS
         ):
             alerts.append(
@@ -310,7 +331,7 @@ class MobileAdminOperationsService:
                 }
             )
 
-        for poe_record in ProofOfExecution.objects.select_related("booking__campaign", "booking__media_unit__site").filter(
+        for poe_record in _poe_queryset(user).filter(
             verification_status=ProofOfExecution.VerificationStatus.REJECTED
         ):
             alerts.append(
@@ -325,7 +346,7 @@ class MobileAdminOperationsService:
             )
 
         ending_cutoff = today + timedelta(days=3)
-        for campaign in Campaign.objects.filter(end_date__gte=today, end_date__lte=ending_cutoff).exclude(
+        for campaign in _active_campaign_queryset(today, user).filter(end_date__gte=today, end_date__lte=ending_cutoff).exclude(
             status__in=[Campaign.Status.COMPLETED, Campaign.Status.CANCELLED]
         ):
             alerts.append(
@@ -339,11 +360,7 @@ class MobileAdminOperationsService:
                 }
             )
 
-        for issue in Issue.objects.select_related(
-            "booking__campaign",
-            "booking__media_unit__site",
-            "reported_by",
-        ).exclude(status=Issue.Status.RESOLVED):
+        for issue in _issue_queryset(user).exclude(status=Issue.Status.RESOLVED):
             sync_issue_sla_status(issue)
             if issue.sla_status == Issue.SlaStatus.BREACHED:
                 alert_type = "issue_sla_breached"
@@ -371,13 +388,9 @@ class MobileAdminOperationsService:
         return sorted(alerts, key=lambda item: item["created_at"], reverse=True)
 
     @staticmethod
-    def get_issues(request=None):
+    def get_issues(request=None, user=None):
         items = []
-        queryset = Issue.objects.select_related(
-            "booking__campaign",
-            "booking__media_unit__site",
-            "reported_by",
-        ).order_by("-created_at")
+        queryset = _issue_queryset(user).order_by("-created_at")
         for issue in queryset:
             sync_issue_sla_status(issue)
             booking = issue.booking

@@ -7,6 +7,7 @@ from django.utils import timezone
 from apps.notifications.services import trigger_poe_uploaded_notification
 from apps.issues.services import resolve_open_issues_after_poe
 from apps.inventory.models import MediaSite
+from apps.tenants.services import require_same_tenant
 from core.services import BaseService
 
 from .exceptions import DuplicateProofOfExecutionError
@@ -59,14 +60,19 @@ class ProofOfExecutionService(BaseService):
         return not self._booking_has_new_open_issue(booking, existing_poe)
 
     def create(self, actor=None, **validated_data):
+        booking = validated_data.get("booking")
+        if actor and booking:
+            require_same_tenant(actor, booking.campaign.tenant, message="You can only create POEs for your own company bookings.")
         client_upload_id = (validated_data.get("client_upload_id") or "").strip()
         if client_upload_id:
-            existing = ProofOfExecution.objects.filter(client_upload_id=client_upload_id).first()
+            existing_queryset = ProofOfExecution.objects.filter(client_upload_id=client_upload_id)
+            if booking:
+                existing_queryset = existing_queryset.filter(booking__campaign__tenant=booking.campaign.tenant)
+            existing = existing_queryset.first()
             if existing:
                 return existing
             validated_data["client_upload_id"] = client_upload_id
 
-        booking = validated_data.get("booking")
         if booking:
             existing_poe = ProofOfExecution.objects.filter(booking=booking).order_by("-created_at", "-id").first()
             if existing_poe and self._should_block_duplicate(booking, existing_poe):

@@ -227,3 +227,11 @@ The key product decision is clear: OMMS should not onboard multiple real compani
 OMMS now has tenant ownership on the first two operational roots: inventory sites and campaigns. This is the first real data-isolation step beyond user tenant identity.
 
 For existing beta users, nothing visually changes. Sites and campaigns are safely assigned to the default beta tenant, while new company-created records attach to that user's company. Platform owners can still inspect across companies, but company users no longer see another tenant's inventory or campaign roots.
+
+## SaaS Derived Operational Scoping
+
+OMMS has extended tenant safety into the operational workflows that sit under campaigns and sites. Bookings, POE review, issue management, mobile assigned work, mobile admin summaries, POE analytics, operational search, and export payloads now derive company ownership from the tenant-scoped campaign/site roots.
+
+This is intentionally invisible to normal beta users. The product keeps its current workflows, but the platform is safer for future multi-company operation: company teams stay inside their own bookings, proofs, issues, and mobile work queues, while platform owners keep cross-tenant oversight.
+
+The next SaaS milestone should be finance-specific. Invoice and estimate numbering, billing sequence ownership, and tenant-aware alert/job ownership remain separate because they require careful production data audits before uniqueness rules change.

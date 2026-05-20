@@ -9,6 +9,7 @@ from core.services import BaseService
 from rest_framework.exceptions import ValidationError
 
 from apps.notifications.services import trigger_campaign_booked_notification
+from apps.tenants.services import require_same_tenant
 
 from .models import Assignment, Booking
 from .repositories import BookingRepository
@@ -47,6 +48,12 @@ class BookingService(BaseService):
 
     def create(self, actor=None, **validated_data):
         assigned_user = validated_data.pop("assigned_user", None)
+        if actor:
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only create bookings for your own company campaigns.")
+        if validated_data["campaign"].tenant_id != validated_data["media_unit"].site.tenant_id:
+            raise ValidationError("Campaign and media unit must belong to the same tenant.")
+        if assigned_user and assigned_user.tenant_id != validated_data["campaign"].tenant_id:
+            raise ValidationError("Assigned user must belong to the campaign tenant.")
         self._validate_dates(validated_data["start_date"], validated_data["end_date"])
         self._validate_unique_booking_window(
             campaign=validated_data["campaign"],
@@ -82,6 +89,12 @@ class BookingService(BaseService):
         end_date = validated_data.get("end_date", instance.end_date)
         media_unit = validated_data.get("media_unit", instance.media_unit)
         campaign = validated_data.get("campaign", instance.campaign)
+        if actor:
+            require_same_tenant(actor, campaign.tenant, message="You can only update bookings for your own company campaigns.")
+        if campaign.tenant_id != media_unit.site.tenant_id:
+            raise ValidationError("Campaign and media unit must belong to the same tenant.")
+        if assigned_user and assigned_user.tenant_id != campaign.tenant_id:
+            raise ValidationError("Assigned user must belong to the campaign tenant.")
 
         self._validate_dates(start_date, end_date)
         self._validate_unique_booking_window(
