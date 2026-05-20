@@ -2,6 +2,8 @@
 
 Generated: 2026-05-20
 
+Last backend production smoke update: 2026-05-21
+
 ## Executive Summary
 
 OMMS is in strong pre-launch condition for an enterprise beta/controlled production rollout. The core SaaS workflows, operational intelligence layer, role-aware dashboards, background job infrastructure, mobile companion app, and training center all validate successfully in the current local readiness pass.
@@ -9,6 +11,29 @@ OMMS is in strong pre-launch condition for an enterprise beta/controlled product
 Recommended production confidence score: **86 / 100**.
 
 This score assumes production environment variables, Redis/Celery services, database migrations, object storage, and domain security settings are configured exactly as documented before launch.
+
+## Render Backend Readiness Update - 2026-05-21
+
+Public backend smoke checks confirm the Render web service is live and serving recent OMMS API surface:
+
+- `/health/` returns `200` with healthy JSON.
+- `/api/schema/` returns `200` and includes recent routes for operational mode, import template, dashboard profile, import confirmation, and import/export retry.
+- `/api/docs/swagger/` returns `200`.
+- Protected anonymous checks for Training documents, Training PDF download, Inventory Import Template, Import/Export jobs, and Operational Mode return `401` rather than `500`.
+
+Local backend validation remains clean:
+
+- `manage.py check`: passed.
+- `manage.py migrate --check`: passed.
+- `manage.py test apps --verbosity 1 --parallel 4 --keepdb`: passed, 278 tests.
+
+Still requiring Render dashboard or shell access:
+
+- Exact deployed Git commit SHA.
+- Production migration-table proof for `observability.0012_operationalmode`.
+- Production Redis/Celery env verification.
+- Worker and beat service runtime verification.
+- Safe authenticated background export/import execution.
 
 ## Strengths
 

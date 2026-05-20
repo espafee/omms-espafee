@@ -999,3 +999,16 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - This keeps all OMMS login/API traffic on the canonical beta app origin, whose frontend bundle uses `https://omms-backend.onrender.com/api/v1`.
 - No OMMS backend CORS/CSRF change is required for this controlled-beta launch path because `www.vistaaitech.com` is not making authenticated OMMS API requests.
 - Production verification confirmed the deployed VistaAi page redirects and no longer attempts `https://omms.vercel.app/api/v1` calls.
+
+## Render Backend Production Readiness Smoke
+
+- Public Render backend health is live: `https://omms-backend.onrender.com/health/` returns `200` healthy JSON.
+- Public OpenAPI schema and Swagger UI load successfully.
+- Production schema exposes recent operational routes, including operational mode, inventory import template, dashboard profile, import confirmation, and retry endpoints.
+- Anonymous protected endpoint checks return `401`, not `500`, for Training documents, Training PDF download, Inventory Import Template, Import/Export jobs, and Operational Mode.
+- Local backend validation passed again: `manage.py check`, `manage.py migrate --check`, and 278 app tests.
+- Production migration proof for `observability.0012_operationalmode`, exact deployed commit SHA, Redis/Celery env, worker service, beat service, and a real background job execution still require Render dashboard/shell or production admin access.
+- Expected Render commands remain:
+  - Web: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
+  - Worker: `celery -A config worker --loglevel=info`
+  - Beat: `celery -A config beat --loglevel=info`

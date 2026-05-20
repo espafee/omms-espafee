@@ -1,7 +1,7 @@
 # OMMS Deployment Checklist
 
 Generated: 2026-05-20
-Last smoke update: 2026-05-20
+Last smoke update: 2026-05-21
 
 Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
@@ -15,13 +15,13 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 ## Pre-Deployment
 
 - [x] Confirm launch branch is `main` and clean.
-- [ ] Confirm latest backend commit is deployed. Public backend is reachable, but authenticated diagnostics/commit metadata were not available without admin credentials.
+- [!] Confirm latest backend commit is deployed. Public schema contains recent routes from current code, but exact deployed Git SHA still requires Render dashboard or authenticated diagnostics.
 - [x] Confirm latest frontend commit is deployed to Vercel for `https://omms.vercel.app`.
 - [ ] Confirm mobile release build uses the latest pushed mobile commit. Source is pushed; release build/APK was not generated in this smoke pass.
 - [!] Rotate all demo/admin credentials. Requires production admin access and is still pending.
-- [ ] Confirm production `DJANGO_SECRET_KEY` is strong and not the default placeholder. Public checks cannot expose this; confirm in Render/env dashboard.
-- [ ] Confirm `DJANGO_DEBUG=false`. Public behavior suggests production mode, but confirm in Render/env dashboard.
-- [ ] Confirm `DJANGO_ALLOWED_HOSTS` includes the backend domain. Public backend responds on `https://omms-backend.onrender.com`; confirm exact env value in Render.
+- [ ] Confirm production `DJANGO_SECRET_KEY` is strong and not the default placeholder. Requires Render/env dashboard.
+- [ ] Confirm `DJANGO_DEBUG=false`. Public behavior suggests production mode, but exact value requires Render/env dashboard.
+- [x] Confirm `DJANGO_ALLOWED_HOSTS` includes the backend domain. Public backend responds on `https://omms-backend.onrender.com`.
 - [x] Confirm `DJANGO_CORS_ALLOWED_ORIGINS` includes the required trusted beta frontend origin. `https://omms.vercel.app` is allowed; `https://www.vistaaitech.com` is not required for OMMS API traffic after the redirect fix.
 - [ ] Confirm `DJANGO_CSRF_TRUSTED_ORIGINS` includes trusted backend/admin origins. Requires Render/env dashboard access.
 - [x] Confirm `NEXT_PUBLIC_API_ROOT` points to the production backend `/api/v1`. `https://omms.vercel.app` is correctly wired to `https://omms-backend.onrender.com/api/v1`; the VistaAi `/omms/login` path redirects to the canonical app instead of making API calls.
@@ -37,8 +37,10 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [x] Confirm local `python manage.py migrate --check` exits successfully.
 - [ ] Run production `python manage.py collectstatic --noinput` during backend deploy.
 - [x] Confirm public `/health/` returns healthy at `https://omms-backend.onrender.com/health/`.
+- [x] Confirm public OpenAPI schema loads at `https://omms-backend.onrender.com/api/schema/`.
+- [x] Confirm public Swagger UI loads at `https://omms-backend.onrender.com/api/docs/swagger/`.
 - [ ] Confirm admin diagnostics endpoint works for admin users. Endpoint is protected and returns `401` without credentials as expected.
-- [ ] Confirm `observability.0012_operationalmode` is applied in production. Local migration is applied; production requires Render/database verification.
+- [!] Confirm `observability.0012_operationalmode` is applied in production. Local migration is applied and production schema exposes the operational-mode endpoint, but database migration proof still requires Render shell/database verification.
 
 ## Storage
 
@@ -49,14 +51,17 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
 ## Background Jobs
 
-- [ ] Configure `CELERY_BROKER_URL`. Local Celery report is valid; production Redis URL requires Render/env verification.
-- [ ] Configure `CELERY_RESULT_BACKEND`. Local Celery report is valid; production backend requires Render/env verification.
+- [!] Configure `CELERY_BROKER_URL`. Local Celery report is valid; production Redis URL requires Render/env verification.
+- [!] Configure `CELERY_RESULT_BACKEND`. Local Celery report is valid; production backend requires Render/env verification.
 - [x] Start web process. Public backend web process is responding.
 - [ ] Start Celery worker: `celery -A config worker --loglevel=info`. Requires Render worker verification.
 - [ ] Start Celery beat: `celery -A config beat --loglevel=info`. Requires Render beat verification.
 - [ ] Confirm Operations System Status shows Redis configured and worker readiness acceptable. Requires admin login.
 - [ ] Run a small export job and confirm completion/download. Requires admin login.
 - [ ] Run a small import preview and confirm no records are created before confirmation. Requires admin login.
+- [ ] Render web command should be `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`.
+- [ ] Render worker command should be `celery -A config worker --loglevel=info`.
+- [ ] Render beat command should be `celery -A config beat --loglevel=info`.
 
 ## Frontend Release
 

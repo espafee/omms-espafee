@@ -182,7 +182,7 @@ The pass confirmed the application is ready for controlled production launch onc
 
 The production smoke pass verified that the Render backend is alive and that `https://omms.vercel.app` is deployed with the correct backend API root. Protected operational endpoints correctly reject anonymous requests, which confirms the public surface is not accidentally exposing training, import/export, or maintenance controls.
 
-One launch-path issue remains: the `https://www.vistaaitech.com/omms/login` shell loads, but appears wired to the frontend `https://omms.vercel.app` URL instead of the backend API. If VistaAi is the official customer entrypoint, that deployment must be corrected before public launch.
+The VistaAi launch-path issue has been resolved by redirecting `/omms/login` into the canonical OMMS beta app instead of embedding it in the marketing site.
 
 ## Controlled Beta Stabilization
 
@@ -197,3 +197,9 @@ The VistaAi marketing site now hands users into the canonical OMMS beta app inst
 This keeps the beta launch clear and reliable: OMMS runs from the Vercel app already wired to the Render backend API, while VistaAi remains the marketing and discovery surface.
 
 Production verification confirmed the live VistaAi page now redirects to `https://omms.vercel.app/login` and no longer embeds OMMS in an iframe.
+
+## Render Backend Readiness Smoke
+
+The Render backend is publicly healthy and serving the current operational API surface. Health, OpenAPI schema, and Swagger UI load successfully, while protected Training, import/export, and operational-mode endpoints correctly return `401` to anonymous users instead of leaking data or failing with server errors.
+
+The remaining backend beta blockers are infrastructure proofs rather than code defects: confirm production migrations in Render, verify Redis/Celery worker and beat services, and run one authenticated safe background job from the production dashboard.
