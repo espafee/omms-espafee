@@ -12,10 +12,11 @@ class UserAdmin(DjangoUserAdmin):
         "first_name",
         "last_name",
         "role",
+        "tenant",
         "is_active",
         "is_staff",
     )
-    list_filter = ("role", "is_active", "is_staff", "is_superuser")
+    list_filter = ("role", "tenant", "is_active", "is_staff", "is_superuser")
     search_fields = ("email", "username", "first_name", "last_name", "organization_name")
     ordering = ("email",)
     fieldsets = DjangoUserAdmin.fieldsets + (
@@ -26,6 +27,7 @@ class UserAdmin(DjangoUserAdmin):
                     "phone_number",
                     "role",
                     "organization_name",
+                    "tenant",
                     "created_at",
                     "updated_at",
                 )

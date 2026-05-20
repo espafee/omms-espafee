@@ -3,6 +3,8 @@ from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from apps.tenants.services import is_platform_super_admin
+
 from .services import UserService
 
 User = get_user_model()
@@ -10,6 +12,9 @@ User = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     full_name = serializers.SerializerMethodField()
+    tenant_name = serializers.CharField(source="tenant.name", read_only=True)
+    tenant_slug = serializers.CharField(source="tenant.slug", read_only=True)
+    tenant_type = serializers.CharField(source="tenant.tenant_type", read_only=True)
 
     class Meta:
         model = User
@@ -23,16 +28,44 @@ class UserSerializer(serializers.ModelSerializer):
             "phone_number",
             "role",
             "organization_name",
+            "tenant",
+            "tenant_name",
+            "tenant_slug",
+            "tenant_type",
+            "is_platform_admin",
+            "is_company_admin",
             "is_active",
             "is_staff",
             "is_superuser",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "full_name", "is_staff", "is_superuser", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "full_name",
+            "tenant_name",
+            "tenant_slug",
+            "tenant_type",
+            "is_platform_admin",
+            "is_company_admin",
+            "is_staff",
+            "is_superuser",
+            "created_at",
+            "updated_at",
+        ]
 
     def get_full_name(self, obj) -> str:
         return obj.get_full_name() or obj.email
+
+    def validate_tenant(self, value):
+        request = self.context.get("request")
+        if not request or not getattr(request.user, "is_authenticated", False):
+            return value
+        if is_platform_super_admin(request.user):
+            return value
+        if value != getattr(request.user, "tenant", None):
+            raise serializers.ValidationError("Company admins can only manage users in their own company.")
+        return value
 
 
 class ClientOptionSerializer(serializers.ModelSerializer):
@@ -101,6 +134,9 @@ class ClientCreateSerializer(serializers.ModelSerializer):
         read_only_fields = ["id"]
 
     def create(self, validated_data):
+        request = self.context.get("request")
+        if request and getattr(request.user, "is_authenticated", False) and "tenant" not in validated_data:
+            validated_data["tenant"] = getattr(request.user, "tenant", None)
         return UserService().register_user(role=User.Role.CLIENT, **validated_data)
 
 
@@ -131,6 +167,11 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
         token["email"] = user.email
         token["role"] = user.role
+        token["tenant_id"] = user.tenant_id
+        token["tenant_slug"] = user.tenant.slug if user.tenant_id else ""
+        token["tenant_type"] = user.tenant.tenant_type if user.tenant_id else ""
+        token["is_platform_admin"] = user.is_platform_admin
+        token["is_company_admin"] = user.is_company_admin
         token["is_staff"] = user.is_staff
         token["is_superuser"] = user.is_superuser
         return token

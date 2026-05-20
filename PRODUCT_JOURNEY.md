@@ -209,3 +209,9 @@ The remaining backend beta blockers are infrastructure proofs rather than code d
 OMMS now has a documented, repeatable production role-smoke plan for admin, operations, finance, field staff, and client users. The plan prioritizes non-destructive checks: login, role-appropriate navigation, dashboard customization, Training downloads, import-template download, notification inbox, operational search scoping, and mobile assigned-work/POE screens.
 
 Execution is pending production credentials. The plan explicitly avoids changing maintenance mode, committing imports, or starting background exports until approved test data and worker verification are available.
+
+## SaaS Tenant Foundation
+
+OMMS has taken the first safe step from single-company beta platform toward multi-tenant SaaS. The platform now understands platform-owner tenants and client-company tenants, with existing beta users preserved inside a default VistaAi OMMS tenant.
+
+This milestone keeps the product stable while establishing the SaaS spine: platform super admins are separate from company admins, company user directories are tenant-scoped, and auth payloads now carry tenant identity. The larger operational-data tenant migration is documented separately because inventory, campaign, invoice, and POE identifiers currently have global uniqueness rules that need an audited migration rather than a risky rewrite.

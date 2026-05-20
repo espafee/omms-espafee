@@ -1022,3 +1022,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Export testing should wait until Render Celery worker verification is complete.
 - Local validation for this pass completed successfully: backend check/migrate/tests, frontend lint/build/Playwright, and mobile install/lint/Expo Doctor/TypeScript.
 - Mobile beta builds must set `EXPO_PUBLIC_API_BASE_URL=https://omms-backend.onrender.com/api/v1`; otherwise the app falls back to local development API.
+
+## SaaS Tenant Foundation Phase 1A
+
+- OMMS now has a safe tenant identity foundation through `apps.tenants.Tenant`.
+- Seeded tenants are `omms-platform` for platform super admins and `vistaai-omms-beta` for the current controlled-beta client company.
+- Existing users are backfilled safely: superusers move to the platform tenant; non-superusers move to the default beta client tenant.
+- Users now carry tenant metadata in auth/current-user responses, and user/client/field-staff directory APIs are tenant-scoped for company admins.
+- Platform super admin and company admin are now explicitly distinguishable without changing existing workflow roles.
+- Broad business-record tenant migration was intentionally deferred because current operational models use global unique identifiers for sites, units, campaigns, invoices, estimates, and POE upload IDs.
+- New architecture notes: `SAAS_TENANT_ARCHITECTURE.md`, `ROLE_PERMISSION_MATRIX.md`, and `TENANT_MIGRATION_NOTES.md`.

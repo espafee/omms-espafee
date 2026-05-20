@@ -113,3 +113,13 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [ ] Snapshot database before migrations.
 - [ ] Do not roll back database schema blindly after writes; use forward-fix unless rollback has been rehearsed.
 - [ ] Pause Celery beat before emergency rollback if scheduled jobs are causing issues.
+
+## SaaS Tenant Foundation Deployment
+
+- [x] Add tenant identity model and user tenant link locally.
+- [x] Backfill local users into platform/default beta tenants.
+- [ ] Apply production migrations during a controlled deploy window.
+- [ ] Confirm production superusers are assigned to `omms-platform`.
+- [ ] Confirm production non-superusers are assigned to `vistaai-omms-beta`.
+- [ ] Run authenticated user-directory smoke for platform super admin and company admin.
+- [!] Do not alter global business-record uniqueness constraints until tenant data ownership is audited.

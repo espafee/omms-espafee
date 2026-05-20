@@ -8,6 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FIELD_ASSIGNABLE_ROLES, SALES
 from core.viewsets import ServiceModelViewSet
+from apps.tenants.services import scope_users_to_requesting_tenant
 
 from .serializers import (
     ClientCreateSerializer,
@@ -39,7 +40,8 @@ class ClientDirectoryView(generics.ListCreateAPIView):
     write_roles = (ADMIN,)
 
     def get_queryset(self):
-        return User.objects.filter(role=User.Role.CLIENT).order_by("organization_name", "email")
+        queryset = User.objects.filter(role=User.Role.CLIENT)
+        return scope_users_to_requesting_tenant(queryset, self.request.user).order_by("organization_name", "email")
 
     def get_serializer_class(self):
         if self.request.method == "POST":
@@ -53,7 +55,8 @@ class FieldStaffDirectoryView(generics.ListAPIView):
     allowed_roles = (ADMIN, SALES)
 
     def get_queryset(self):
-        return User.objects.filter(role__in=FIELD_ASSIGNABLE_ROLES, is_active=True).order_by("first_name", "email")
+        queryset = User.objects.filter(role__in=FIELD_ASSIGNABLE_ROLES, is_active=True)
+        return scope_users_to_requesting_tenant(queryset, self.request.user).order_by("first_name", "email")
 
 
 class RegisterView(generics.CreateAPIView):

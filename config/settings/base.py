@@ -44,6 +44,7 @@ THIRD_PARTY_APPS = [
 
 LOCAL_APPS = [
     "core",
+    "apps.tenants",
     "apps.users",
     "apps.inventory",
     "apps.bookings",

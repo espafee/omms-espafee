@@ -170,3 +170,9 @@ Breakdown:
 6. Verify role-specific smoke tests with real admin, operations, finance, field staff, and client accounts.
 7. Confirm HSTS/SSL redirect ownership between Django and hosting platform.
 8. Add production monitoring for Operations summary p95 latency and Celery queue depth.
+
+## SaaS Tenant Readiness Note
+
+The tenant identity foundation is now implemented for users and admin/directory scoping. This is intentionally not yet a full multi-tenant business-data migration.
+
+Before broad SaaS onboarding, OMMS must complete a tenant ownership audit for inventory, campaigns, bookings, POEs, invoices, imports/exports, notifications, dashboards, and search. Several operational identifiers are globally unique today, so scoped uniqueness must be migrated deliberately with conflict detection and production rollback planning.
