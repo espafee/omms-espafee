@@ -55,7 +55,7 @@ Use `https://omms.vercel.app` for the first controlled beta unless/until the Vis
 
 ## Milestone 2: VistaAi OMMS Login Launch Path Stabilized
 
-Status: **implemented / pending production deploy verification**
+Status: **deployed / verified**
 
 ### Chosen Launch Path
 
@@ -71,8 +71,8 @@ This is the safer controlled-beta approach because:
 
 No backend CORS/CSRF expansion is required for this fix because VistaAi is not making authenticated OMMS API calls. Users are redirected to the canonical OMMS beta app before login and API traffic.
 
-### Remaining Verification
+### Production Verification
 
-- Deploy the `trustdial-website` change.
-- Confirm `https://www.vistaaitech.com/omms/login` redirects to `https://omms.vercel.app/login`.
-- Confirm the VistaAi launch page does not call `https://omms.vercel.app/api/v1`.
+- Deployed `trustdial-website` production deployment `dpl_G22uXikyQzhhbCcJPkzHRsfDR9an`.
+- Verified `https://www.vistaaitech.com/omms/login` renders the launch message and redirects to `https://omms.vercel.app/login`.
+- Verified the live VistaAi page no longer contains an iframe and does not call `https://omms.vercel.app/api/v1`.

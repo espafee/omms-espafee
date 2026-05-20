@@ -998,4 +998,4 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The VistaAi `/omms/login` route in the separate `trustdial-website` project has been converted from an iframe wrapper into a lightweight launch page that redirects to `https://omms.vercel.app/login`.
 - This keeps all OMMS login/API traffic on the canonical beta app origin, whose frontend bundle uses `https://omms-backend.onrender.com/api/v1`.
 - No OMMS backend CORS/CSRF change is required for this controlled-beta launch path because `www.vistaaitech.com` is not making authenticated OMMS API requests.
-- Production verification should confirm the deployed VistaAi page redirects and no longer attempts `https://omms.vercel.app/api/v1` calls.
+- Production verification confirmed the deployed VistaAi page redirects and no longer attempts `https://omms.vercel.app/api/v1` calls.

@@ -195,3 +195,5 @@ The product direction for this phase is deliberate: stabilize production, observ
 The VistaAi marketing site now hands users into the canonical OMMS beta app instead of trying to embed it as a separate iframe experience. `/omms/login` shows a simple “Opening OMMS secure portal…” launch state and redirects to `https://omms.vercel.app/login`.
 
 This keeps the beta launch clear and reliable: OMMS runs from the Vercel app already wired to the Render backend API, while VistaAi remains the marketing and discovery surface.
+
+Production verification confirmed the live VistaAi page now redirects to `https://omms.vercel.app/login` and no longer embeds OMMS in an iframe.
