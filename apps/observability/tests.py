@@ -130,6 +130,25 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(event.metadata["token"], "[redacted]")
         self.assertEqual(event.metadata["safe"], "value")
 
+    def test_audit_timeline_endpoint_serializes_system_events(self):
+        event = record_audit_event(
+            event_type="system.health",
+            entity_type="system",
+            actor=None,
+            severity=AuditEvent.Severity.WARNING,
+            summary="System health changed.",
+        )
+        self.client.force_authenticate(self.operations)
+
+        response = self.client.get("/api/v1/observability/audit-events/?page_size=10")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        payload = response.data["results"] if isinstance(response.data, dict) else response.data
+        row = next(item for item in payload if item["id"] == event.id)
+        self.assertEqual(row["event_type"], "system.health")
+        self.assertIsNone(row["actor"])
+        self.assertNotIn("password", str(row).lower())
+
     def test_poe_analytics_counts_suspicious_missing_and_overdue(self):
         ProofOfExecution.objects.create(
             booking=self.booking,

@@ -923,3 +923,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Template columns are `site_code`, `site_name`, `site_type`, `address`, `city`, `state`, `latitude`, `longitude`, `unit_code`, `width`, `height`, `monthly_rate`, and `status`.
 - The workbook includes sample rows, an `Instructions` sheet, and dropdown validation for `site_type` and media-unit `status`.
 - The Operations import panel now includes a `Download Excel Template` button beside the inventory file upload. Existing preview/confirmation/import/export flows are unchanged.
+
+## Operations Dashboard UI And Audit Timeline Fix
+
+- The audit timeline refresh failure was caused by observability serializers using `read_only_fields = fields` while `fields = "__all__"`, which DRF rejects when serializing the audit endpoint.
+- `AuditEventSerializer` and `ApiRequestLogSerializer` now use explicit field lists so timeline and request-log responses remain stable and include derived email fields where available.
+- Operations System Status cards now use safer compact card styling with explicit wrapping. Celery and Worker status are split into separate fields to avoid text collisions.
+- POE SLA rules now render as stacked rows: pending review warning/breach and suspicious proof warning/breach, avoiding awkward inline wrapping.
+- Audit timeline refresh warnings are now widget-scoped and muted; live refresh no longer promotes audit-only failures to the full-width dashboard warning.

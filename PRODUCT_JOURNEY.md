@@ -141,3 +141,9 @@ The implementation is conservative: safe reads and login stay available, admin d
 The Operations import/export workbench now gives users the correct inventory onboarding format before they upload data. A `Download Excel Template` action generates `OMMS_Inventory_Import_Template.xlsx` from backend code, including required site columns, optional unit/GPS fields, sample rows, dropdowns, and instructions.
 
 This makes the staged import workflow safer for onboarding teams: they can start with a verified workbook, understand that GPS coordinates are optional, and still rely on preview/confirmation before any inventory records are committed.
+
+## Operations Dashboard Polish And Timeline Reliability
+
+The Operations dashboard received a small but important reliability and polish pass. System Status now separates Celery and Worker readiness into readable cards, POE SLA rules are displayed as clear warning/breach rows, and compact cards wrap safely instead of colliding text.
+
+The audit timeline now loads reliably again after fixing its serializer contract. If a future timeline refresh fails, the dashboard keeps the warning local to that widget instead of alarming the entire Operations page.

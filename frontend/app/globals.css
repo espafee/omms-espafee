@@ -2233,16 +2233,69 @@ textarea::placeholder {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.ops-health-grid > div {
+.ops-health-grid > div,
+.ops-health-card {
   padding: 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface-soft);
+  min-width: 0;
+}
+
+.ops-health-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .ops-health-grid strong {
   color: var(--ink);
   font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.ops-health-card .site-copy {
+  display: block;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.ops-sla-rules-card {
+  gap: 8px;
+}
+
+.ops-sla-rule-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.ops-sla-rule-row span {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.ops-sla-rule-row strong {
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--accent);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.widget-warning {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .ops-mode-controls {
@@ -3145,6 +3198,14 @@ textarea::placeholder {
   .export-job-actions {
     justify-content: space-between;
     white-space: normal;
+  }
+
+  .ops-sla-rule-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ops-sla-rule-row strong {
+    width: fit-content;
   }
 
   .ops-live-strip {

@@ -115,4 +115,98 @@ test.describe("OMMS web smoke", () => {
     await page.goto("/training");
     await expect(page).toHaveURL(/\/login$/);
   });
+
+  test("operations page renders audit timeline without global audit warning", async ({ page }) => {
+    await seedAdminSession(page);
+    const adminUser = { id: 1, email: "admin@example.com", username: "admin", role: "admin" };
+    const systemHealth = {
+      status: "healthy",
+      api_status: "healthy",
+      database: { ok: true, diagnostic_queries_ok: true },
+      redis: { configured: true },
+      celery: { enabled: true, broker_configured: true, eager: false, mode: "enabled", worker_ready: "unknown", beat_configured: true },
+      recent_failed_requests: 0,
+      recent_slow_requests: 0,
+      recent_failed_background_jobs: 0,
+      active_jobs: 0,
+      last_successful_import: null,
+      last_successful_export: null,
+      signals: [],
+      deployment: { environment_name: "test", git_commit: "playwright", app_version: "test" },
+      environment_mode: { mode: "normal", label: "Normal", message: "", is_write_blocking: false, updated_at: null, updated_by_email: null },
+    };
+    const summary = {
+      poe: { total_poes: 0, suspicious_count: 0, outside_geofence_count: 0, missing_gps_count: 0, duplicate_replacement_count: 0, pending_review_count: 0, overdue_review_count: 0, trends_by_date: [], recent_suspicious: [] },
+      poe_sla: {
+        warning_count: 0,
+        breach_count: 0,
+        oldest_pending: null,
+        unassigned_count: 0,
+        reviewer_workload: [],
+        suspicious_unresolved_count: 0,
+        thresholds: { pending_warning_hours: 24, pending_breach_hours: 48, suspicious_warning_hours: 12, suspicious_breach_hours: 24, reviewer_overload_threshold: 10 },
+      },
+      kpis: {
+        active_jobs: 0,
+        failed_jobs: 0,
+        suspicious_poes: 0,
+        pending_poe_reviews: 0,
+        poe_sla_warnings: 0,
+        poe_sla_breaches: 0,
+        notifications_today: 0,
+        failed_requests: 0,
+        active_users_today: 1,
+        campaigns_running: 0,
+        campaigns_ending_soon: 0,
+        campaigns_poe_risk: 0,
+        campaigns_billing_risk: 0,
+        critical_campaigns: 0,
+        invoice_collection_rate: 0,
+        overdue_invoices: 0,
+        overdue_invoice_value: "0.00",
+        export_activity_today: 0,
+      },
+      billing_intelligence: { overdue_invoice_count: 0, overdue_amount: "0.00", collection_efficiency_percentage: 0, overdue_age_buckets: [], payment_trend: [], top_overdue_clients: [] },
+      campaign_performance: { summary: { active_campaigns: 0, ending_soon_count: 0, poe_risk_count: 0, billing_risk_count: 0, critical_count: 0 }, campaigns: [], risk_distribution: [], poe_completion_trend: [], operational_health_trend: [] },
+      charts: { import_export_trend: [], request_trend: [], poe_status_distribution: [], poe_rejection_trend: [], billing_trend: [], operations_activity: [], notification_volume: [], load_distribution: [], poe_reviewer_workload: [], overdue_age_buckets: [], payment_trend: [], campaign_risk_distribution: [], campaign_poe_completion_trend: [], campaign_operational_health_trend: [] },
+      timeline: [],
+      recent_critical_alerts: [],
+      active_jobs: [],
+      system_health: systemHealth,
+      warnings: [],
+    };
+
+    await page.route("**/api/v1/**", async (route) => {
+      const url = new URL(route.request().url());
+      const path = url.pathname.replace("/api/v1/", "");
+      if (path === "users/auth/me/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adminUser) });
+        return;
+      }
+      if (path === "observability/operations-summary/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(summary) });
+        return;
+      }
+      if (path === "observability/audit-events/") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ count: 1, next: null, previous: null, results: [{ id: 1, event_type: "system.health", entity_type: "system", entity_id: "", severity: "info", actor_email: null, summary: "System healthy", created_at: new Date().toISOString() }] }),
+        });
+        return;
+      }
+      if (path === "observability/diagnostics/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ system_health: systemHealth }) });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ count: 0, next: null, previous: null, results: [] }) });
+    });
+
+    await page.goto("/operations");
+
+    await expect(page.getByRole("heading", { name: "Recent audit timeline" })).toBeVisible();
+    await expect(page.getByText("system.health")).toBeVisible();
+    await expect(page.getByText("Audit timeline could not be refreshed.")).toHaveCount(0);
+    await expect(page.getByText("Audit timeline is temporarily unavailable.")).toHaveCount(0);
+  });
 });

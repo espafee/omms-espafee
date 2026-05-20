@@ -174,6 +174,7 @@ export default function OperationsPage() {
   const [retryingJobId, setRetryingJobId] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [loadWarnings, setLoadWarnings] = useState<string[]>([]);
+  const [auditTimelineWarning, setAuditTimelineWarning] = useState("");
   const [message, setMessage] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isLiveRefreshing, setIsLiveRefreshing] = useState(false);
@@ -196,7 +197,9 @@ export default function OperationsPage() {
         setIsLoading(true);
       }
       setError("");
-      setLoadWarnings([]);
+      if (!options.silent) {
+        setLoadWarnings([]);
+      }
       try {
         const profile = await fetchCurrentUser();
         setUser(profile);
@@ -225,8 +228,9 @@ export default function OperationsPage() {
         }
         if (auditResult.status === "fulfilled") {
           setAuditEvents(auditResult.value);
+          setAuditTimelineWarning("");
         } else {
-          warnings.push("Audit timeline could not be refreshed.");
+          setAuditTimelineWarning("Audit timeline is temporarily unavailable.");
         }
         if (exportResult.status === "fulfilled") {
           setExportJobs(exportResult.value);
@@ -251,7 +255,9 @@ export default function OperationsPage() {
         } else {
           warnings.push("Saved views are temporarily unavailable.");
         }
-        setLoadWarnings(warnings);
+        if (!options.silent) {
+          setLoadWarnings(warnings);
+        }
         const now = new Date();
         setLastUpdatedAt(now);
         setLiveTick(now.getTime());
@@ -755,19 +761,27 @@ export default function OperationsPage() {
             <span>Review deadlines</span>
           </div>
           <div className="ops-health-grid">
-            <div><p className="stat-label">Warnings</p><strong>{summary?.poe_sla.warning_count ?? 0}</strong></div>
-            <div><p className="stat-label">Breaches</p><strong>{summary?.poe_sla.breach_count ?? 0}</strong></div>
-            <div><p className="stat-label">Unassigned</p><strong>{summary?.poe_sla.unassigned_count ?? 0}</strong></div>
-            <div><p className="stat-label">Suspicious unresolved</p><strong>{summary?.poe_sla.suspicious_unresolved_count ?? 0}</strong></div>
-            <div>
+            <div className="ops-health-card"><p className="stat-label">Warnings</p><strong>{summary?.poe_sla.warning_count ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Breaches</p><strong>{summary?.poe_sla.breach_count ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Unassigned</p><strong>{summary?.poe_sla.unassigned_count ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Suspicious unresolved</p><strong>{summary?.poe_sla.suspicious_unresolved_count ?? 0}</strong></div>
+            <div className="ops-health-card">
               <p className="stat-label">Oldest pending</p>
               <strong>{summary?.poe_sla.oldest_pending ? formatHours(summary.poe_sla.oldest_pending.age_hours) : "-"}</strong>
               {summary?.poe_sla.oldest_pending ? <span className="site-copy">{summary.poe_sla.oldest_pending.campaign}</span> : null}
             </div>
-            <div>
+            <div className="ops-health-card ops-sla-rules-card">
               <p className="stat-label">SLA rules</p>
-              <strong>{summary?.poe_sla.thresholds.pending_warning_hours ?? 24}h / {summary?.poe_sla.thresholds.pending_breach_hours ?? 48}h</strong>
-              <span className="site-copy">Pending warning / breach</span>
+              <div className="ops-sla-rule-row">
+                <span>Pending review</span>
+                <strong>Warning {summary?.poe_sla.thresholds.pending_warning_hours ?? 24}h</strong>
+                <strong>Breach {summary?.poe_sla.thresholds.pending_breach_hours ?? 48}h</strong>
+              </div>
+              <div className="ops-sla-rule-row">
+                <span>Suspicious proof</span>
+                <strong>Warning {summary?.poe_sla.thresholds.suspicious_warning_hours ?? 12}h</strong>
+                <strong>Breach {summary?.poe_sla.thresholds.suspicious_breach_hours ?? 24}h</strong>
+              </div>
             </div>
           </div>
         </article>
@@ -880,19 +894,20 @@ export default function OperationsPage() {
             </span>
           </div>
           <div className="ops-health-grid">
-            <div><p className="stat-label">API</p><strong>{statusLabel(systemHealth?.api_status)}</strong></div>
-            <div><p className="stat-label">Database</p><strong>{systemHealth?.database?.ok ? "Connected" : "Degraded"}</strong></div>
-            <div><p className="stat-label">Mode</p><strong>{systemHealth?.environment_mode?.label ?? "Normal"}</strong><span className="site-copy">{systemHealth?.environment_mode?.is_write_blocking ? "Writes blocked" : "Writes enabled"}</span></div>
-            <div><p className="stat-label">Redis</p><strong>{systemHealth?.redis?.configured ? "Configured" : "Not configured"}</strong></div>
-            <div><p className="stat-label">Celery</p><strong>{systemHealth?.celery?.mode ?? "..."}</strong><span className="site-copy">{systemHealth?.celery?.worker_ready ?? "unknown"} worker</span></div>
-            <div><p className="stat-label">Failed jobs</p><strong>{systemHealth?.recent_failed_background_jobs ?? 0}</strong></div>
-            <div><p className="stat-label">Failed requests</p><strong>{systemHealth?.recent_failed_requests ?? 0}</strong></div>
-            <div><p className="stat-label">Slow requests</p><strong>{systemHealth?.recent_slow_requests ?? 0}</strong></div>
-            <div><p className="stat-label">API failures</p><strong>{systemHealth?.api_failure_percentage ?? 0}%</strong></div>
-            <div><p className="stat-label">Retries due</p><strong>{systemHealth?.notification_retries_due ?? 0}</strong></div>
-            <div><p className="stat-label">Last import</p><strong>{systemHealth?.last_successful_import ? formatDateTime(systemHealth.last_successful_import) : "-"}</strong></div>
-            <div><p className="stat-label">Last export</p><strong>{systemHealth?.last_successful_export ? formatDateTime(systemHealth.last_successful_export) : "-"}</strong></div>
-            <div><p className="stat-label">Build</p><strong>{deployment?.git_commit || deployment?.app_version || "-"}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">API</p><strong>{statusLabel(systemHealth?.api_status)}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Database</p><strong>{systemHealth?.database?.ok ? "Connected" : "Degraded"}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Mode</p><strong>{systemHealth?.environment_mode?.label ?? "Normal"}</strong><span className="site-copy">{systemHealth?.environment_mode?.is_write_blocking ? "Writes blocked" : "Writes enabled"}</span></div>
+            <div className="ops-health-card"><p className="stat-label">Redis</p><strong>{systemHealth?.redis?.configured ? "Configured" : "Not configured"}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Celery</p><strong>{statusLabel(systemHealth?.celery?.mode)}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Worker</p><strong>{statusLabel(systemHealth?.celery?.worker_ready)}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Failed jobs</p><strong>{systemHealth?.recent_failed_background_jobs ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Failed requests</p><strong>{systemHealth?.recent_failed_requests ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Slow requests</p><strong>{systemHealth?.recent_slow_requests ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">API failures</p><strong>{systemHealth?.api_failure_percentage ?? 0}%</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Retries due</p><strong>{systemHealth?.notification_retries_due ?? 0}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Last import</p><strong>{systemHealth?.last_successful_import ? formatDateTime(systemHealth.last_successful_import) : "-"}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Last export</p><strong>{systemHealth?.last_successful_export ? formatDateTime(systemHealth.last_successful_export) : "-"}</strong></div>
+            <div className="ops-health-card"><p className="stat-label">Build</p><strong>{deployment?.git_commit || deployment?.app_version || "-"}</strong></div>
           </div>
           {healthSignals.length ? (
             <p className="site-copy">Signals: {healthSignals.map(statusLabel).join(", ")}</p>
@@ -1266,11 +1281,12 @@ export default function OperationsPage() {
       </section>
 
       <section className="module-card">
-        <div className="module-head">
-          <h2>Recent audit timeline</h2>
-          <span>{auditEvents.length} events</span>
-        </div>
-        <div className="inventory-table-wrap">
+          <div className="module-head">
+            <h2>Recent audit timeline</h2>
+            <span>{auditEvents.length} events</span>
+          </div>
+          {auditTimelineWarning ? <p className="widget-warning">{auditTimelineWarning}</p> : null}
+          <div className="inventory-table-wrap">
           <table className="inventory-table">
             <thead>
               <tr><th>Event</th><th>Entity</th><th>Severity</th><th>Actor</th><th>Time</th></tr>
@@ -1285,7 +1301,7 @@ export default function OperationsPage() {
                   <td>{formatDateTime(event.created_at)}</td>
                 </tr>
               ))}
-              {!isLoading && auditEvents.length === 0 ? <tr><td colSpan={5}>Audit timeline will populate as operations happen.</td></tr> : null}
+              {!isLoading && auditEvents.length === 0 ? <tr><td colSpan={5}>No recent audit activity.</td></tr> : null}
             </tbody>
           </table>
         </div>

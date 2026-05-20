@@ -9,7 +9,23 @@ class ApiRequestLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ApiRequestLog
-        fields = "__all__"
+        fields = [
+            "id",
+            "created_at",
+            "user",
+            "user_email",
+            "company_name",
+            "method",
+            "path",
+            "status_code",
+            "duration_ms",
+            "is_slow",
+            "category",
+            "ip_address",
+            "user_agent",
+            "query_count",
+            "query_time_ms",
+        ]
         read_only_fields = fields
 
 
@@ -19,7 +35,24 @@ class AuditEventSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditEvent
-        fields = "__all__"
+        fields = [
+            "id",
+            "created_at",
+            "updated_at",
+            "event_type",
+            "entity_type",
+            "entity_id",
+            "actor",
+            "actor_email",
+            "actor_role",
+            "company_name",
+            "severity",
+            "summary",
+            "metadata",
+            "campaign_reference",
+            "client_reference",
+            "invoice_reference",
+        ]
         read_only_fields = fields
 
 
