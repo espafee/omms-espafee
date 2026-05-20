@@ -203,3 +203,9 @@ Production verification confirmed the live VistaAi page now redirects to `https:
 The Render backend is publicly healthy and serving the current operational API surface. Health, OpenAPI schema, and Swagger UI load successfully, while protected Training, import/export, and operational-mode endpoints correctly return `401` to anonymous users instead of leaking data or failing with server errors.
 
 The remaining backend beta blockers are infrastructure proofs rather than code defects: confirm production migrations in Render, verify Redis/Celery worker and beat services, and run one authenticated safe background job from the production dashboard.
+
+## Authenticated Beta Smoke Plan
+
+OMMS now has a documented, repeatable production role-smoke plan for admin, operations, finance, field staff, and client users. The plan prioritizes non-destructive checks: login, role-appropriate navigation, dashboard customization, Training downloads, import-template download, notification inbox, operational search scoping, and mobile assigned-work/POE screens.
+
+Execution is pending production credentials. The plan explicitly avoids changing maintenance mode, committing imports, or starting background exports until approved test data and worker verification are available.

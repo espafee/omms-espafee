@@ -51,7 +51,7 @@ Backend CORS currently allows `https://omms.vercel.app`. It does not currently a
 
 ## Current Beta Recommendation
 
-Use `https://omms.vercel.app` for the first controlled beta unless/until the VistaAi `/omms` routing is corrected.
+Use `https://omms.vercel.app` for the first controlled beta. VistaAi `/omms/login` now redirects into this canonical app.
 
 ## Milestone 2: VistaAi OMMS Login Launch Path Stabilized
 
@@ -133,3 +133,85 @@ Date: 2026-05-21
 5. Confirm a separate beat service exists with `celery -A config beat --loglevel=info`.
 6. Confirm worker logs show successful broker connection and task registration.
 7. Trigger one small authenticated export job and verify it moves from queued/running to completed with a downloadable report.
+
+## Milestone 4: Authenticated Production Role Smoke Plan
+
+Status: **plan ready / execution pending credentials**
+
+Date: 2026-05-21
+
+### Credential Status
+
+No production role credentials were provided in this session. Authenticated browser/API smoke was therefore not executed against production accounts.
+
+### Non-Destructive Role Smoke Plan
+
+Admin / owner:
+
+- Login at `https://omms.vercel.app/login`.
+- Confirm dashboard loads.
+- Confirm dashboard customization save/restore persists after refresh.
+- Confirm Operations dashboard loads without global error banners.
+- Confirm System Status is visible.
+- Confirm maintenance mode is visible but do not change it without explicit approval.
+- Confirm Training Center lists permitted PDFs and one permitted PDF downloads.
+- Confirm Inventory Import Template downloads.
+- Confirm operational search returns scoped results.
+
+Operations:
+
+- Login.
+- Confirm POE review page loads.
+- Confirm POE SLA indicators are visible.
+- Confirm operations/campaign-risk widgets are visible.
+- Confirm import preview is available only if the role permits it.
+- Confirm alerts/escalations are visible.
+- Confirm finance-only details are not exposed unless this role is explicitly finance-enabled.
+
+Finance:
+
+- Login.
+- Confirm billing page loads.
+- Confirm invoices are visible.
+- Confirm collection efficiency and overdue analytics are visible.
+- Confirm finance alerts are visible.
+- Confirm field-only/admin-only controls are not exposed.
+
+Field staff:
+
+- Login.
+- Confirm assigned work is visible.
+- Confirm POE upload flow is visible.
+- Confirm maintenance/read-only message is respected.
+- Confirm finance/admin operations data is not exposed.
+
+Client, if available:
+
+- Login.
+- Confirm only client-safe campaign, approved POE, invoice/statement data is visible.
+- Confirm operations/admin intelligence is not exposed.
+
+### Authenticated Endpoint Smoke Plan
+
+- Training PDF authenticated download.
+- Inventory Import Template authenticated download.
+- Import preview with a clearly marked beta/test Excel file; do not confirm import unless test data is approved.
+- Export job start only from a safe test/admin account after worker verification.
+- Notification inbox loads.
+- Dashboard profile save/restore.
+- Operational search role scoping.
+
+### Mobile Beta Smoke Plan
+
+- Confirm beta build has `EXPO_PUBLIC_API_BASE_URL=https://omms-backend.onrender.com/api/v1`.
+- Login with field staff credentials.
+- Confirm assigned work list.
+- Confirm POE upload screen and GPS/photo readiness states.
+- Confirm maintenance/read-only blocking is shown if active.
+- Login with admin mobile credentials if available and confirm compact admin dashboard.
+
+### Local Validation Completed
+
+- Backend: `manage.py check`, `manage.py migrate --check`, and 278 app tests passed.
+- Frontend: lint, build, and 9 Playwright smoke tests passed.
+- Mobile: install, lint, Expo Doctor, and TypeScript passed.

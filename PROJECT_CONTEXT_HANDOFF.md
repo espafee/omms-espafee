@@ -1012,3 +1012,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
   - Web: `gunicorn config.wsgi:application --bind 0.0.0.0:$PORT`
   - Worker: `celery -A config worker --loglevel=info`
   - Beat: `celery -A config beat --loglevel=info`
+
+## Authenticated Production Role Smoke Plan
+
+- A non-destructive role smoke plan is documented for admin/owner, operations, finance, field staff, and client users.
+- No production role credentials were available in this session, so authenticated browser/API smoke remains pending.
+- Production maintenance mode must not be changed during smoke unless explicitly approved.
+- Import testing should stop at preview unless a clearly marked beta/test file is approved for confirmation.
+- Export testing should wait until Render Celery worker verification is complete.
+- Local validation for this pass completed successfully: backend check/migrate/tests, frontend lint/build/Playwright, and mobile install/lint/Expo Doctor/TypeScript.
+- Mobile beta builds must set `EXPO_PUBLIC_API_BASE_URL=https://omms-backend.onrender.com/api/v1`; otherwise the app falls back to local development API.

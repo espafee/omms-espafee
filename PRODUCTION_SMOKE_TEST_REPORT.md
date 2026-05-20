@@ -1,6 +1,7 @@
 # OMMS Production Smoke Test Report
 
 Generated: 2026-05-20
+Last updated: 2026-05-21
 
 ## Summary
 
@@ -15,7 +16,7 @@ Result: **Conditional launch readiness.**
 
 `https://omms.vercel.app` is deployed and wired to the Render backend API. The backend public health endpoint is healthy. Local backend/frontend/mobile validation passed.
 
-However, `https://www.vistaaitech.com/omms/login` appears to be built with an API root of `https://omms.vercel.app`, and `https://omms.vercel.app/api/v1/...` returns frontend `404`. If `vistaaitech.com/omms/login` is the intended production entrypoint, this is a launch blocker until that app path is rebuilt/configured to call `https://omms-backend.onrender.com/api/v1` directly or through a real API proxy.
+VistaAi `/omms/login` has since been corrected to a redirect/launch page for `https://omms.vercel.app/login`, so the remaining blockers are backend infrastructure proof and authenticated role smoke.
 
 ## Commands And Results
 
@@ -62,7 +63,7 @@ However, `https://www.vistaaitech.com/omms/login` appears to be built with an AP
 | Vercel OMMS app login route | `https://omms.vercel.app/login` | Passed, `200` |
 | Vercel OMMS app operations route | `https://omms.vercel.app/operations` | Passed, `200` public shell |
 | Vercel frontend alias login route | `https://frontend-seven-alpha-68.vercel.app/login` | Passed, `200`, but built with local API root and should not be used as production |
-| VistaAi OMMS login route | `https://www.vistaaitech.com/omms/login` | Passed shell load, but API root wiring needs correction |
+| VistaAi OMMS login route | `https://www.vistaaitech.com/omms/login` | Passed, redirects to `https://omms.vercel.app/login` and no longer embeds the app iframe |
 
 ## Vercel Deployment Findings
 
@@ -84,10 +85,9 @@ However, `https://www.vistaaitech.com/omms/login` appears to be built with an AP
 
 ### `vistaaitech.com/omms` Path
 
-- Shell routes return `200`.
-- JavaScript inspection found `https://omms.vercel.app` as the API root.
-- `https://omms.vercel.app/api/v1/...` returns frontend `404`, not backend API responses.
-- Backend CORS allows `https://omms.vercel.app`, but does not currently allow `https://www.vistaaitech.com`.
+- `https://www.vistaaitech.com/omms/login` now redirects to `https://omms.vercel.app/login`.
+- The path no longer embeds OMMS in an iframe and no longer attempts `https://omms.vercel.app/api/v1` calls.
+- Backend CORS does not need `https://www.vistaaitech.com` for this redirect-based beta launch path.
 
 ## CORS/CSRF Findings
 
@@ -99,7 +99,7 @@ Verified CORS behavior:
 Implication:
 
 - `https://omms.vercel.app` can call the backend directly.
-- `https://www.vistaaitech.com/omms/login` will not complete browser API calls unless it is rebuilt to use the backend directly and the backend CORS allowlist includes the VistaAi origin, or it calls through a real proxy.
+- `https://www.vistaaitech.com/omms/login` is no longer an API-calling origin for OMMS; it hands users into the canonical app before login.
 
 ## Migration Status
 
@@ -123,32 +123,47 @@ Implication:
 
 Authenticated role-based smoke was not completed because production credentials were not available in this session.
 
-Required role matrix still pending:
+Repeatable role matrix prepared for beta execution:
 
-- Admin: Operations, diagnostics, maintenance mode, imports/exports, training, dashboard customization.
-- Operations: POE, inventory, alerts, jobs, non-finance analytics.
-- Finance: billing, invoices, payment analytics, finance training.
-- Field staff: assigned work and POE upload only.
-- Client: allowed campaign/client views only.
+- Admin: login, dashboard, dashboard customization, Operations, System Status, maintenance-mode visibility without changing mode, Training PDFs, Inventory Import Template, operational search.
+- Operations: login, POE review, POE SLA indicators, operations/campaign risk, import preview if permitted, alerts/escalations, no finance-only leakage.
+- Finance: login, billing, invoices, collection efficiency/overdue analytics, finance alerts, no field-only/admin-only controls.
+- Field staff: login, assigned work, POE upload flow, maintenance/read-only messaging, no finance/admin operations data.
+- Client, if available: login, client-safe campaign/POE/invoice data only, no operations/admin intelligence.
+
+Authenticated endpoint smoke plan:
+
+- Training PDF authenticated download.
+- Inventory Import Template authenticated download.
+- Import preview with clearly marked beta/test Excel; do not confirm import unless approved.
+- Export job start only after Celery worker verification and with safe test data/account.
+- Notification inbox.
+- Dashboard profile save/restore.
+- Operational search role scoping.
+
+Execution status: **pending production credentials**.
+
+## Mobile Beta Smoke
+
+- Mobile API root is controlled by `EXPO_PUBLIC_API_BASE_URL`.
+- For beta builds, set `EXPO_PUBLIC_API_BASE_URL=https://omms-backend.onrender.com/api/v1`.
+- Local mobile validation passed: install, lint, Expo Doctor, and TypeScript.
+- Authenticated mobile login, assigned work, POE upload screen, and admin dashboard smoke remain pending because production mobile credentials/build were not available.
 
 ## Launch Recommendation
-
-Recommended status: **NO-GO for `https://www.vistaaitech.com/omms/login` as the launch URL until API root/CORS are corrected.**
 
 Recommended status: **CONDITIONAL GO for `https://omms.vercel.app` after production migrations, Redis/Celery worker/beat, storage, and authenticated role smoke are verified.**
 
 ## Required Fixes Before Public Launch
 
-1. Decide the official launch URL:
-   - If `https://omms.vercel.app` is official, continue using it and document it.
-   - If `https://www.vistaaitech.com/omms/login` is official, rebuild/configure that deployment to use `https://omms-backend.onrender.com/api/v1` and add `https://www.vistaaitech.com` to backend CORS/CSRF settings.
-2. Apply production migrations and confirm `observability.0012_operationalmode`.
-3. Verify production Redis/Celery worker/beat in Render.
-4. Verify durable media/private document storage.
-5. Complete authenticated role-based smoke with real production accounts.
+1. Apply production migrations and confirm `observability.0012_operationalmode`.
+2. Verify production Redis/Celery worker/beat in Render.
+3. Verify durable media/private document storage.
+4. Complete authenticated role-based smoke with real production accounts.
+5. Run safe authenticated import preview/export job smoke with marked beta data.
 6. Rotate or document rotation of admin/demo credentials.
 7. Plan mobile Expo SDK upgrade for moderate transitive audit findings.
 
 ## Controlled Beta Update
 
-The safest beta entrypoint is currently `https://omms.vercel.app`. The VistaAi `/omms` route should be treated as blocked until routing is corrected in the `trustdial-website` project or by an infrastructure-level path proxy that supports Next.js static assets correctly.
+The safest beta entrypoint is currently `https://omms.vercel.app`. VistaAi `/omms/login` now safely redirects to that canonical app.

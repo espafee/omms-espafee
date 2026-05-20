@@ -84,26 +84,27 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
 ## Security And Role Matrix
 
-- [ ] Admin can access Operations, diagnostics, maintenance mode, training, imports/exports, and dashboard customization. Requires production admin credentials.
-- [ ] Operations can access POE, inventory operations, jobs, alerts, and non-finance operational analytics. Requires production operations credentials.
-- [ ] Finance can access billing, invoices, payments, collection risk, and finance training. Requires production finance credentials.
-- [ ] Field staff can access assigned work and POE upload only. Requires production field credentials.
-- [ ] Client/user can access only allowed campaign, invoice/statement, and training visibility. Requires production client credentials.
+- [!] Admin can access Operations, diagnostics, maintenance mode, training, imports/exports, and dashboard customization. Smoke plan documented; execution requires production admin credentials.
+- [!] Operations can access POE, inventory operations, jobs, alerts, and non-finance operational analytics. Smoke plan documented; execution requires production operations credentials.
+- [!] Finance can access billing, invoices, payments, collection risk, and finance training. Smoke plan documented; execution requires production finance credentials.
+- [!] Field staff can access assigned work and POE upload only. Smoke plan documented; execution requires production field credentials.
+- [!] Client/user can access only allowed campaign, invoice/statement, and training visibility. Smoke plan documented; execution requires production client credentials, if client role is enabled.
 - [x] Hidden dashboard widgets do not trigger unauthorized data fetches in local Playwright/backend validation.
 - [x] Operational search permission behavior is covered locally; production role smoke still requires credentials.
 
 ## Post-Deployment Smoke
 
-- [ ] Login succeeds with admin account. Requires production admin credentials.
-- [ ] Operations summary loads. Requires production admin credentials.
-- [ ] Dashboard customization save/restore works. Requires production admin credentials.
-- [ ] Training guide download works. Endpoint is protected and returns `401` without credentials as expected; authenticated download requires production credentials.
-- [ ] Notification preferences save/read. Requires production credentials.
-- [ ] Maintenance mode can be read and updated by admin. Endpoint is protected and returns `401` without credentials as expected; safe update requires production admin credentials.
-- [ ] Non-admin write is blocked in read-only mode. Requires production non-admin/admin credentials.
-- [ ] Import Excel template downloads. Endpoint is protected and returns `401` without credentials as expected; authenticated download requires production credentials.
-- [ ] Export job completes and file downloads. Requires production admin credentials and Celery worker verification.
-- [ ] Mobile field POE upload works against production API. Requires production field credentials and release/test build configuration.
+- [!] Login succeeds with admin account. Requires production admin credentials.
+- [!] Operations summary loads. Requires production admin credentials.
+- [!] Dashboard customization save/restore works. Requires production admin credentials.
+- [!] Training guide download works. Endpoint is protected and returns `401` without credentials as expected; authenticated download requires production credentials.
+- [!] Notification preferences save/read. Requires production credentials.
+- [!] Maintenance mode can be read by admin. Endpoint is protected and returns `401` without credentials as expected; do not update production mode without explicit approval.
+- [!] Non-admin write is blocked in read-only mode. Requires production non-admin/admin credentials and an approved read-only test window.
+- [!] Import Excel template downloads. Endpoint is protected and returns `401` without credentials as expected; authenticated download requires production credentials.
+- [!] Import preview works with marked beta/test Excel. Do not confirm import unless approved test data is used.
+- [!] Export job completes and file downloads. Requires production admin credentials and Celery worker verification.
+- [!] Mobile field POE upload screen works against production API. Requires production field credentials and release/test build configuration.
 
 ## Rollback Plan
 
