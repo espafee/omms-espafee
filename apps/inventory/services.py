@@ -2,6 +2,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.bookings.models import Booking
+from apps.tenants.services import resolve_write_tenant, require_same_tenant
 from core.services import BaseService
 
 from .repositories import (
@@ -25,6 +26,10 @@ class MediaSiteService(BaseService):
     def create(self, actor=None, **validated_data):
         if actor and not validated_data.get("owner"):
             validated_data["owner"] = actor
+        if actor and "tenant" not in validated_data:
+            validated_data["tenant"] = resolve_write_tenant(actor)
+        elif actor:
+            validated_data["tenant"] = resolve_write_tenant(actor, validated_data.get("tenant"))
         instance = super().create(actor=actor, **validated_data)
         self._apply_manual_location_metadata(
             instance,
@@ -98,15 +103,27 @@ class MediaUnitService(BaseService):
     def get_available_units(self, user=None):
         return self.repository.available_queryset(user=user)
 
+    def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["site"].tenant, message="You can only create units for your own company sites.")
+        return super().create(actor=actor, **validated_data)
+
 
 class RateCardService(BaseService):
     repository_class = RateCardRepository
+
+    def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["unit"].site.tenant, message="You can only create rates for your own company units.")
+        return super().create(actor=actor, **validated_data)
 
 
 class MediaSiteImageService(BaseService):
     repository_class = MediaSiteImageRepository
 
     def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["site"].tenant, message="You can only upload images for your own company sites.")
         if actor and "uploaded_by" not in validated_data:
             validated_data["uploaded_by"] = actor
         if not validated_data.get("is_primary") and not validated_data["site"].images.exists():
@@ -118,6 +135,8 @@ class MediaUnitImageService(BaseService):
     repository_class = MediaUnitImageRepository
 
     def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["media_unit"].site.tenant, message="You can only upload images for your own company units.")
         if actor and "uploaded_by" not in validated_data:
             validated_data["uploaded_by"] = actor
         if not validated_data.get("is_primary") and not validated_data["media_unit"].images.exists():

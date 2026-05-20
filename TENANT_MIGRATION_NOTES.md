@@ -71,3 +71,22 @@ Before adding tenant FKs to operational records, run a production data audit for
 - non-empty POE client upload IDs
 
 If any duplicate exists across intended tenants, resolve ownership before enforcing scoped uniqueness.
+
+## Phase 1C Completed Scope
+
+Implemented:
+
+- `MediaSite.tenant`
+- `Campaign.tenant`
+- reversible backfill migrations for both models
+- tenant-scoped inventory repositories for sites, units, rate cards, site images, and unit images
+- tenant-scoped campaign repositories for campaigns, campaign assets, and campaign access tokens
+- write-time tenant assignment for new sites and campaigns
+- same-tenant validation for campaign client/account manager and inventory unit/site relationships
+
+Not yet changed:
+
+- global unique constraints on `MediaSite.code` and `Campaign.code`
+- bookings, POE, billing, import/export, search, dashboards, notifications, setup, and mobile admin aggregation
+
+Phase 1D should derive bookings, POEs, issues, and mobile assigned-work/admin views from `Campaign.tenant`.

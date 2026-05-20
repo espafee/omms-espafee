@@ -2,6 +2,7 @@ import hashlib
 import secrets
 
 from django.conf import settings
+from django.db import OperationalError, ProgrammingError
 from django.db import models
 from django.utils import timezone
 
@@ -18,6 +19,13 @@ class Campaign(TimeStampedModel):
 
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="campaigns",
+    )
     client = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="client_campaigns",
@@ -38,6 +46,16 @@ class Campaign(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def save(self, *args, **kwargs):
+        if self.tenant_id is None:
+            try:
+                from apps.tenants.services import get_default_client_tenant
+
+                self.tenant = getattr(self.client, "tenant", None) or get_default_client_tenant()
+            except (OperationalError, ProgrammingError):
+                pass
+        super().save(*args, **kwargs)
 
 
 class CampaignAsset(TimeStampedModel):

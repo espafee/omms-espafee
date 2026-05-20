@@ -221,3 +221,9 @@ This milestone keeps the product stable while establishing the SaaS spine: platf
 OMMS now has a detailed tenant ownership audit for the operational platform. The audit maps inventory, campaigns, bookings, POEs, billing, issues, observability, notifications, training, and mobile surfaces into a safe Phase 1C migration sequence.
 
 The key product decision is clear: OMMS should not onboard multiple real companies into shared production data until inventory and campaign ownership are tenant-scoped first. This keeps the SaaS evolution disciplined, protects beta trust, and avoids risky identifier rewrites.
+
+## SaaS Inventory And Campaign Roots
+
+OMMS now has tenant ownership on the first two operational roots: inventory sites and campaigns. This is the first real data-isolation step beyond user tenant identity.
+
+For existing beta users, nothing visually changes. Sites and campaigns are safely assigned to the default beta tenant, while new company-created records attach to that user's company. Platform owners can still inspect across companies, but company users no longer see another tenant's inventory or campaign roots.

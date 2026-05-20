@@ -76,7 +76,7 @@ class CampaignAccessTokenViewSet(ServiceModelViewSet):
     ordering_fields = ["created_at", "expires_at", "last_accessed_at"]
 
     def create(self, request, *args, **kwargs):
-        serializer = CampaignAccessTokenCreateSerializer(data=request.data)
+        serializer = CampaignAccessTokenCreateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
 
         access_token, _raw_token, created = self.get_service().create_token(

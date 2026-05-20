@@ -57,3 +57,13 @@ Phase 1C must combine role permission checks with tenant ownership checks for:
 - alerts, escalations, and notifications
 
 Field staff should continue to see only assigned work. Client users should continue to see only client-safe campaign/POE/billing views, and those views must also remain tenant-derived.
+
+## Phase 1C Enforcement Update
+
+Inventory and campaign root APIs now combine role checks with tenant checks:
+
+- platform super admins can inspect root inventory/campaign data across tenants
+- company admins, operations, sales, finance, field staff, and clients are limited to their tenant for inventory/campaign roots
+- clients still only see campaigns and inventory linked to their own campaign access
+- company users cannot create campaigns with another tenant's client/account manager
+- company users cannot create media units, rate cards, or inventory images against another tenant's site/unit

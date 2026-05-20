@@ -2,6 +2,7 @@ from django.utils import timezone
 from rest_framework import serializers
 
 from core.images import build_public_media_url
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 
 from .models import MediaSite, MediaSiteImage, MediaUnit, MediaUnitImage, RateCard
 
@@ -30,8 +31,22 @@ class MediaSiteImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
         ]
         read_only_fields = ["id", "image_url", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["site"].queryset = self.fields["site"].queryset.filter(tenant=get_user_tenant(user))
+
     def get_image_url(self, obj):
         return self.build_absolute_media_url(obj.image)
+
+    def validate_site(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.tenant, message="You can only upload images for your own company sites.")
+        return value
 
 
 class MediaUnitImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerializer):
@@ -53,8 +68,22 @@ class MediaUnitImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
         ]
         read_only_fields = ["id", "image_url", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["media_unit"].queryset = self.fields["media_unit"].queryset.filter(site__tenant=get_user_tenant(user))
+
     def get_image_url(self, obj):
         return self.build_absolute_media_url(obj.image)
+
+    def validate_media_unit(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.site.tenant, message="You can only upload images for your own company units.")
+        return value
 
 
 class MediaSiteSerializer(serializers.ModelSerializer):
@@ -65,6 +94,7 @@ class MediaSiteSerializer(serializers.ModelSerializer):
         model = MediaSite
         fields = [
             "id",
+            "tenant",
             "name",
             "code",
             "site_type",
@@ -94,6 +124,14 @@ class MediaSiteSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate_tenant(self, value):
+        actor = self._actor()
+        if actor and is_platform_super_admin(actor):
+            return value
+        if actor and value and value != get_user_tenant(actor):
+            raise serializers.ValidationError("Company users can only use their own tenant.")
+        return value
 
     def get_primary_image(self, obj):
         image = obj.primary_image_object
@@ -191,11 +229,25 @@ class MediaUnitSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "primary_image", "image_gallery", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["site"].queryset = self.fields["site"].queryset.filter(tenant=get_user_tenant(user))
+
     def get_primary_image(self, obj):
         image = obj.primary_image_object
         if not image:
             return None
         return MediaUnitImageSerializer(instance=image, context=self.context).data
+
+    def validate_site(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.tenant, message="You can only use sites from your own company.")
+        return value
 
 
 class RateCardSerializer(serializers.ModelSerializer):
@@ -203,3 +255,10 @@ class RateCardSerializer(serializers.ModelSerializer):
         model = RateCard
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["unit"].queryset = self.fields["unit"].queryset.filter(site__tenant=get_user_tenant(user))

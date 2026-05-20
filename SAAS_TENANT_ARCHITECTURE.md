@@ -92,3 +92,23 @@ New audit artifacts:
 Phase 1C should start with inventory and campaigns because they are the cleanest ownership roots for the rest of the platform. Billing, POE, issues, mobile admin, search, dashboards, imports/exports, and observability should then derive tenant filters from those roots.
 
 Until Phase 1C is complete, do not onboard more than one real client tenant into shared production data.
+
+## Phase 1C Inventory And Campaign Roots
+
+Phase 1C adds tenant ownership to the clean operational roots:
+
+- `inventory.MediaSite.tenant`
+- `campaigns.Campaign.tenant`
+
+Existing records are backfilled safely:
+
+- sites without a tenant are assigned to `vistaai-omms-beta`
+- campaigns without a tenant are assigned from `campaign.client.tenant`, falling back to `vistaai-omms-beta`
+
+Inventory and campaign repositories now scope root and direct child querysets by tenant:
+
+- platform super admins can access all tenant roots
+- company users see only their own tenant roots
+- client users keep the stricter client-owned campaign behavior
+
+Global uniqueness remains unchanged for `MediaSite.code` and `Campaign.code`. Scoped uniqueness should be introduced only after duplicate-code audits are complete.

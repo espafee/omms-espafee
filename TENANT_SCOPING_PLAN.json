@@ -1,17 +1,19 @@
 {
-  "phase": "1B",
-  "intent": "audit_only_non_destructive",
-  "next_phase": "1C",
+  "phase": "1C",
+  "intent": "inventory_campaign_root_scoping",
+  "next_phase": "1D",
   "root_models": [
     {
       "model": "inventory.MediaSite",
       "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_backfilled",
       "constraint_changes": ["code unique per tenant"],
       "surfaces": ["inventory API", "import preview", "inventory export", "operational search", "mobile admin search"]
     },
     {
       "model": "campaigns.Campaign",
       "tenant_owner": "tenant or client.tenant",
+      "status": "implemented_nullable_fk_backfilled",
       "constraint_changes": ["code unique per tenant"],
       "surfaces": ["campaign API", "booking API", "POE", "billing", "operations dashboard", "mobile admin"]
     },
@@ -36,7 +38,7 @@
   ],
   "blocked_changes": [
     "Do not change global uniqueness constraints until production data conflicts are audited.",
-    "Do not add broad tenant FKs to all operational records in one migration.",
+    "Do not add broad tenant FKs to remaining operational records in one migration.",
     "Do not replace company_name scoping with tenant scoping without backfilling historical records."
   ]
 }

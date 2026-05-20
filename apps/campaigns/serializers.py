@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from apps.inventory.serializers import AbsoluteMediaUrlMixin
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 
 from .models import Campaign, CampaignAccessToken, CampaignAsset
 from .services import build_campaign_performance_analytics
@@ -29,6 +30,20 @@ class CampaignAssetSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["campaign"].queryset = self.fields["campaign"].queryset.filter(tenant=get_user_tenant(user))
+
+    def validate_campaign(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.tenant, message="You can only add assets to campaigns in your own company.")
+        return value
+
 
 class CampaignSerializer(serializers.ModelSerializer):
     assets = CampaignAssetSerializer(many=True, read_only=True)
@@ -38,6 +53,35 @@ class CampaignSerializer(serializers.ModelSerializer):
         model = Campaign
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            tenant = get_user_tenant(user)
+            self.fields["client"].queryset = self.fields["client"].queryset.filter(tenant=tenant)
+            self.fields["account_manager"].queryset = self.fields["account_manager"].queryset.filter(tenant=tenant)
+
+    def validate_tenant(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and is_platform_super_admin(user):
+            return value
+        if user and value and value != get_user_tenant(user):
+            raise serializers.ValidationError("Company users can only use their own tenant.")
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        tenant = attrs.get("tenant") or getattr(self.instance, "tenant", None) or get_user_tenant(user)
+        for field in ("client", "account_manager"):
+            related_user = attrs.get(field) or getattr(self.instance, field, None)
+            if related_user and tenant and related_user.tenant_id != tenant.id:
+                raise serializers.ValidationError({field: "Campaign users must belong to the campaign tenant."})
+        return attrs
 
     def get_performance(self, obj):
         user = self.context.get("request").user if self.context.get("request") else None
@@ -73,6 +117,20 @@ class CampaignAccessTokenSerializer(serializers.ModelSerializer):
 class CampaignAccessTokenCreateSerializer(serializers.Serializer):
     campaign = serializers.PrimaryKeyRelatedField(queryset=Campaign.objects.all())
     expires_at = serializers.DateTimeField(required=False, allow_null=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["campaign"].queryset = self.fields["campaign"].queryset.filter(tenant=get_user_tenant(user))
+
+    def validate_campaign(self, value):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, value.tenant, message="You can only share campaigns in your own company.")
+        return value
 
 
 class CampaignAccessTokenCreateResponseSerializer(CampaignAccessTokenSerializer):

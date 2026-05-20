@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking
 from apps.billing.models import Invoice, Payment
+from apps.tenants.services import require_same_tenant, resolve_write_tenant
 from apps.poe.models import ProofOfExecution
 from core.services import BaseService
 
@@ -237,6 +238,10 @@ class CampaignService(BaseService):
         return summary
 
     def create(self, actor=None, **validated_data):
+        if actor and "tenant" not in validated_data:
+            validated_data["tenant"] = resolve_write_tenant(actor)
+        elif actor:
+            validated_data["tenant"] = resolve_write_tenant(actor, validated_data.get("tenant"))
         campaign = super().create(actor=actor, **validated_data)
         self._invalidate_dashboard_cache()
         return campaign
@@ -265,6 +270,11 @@ class CampaignService(BaseService):
 
 class CampaignAssetService(BaseService):
     repository_class = CampaignAssetRepository
+
+    def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only add assets to your own company campaigns.")
+        return super().create(actor=actor, **validated_data)
 
 
 class PublicCampaignAccessError(Exception):

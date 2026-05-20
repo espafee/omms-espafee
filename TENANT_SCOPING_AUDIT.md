@@ -1,10 +1,10 @@
 # OMMS Tenant Scoping Audit
 
-Phase 1B is an ownership audit and transition plan only. It does not add tenant foreign keys to operational business records and does not change uniqueness constraints.
+Phase 1B was an ownership audit and transition plan only. Phase 1C has now added tenant ownership to the two clean root models: `MediaSite` and `Campaign`.
 
 ## Summary
 
-Current OMMS beta behavior is single-company by design. Client-facing access is often scoped by `campaign.client == request.user`, but admin, operations, finance, mobile admin, observability, import/export, search, and dashboard surfaces still operate over global business data.
+Current OMMS beta behavior remains single-company by default, but inventory and campaign roots now carry tenant ownership. Client-facing access is still scoped by `campaign.client == request.user`; admin, operations, finance, mobile admin, observability, import/export, search, and dashboard surfaces outside inventory/campaign roots still need Phase 1D filtering.
 
 Phase 1C should introduce tenant ownership in small audited groups, with data backfill and tenant-specific tests before any global uniqueness constraint is replaced.
 
@@ -12,8 +12,8 @@ Phase 1C should introduce tenant ownership in small audited groups, with data ba
 
 | Area | Models | Required Tenant Owner |
 | --- | --- | --- |
-| Inventory | `MediaSite`, `MediaUnit`, `RateCard`, `MediaSiteImage`, `MediaUnitImage` | `MediaSite.tenant`, derived by unit/site for children |
-| Campaigns | `Campaign`, `CampaignAsset`, `CampaignAccessToken` | `Campaign.tenant`, usually backfilled from `client.tenant` |
+| Inventory | `MediaSite`, `MediaUnit`, `RateCard`, `MediaSiteImage`, `MediaUnitImage` | `MediaSite.tenant` implemented; children derive by unit/site |
+| Campaigns | `Campaign`, `CampaignAsset`, `CampaignAccessToken` | `Campaign.tenant` implemented; children derive by campaign |
 | Bookings | `Booking`, `Assignment` | derived from `Booking.campaign.tenant` |
 | POE | `ProofOfExecution`, `ProofOfExecutionMedia`, `ProofOfExecutionVerificationLog` | derived from `booking.campaign.tenant` |
 | Billing | `SupplierProfile`, `InvoiceSequence`, `Invoice`, `InvoiceLine`, `Payment`, `CreditNote`, `InvoiceEvent`, `CampaignEstimate`, `CampaignEstimateLine` | `tenant` for supplier/sequence/estimate; invoice derived from campaign |
@@ -42,15 +42,16 @@ Phase 1C should introduce tenant ownership in small audited groups, with data ba
 
 Inventory:
 
-- repositories currently only restrict clients by campaign booking; admin/ops see all sites/units
-- import preview detects duplicates globally with `MediaSite.code` and `MediaUnit.unit_code`
+- repositories now tenant-scope sites, units, rate cards, and inventory images
+- import preview still detects duplicates globally with `MediaSite.code` and `MediaUnit.unit_code`
 - import confirmation creates/fetches sites and units globally
 - inventory export exports global inventory
 
 Campaigns and bookings:
 
-- repositories restrict clients but not tenant-scoped backoffice users
-- `CampaignSerializer` and `BookingSerializer` primary-key fields need tenant-scoped querysets
+- campaign and campaign-asset repositories now tenant-scope backoffice users
+- campaign serializer now tenant-scopes client/account-manager choices
+- `BookingSerializer` primary-key fields still need tenant-scoped querysets in Phase 1D
 - campaign public tokens remain globally resolvable by token, but responses must remain limited to the token's campaign only
 
 POE:
@@ -90,10 +91,9 @@ Setup and training:
 
 ## Phase 1C Sequencing Recommendation
 
-1. Inventory + campaign tenant backfill first, because most operational records derive from these roots.
-2. Booking + POE + issue scoping second, because they can derive from campaign ownership.
-3. Billing third, after campaign ownership exists and invoice sequence behavior is decided.
-4. Observability/import/export/search/dashboard fourth, adding real tenant FK while preserving historical `company_name` display.
-5. Setup/training/plan gates fifth, when tenant-specific company profile and plan foundation are ready.
+1. Booking + POE + issue scoping next, because they can derive from campaign ownership.
+2. Billing after that, now that campaign ownership exists and invoice sequence behavior can be decided.
+3. Observability/import/export/search/dashboard fourth, adding real tenant FK while preserving historical `company_name` display.
+4. Setup/training/plan gates fifth, when tenant-specific company profile and plan foundation are ready.
 
 Each step should add two-tenant tests proving that admins, operations, finance, mobile admin, exports, search, and dashboards cannot see the other tenant.

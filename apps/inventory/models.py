@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.db import OperationalError, ProgrammingError
 from django.db import models, transaction
 from django.db.models import Q
 
@@ -32,6 +33,13 @@ class MediaSite(TimeStampedModel):
         FIRST_VERIFIED_POE = "first_verified_poe", "First verified POE"
         ADMIN_VERIFIED = "admin_verified", "Admin verified"
 
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        blank=True,
+        null=True,
+        on_delete=models.PROTECT,
+        related_name="media_sites",
+    )
     name = models.CharField(max_length=255)
     code = models.CharField(max_length=50, unique=True)
     site_type = models.CharField(max_length=30, choices=SiteType.choices)
@@ -72,6 +80,16 @@ class MediaSite(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} - {self.name}"
+
+    def save(self, *args, **kwargs):
+        if self.tenant_id is None:
+            try:
+                from apps.tenants.services import get_default_client_tenant
+
+                self.tenant = getattr(self.owner, "tenant", None) or get_default_client_tenant()
+            except (OperationalError, ProgrammingError):
+                pass
+        super().save(*args, **kwargs)
 
 
 class MediaUnit(TimeStampedModel):

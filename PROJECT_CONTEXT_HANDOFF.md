@@ -1040,3 +1040,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Added `TENANT_SCOPING_AUDIT.md` and `TENANT_SCOPING_PLAN.json`.
 - Inventory and campaigns are the recommended Phase 1C roots because most bookings, POEs, billing, issues, mobile, and analytics data can derive tenant ownership from them.
 - Mobile admin, operations dashboard, operational search, import/export, notifications, and billing analytics are explicitly flagged as global today for backoffice roles and must be tenant-filtered before multi-client production onboarding.
+
+## SaaS Tenant Scoping Phase 1C
+
+- `MediaSite` and `Campaign` now have tenant ownership.
+- Existing sites are backfilled to `vistaai-omms-beta`; existing campaigns are backfilled from `client.tenant` with default beta fallback.
+- Inventory and campaign root repositories now tenant-scope backoffice users while preserving platform superadmin cross-tenant access.
+- New sites and campaigns automatically attach to the requesting company tenant; platform superadmins may pass tenant explicitly or fall back to the default beta tenant.
+- Global uniqueness for site/campaign codes remains unchanged. Tenant-scoped uniqueness is intentionally deferred until duplicate-code audits are complete.
+- Phase 1D should scope bookings, POE, issues, and mobile assigned/admin views from `Campaign.tenant`.

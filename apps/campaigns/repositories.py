@@ -4,6 +4,7 @@ from apps.bookings.models import Booking
 from apps.poe.models import ProofOfExecution, ProofOfExecutionMedia
 from core.repositories import BaseRepository
 from core.roles import CLIENT
+from apps.tenants.services import is_platform_super_admin, scope_queryset_to_tenant_path
 
 from .models import Campaign, CampaignAccessToken, CampaignAsset
 
@@ -14,7 +15,8 @@ class CampaignRepository(BaseRepository):
     prefetch_related = ("assets",)
 
     def scope_queryset(self, queryset, user=None):
-        if user and getattr(user, "role", None) == CLIENT:
+        queryset = scope_queryset_to_tenant_path(queryset, user)
+        if user and getattr(user, "role", None) == CLIENT and not is_platform_super_admin(user):
             queryset = queryset.filter(client=user)
         return queryset.order_by("-created_at")
 
@@ -24,14 +26,17 @@ class CampaignAssetRepository(BaseRepository):
     select_related = ("campaign",)
 
     def scope_queryset(self, queryset, user=None):
-        if user and getattr(user, "role", None) == CLIENT:
+        queryset = scope_queryset_to_tenant_path(queryset, user, "campaign__tenant")
+        if user and getattr(user, "role", None) == CLIENT and not is_platform_super_admin(user):
             queryset = queryset.filter(campaign__client=user)
         return queryset.order_by("-created_at")
-
 
 class CampaignAccessTokenRepository(BaseRepository):
     model = CampaignAccessToken
     select_related = ("campaign", "created_by", "revoked_by")
+
+    def scope_queryset(self, queryset, user=None):
+        return scope_queryset_to_tenant_path(queryset, user, "campaign__tenant")
 
     def get_public_campaign_queryset(self):
         return Campaign.objects.select_related("client").prefetch_related(
