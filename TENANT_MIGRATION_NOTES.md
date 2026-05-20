@@ -45,3 +45,29 @@ Proceed app by app:
 6. Only then replace global uniqueness constraints.
 
 If conflicts are found, stop and resolve data ownership before altering constraints.
+
+## Phase 1B Audit Findings
+
+The Phase 1B audit identified the following ownership roots:
+
+- Inventory ownership starts at `MediaSite`; units, rate cards, and images derive from the site.
+- Campaign ownership starts at `Campaign`; assets, bookings, POEs, issues, invoices, and public campaign tokens derive from the campaign.
+- Billing has two ownership roots: tenant-owned supplier/sequence configuration, and campaign-derived invoices/payments/credit notes.
+- Observability records currently store `company_name`; Phase 1C should add a real tenant FK while retaining `company_name` as a display snapshot for historical readability.
+- Mobile admin services currently aggregate global data and must be tenant-filtered before multi-tenant beta accounts are added.
+- Setup profile and organization email settings are global singletons and require a later tenant-specific settings migration.
+
+Detailed surfaces are documented in `TENANT_SCOPING_AUDIT.md`; a compact machine-readable plan is available in `TENANT_SCOPING_PLAN.json`.
+
+## Phase 1C Safety Gate
+
+Before adding tenant FKs to operational records, run a production data audit for duplicate natural identifiers:
+
+- site codes
+- unit codes
+- campaign codes
+- invoice numbers
+- estimate numbers
+- non-empty POE client upload IDs
+
+If any duplicate exists across intended tenants, resolve ownership before enforcing scoped uniqueness.

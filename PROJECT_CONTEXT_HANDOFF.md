@@ -1032,3 +1032,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Platform super admin and company admin are now explicitly distinguishable without changing existing workflow roles.
 - Broad business-record tenant migration was intentionally deferred because current operational models use global unique identifiers for sites, units, campaigns, invoices, estimates, and POE upload IDs.
 - New architecture notes: `SAAS_TENANT_ARCHITECTURE.md`, `ROLE_PERMISSION_MATRIX.md`, and `TENANT_MIGRATION_NOTES.md`.
+
+## SaaS Tenant Ownership Audit Phase 1B
+
+- Phase 1B completed as a non-destructive audit and scoping plan.
+- Added code-level audit constants in `apps.tenants.audit` plus tests that ensure core operational models and global identifier constraints remain visible in the migration plan.
+- Added `TENANT_SCOPING_AUDIT.md` and `TENANT_SCOPING_PLAN.json`.
+- Inventory and campaigns are the recommended Phase 1C roots because most bookings, POEs, billing, issues, mobile, and analytics data can derive tenant ownership from them.
+- Mobile admin, operations dashboard, operational search, import/export, notifications, and billing analytics are explicitly flagged as global today for backoffice roles and must be tenant-filtered before multi-client production onboarding.

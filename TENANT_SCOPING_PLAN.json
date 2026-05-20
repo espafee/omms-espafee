@@ -1,0 +1,42 @@
+{
+  "phase": "1B",
+  "intent": "audit_only_non_destructive",
+  "next_phase": "1C",
+  "root_models": [
+    {
+      "model": "inventory.MediaSite",
+      "tenant_owner": "tenant",
+      "constraint_changes": ["code unique per tenant"],
+      "surfaces": ["inventory API", "import preview", "inventory export", "operational search", "mobile admin search"]
+    },
+    {
+      "model": "campaigns.Campaign",
+      "tenant_owner": "tenant or client.tenant",
+      "constraint_changes": ["code unique per tenant"],
+      "surfaces": ["campaign API", "booking API", "POE", "billing", "operations dashboard", "mobile admin"]
+    },
+    {
+      "model": "billing.Invoice",
+      "tenant_owner": "campaign.tenant",
+      "constraint_changes": ["invoice_number unique per tenant", "invoice sequence scoped by tenant"],
+      "surfaces": ["billing API", "client statement", "exports", "collection analytics"]
+    },
+    {
+      "model": "poe.ProofOfExecution",
+      "tenant_owner": "booking.campaign.tenant",
+      "constraint_changes": ["client_upload_id unique per tenant when non-empty"],
+      "surfaces": ["POE review", "SLA analytics", "heatmap", "mobile upload"]
+    },
+    {
+      "model": "observability.ImportExportJob",
+      "tenant_owner": "tenant",
+      "constraint_changes": [],
+      "surfaces": ["import/export workbench", "retry workflow", "download", "operations dashboard"]
+    }
+  ],
+  "blocked_changes": [
+    "Do not change global uniqueness constraints until production data conflicts are audited.",
+    "Do not add broad tenant FKs to all operational records in one migration.",
+    "Do not replace company_name scoping with tenant scoping without backfilling historical records."
+  ]
+}

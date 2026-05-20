@@ -78,3 +78,17 @@ Phase 1B should add tenant keys to operational data in small groups:
 5. imports/exports, notifications, search, dashboards
 
 Each step should include data backfill, scoped uniqueness design, and tenant-isolation tests before production deployment.
+
+## Phase 1B Audit Plan
+
+Phase 1B keeps the database schema stable and documents tenant ownership before operational data is moved.
+
+New audit artifacts:
+
+- `TENANT_SCOPING_AUDIT.md`: model-by-model ownership, constraints, API surfaces, and sequencing.
+- `TENANT_SCOPING_PLAN.json`: compact machine-readable transition plan.
+- `apps.tenants.audit`: code-level audit constants used by tests to prevent accidental loss of migration scope.
+
+Phase 1C should start with inventory and campaigns because they are the cleanest ownership roots for the rest of the platform. Billing, POE, issues, mobile admin, search, dashboards, imports/exports, and observability should then derive tenant filters from those roots.
+
+Until Phase 1C is complete, do not onboard more than one real client tenant into shared production data.

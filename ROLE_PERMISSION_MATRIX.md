@@ -42,3 +42,18 @@ Phase 2 should add tenant-scoped custom roles and capabilities for:
 - mobile access
 
 Custom roles must never grant platform-level permissions and must keep finance, operations intelligence, exports, dashboards, and mobile APIs tenant-scoped.
+
+## Phase 1B Role Implications
+
+The audit found that role checks alone are not sufficient for SaaS isolation. Backoffice roles currently answer "what can this user do?" but not always "which tenant data can this user touch?"
+
+Phase 1C must combine role permission checks with tenant ownership checks for:
+
+- admin/operations inventory and campaign access
+- finance billing and export access
+- mobile admin operational summaries
+- operations dashboard analytics
+- operational search and saved views
+- alerts, escalations, and notifications
+
+Field staff should continue to see only assigned work. Client users should continue to see only client-safe campaign/POE/billing views, and those views must also remain tenant-derived.

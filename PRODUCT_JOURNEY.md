@@ -215,3 +215,9 @@ Execution is pending production credentials. The plan explicitly avoids changing
 OMMS has taken the first safe step from single-company beta platform toward multi-tenant SaaS. The platform now understands platform-owner tenants and client-company tenants, with existing beta users preserved inside a default VistaAi OMMS tenant.
 
 This milestone keeps the product stable while establishing the SaaS spine: platform super admins are separate from company admins, company user directories are tenant-scoped, and auth payloads now carry tenant identity. The larger operational-data tenant migration is documented separately because inventory, campaign, invoice, and POE identifiers currently have global uniqueness rules that need an audited migration rather than a risky rewrite.
+
+## SaaS Tenant Ownership Audit
+
+OMMS now has a detailed tenant ownership audit for the operational platform. The audit maps inventory, campaigns, bookings, POEs, billing, issues, observability, notifications, training, and mobile surfaces into a safe Phase 1C migration sequence.
+
+The key product decision is clear: OMMS should not onboard multiple real companies into shared production data until inventory and campaign ownership are tenant-scoped first. This keeps the SaaS evolution disciplined, protects beta trust, and avoids risky identifier rewrites.
