@@ -834,6 +834,83 @@ export default function OperationsPage() {
         </details>
       </section>
 
+      <section className="module-card predictive-command-card" aria-label="Predictive operations">
+        <div className="module-head">
+          <div>
+            <h2>Predictive operations</h2>
+            <p className="site-copy">Explainable early warnings and recommended actions. Operators stay in control.</p>
+          </div>
+          <span className={`status-pill status-${summary?.predictive_operations?.summary.highest_risk_level ?? "low"}`}>
+            {summary?.predictive_operations?.summary.highest_risk_level ?? "low"} risk
+          </span>
+        </div>
+        <div className="heatmap-summary-grid">
+          <article className="heatmap-focus-card">
+            <p className="stat-label">What should we do first?</p>
+            <strong>{summary?.predictive_operations?.summary.plain_language ?? "No major predictive risk detected."}</strong>
+            <span className="site-copy">
+              Confidence {summary?.predictive_operations?.summary.confidence ?? 55}% · score {summary?.predictive_operations?.summary.highest_risk_score ?? 0}
+            </span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Campaign risk</p>
+            <strong>{summary?.predictive_operations?.campaign_risks?.[0]?.campaign_name ?? "No campaign risk"}</strong>
+            <span className="site-copy">
+              {summary?.predictive_operations?.campaign_risks?.[0]?.risk_level ?? "low"} · {summary?.predictive_operations?.campaign_risks?.[0]?.risk_score ?? 0}/100
+            </span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Reviewer load</p>
+            <strong>{summary?.predictive_operations?.reviewer_load_predictions?.[0]?.reviewer ?? "No overload predicted"}</strong>
+            <span className="site-copy">
+              {summary?.predictive_operations?.reviewer_load_predictions?.[0]?.projected_pending ?? 0} projected pending
+            </span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Next 3 days</p>
+            <strong>{summary?.predictive_operations?.forecasts.next_3_days?.[0]?.expected_poe_load ?? 0} POEs/day</strong>
+            <span className="site-copy">{summary?.predictive_operations?.forecasts.next_3_days?.[0]?.reviewer_pressure ?? "normal"} reviewer pressure</span>
+          </article>
+        </div>
+        <div className="asset-list compact-feed">
+          {(summary?.predictive_operations?.recommendations ?? []).slice(0, 4).map((recommendation) => (
+            <article className="asset-card" key={recommendation.id}>
+              <div className="asset-head">
+                <div>
+                  <p className="site-code">Recommendation · {recommendation.confidence}% confidence</p>
+                  <h3>{recommendation.title}</h3>
+                </div>
+                <span className={`status-pill status-${recommendation.severity}`}>{recommendation.severity}</span>
+              </div>
+              <p className="site-copy">{recommendation.recommended_action}</p>
+              <p className="site-copy">Why: {recommendation.why.join(" · ")}</p>
+            </article>
+          ))}
+          {summary && (summary.predictive_operations?.recommendations?.length ?? 0) === 0 ? (
+            <p className="empty-state">No predictive recommendations right now.</p>
+          ) : null}
+        </div>
+        <details className="ops-details">
+          <summary>Why these predictions?</summary>
+          <p className="site-copy">{summary?.predictive_operations?.explainability.method}</p>
+          <p className="site-copy">{summary?.predictive_operations?.summary.guardrail}</p>
+          <div className="module-grid heatmap-detail-grid">
+            <article className="module-stat">
+              <p className="stat-label">Likely bottlenecks</p>
+              {(summary?.predictive_operations?.bottlenecks ?? []).slice(0, 4).map((row) => (
+                <p className="site-copy" key={row.area}>
+                  <strong>{row.area}</strong> · {row.why}
+                </p>
+              ))}
+            </article>
+            <article className="module-stat">
+              <p className="stat-label">Dashboard focus</p>
+              <p className="site-copy">{(summary?.predictive_operations?.priority_widgets ?? []).map((item) => item.replaceAll("_", " ")).join(" · ") || "No predictive priority change"}</p>
+            </article>
+          </div>
+        </details>
+      </section>
+
       <section className="module-grid">
         <article className="module-card">
           <div className="module-head">

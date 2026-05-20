@@ -89,6 +89,65 @@ export type OperationsSummary = {
     job_density: Array<{ job_type: string; resource_type: string; status: string; total: number }>;
     filters_applied: Record<string, string | boolean>;
   };
+  predictive_operations: {
+    summary: {
+      highest_risk_level: string;
+      highest_risk_score: number;
+      confidence: number;
+      plain_language: string;
+      guardrail: string;
+    };
+    campaign_risks: Array<{
+      campaign_id: number;
+      campaign_code: string;
+      campaign_name: string;
+      risk_score: number;
+      risk_level: string;
+      confidence: number;
+      contributing_factors: Array<{ label: string; impact: number }>;
+    }>;
+    reviewer_load_predictions: Array<{
+      reviewer: string;
+      current_pending: number;
+      projected_pending: number;
+      overload_threshold: number;
+      severity: string;
+      confidence: number;
+      suggested_signal: string;
+      contributing_factors: string[];
+    }>;
+    suspicious_patterns: Array<{ type: string; label: string; count: number; confidence: number; why: string[] }>;
+    collection_risks: Array<{
+      client: string;
+      risk_score: number;
+      risk_level: string;
+      confidence: number;
+      recommended_escalation: string;
+      contributing_factors: string[];
+    }>;
+    bottlenecks: Array<{ area: string; severity: string; count: number; why: string }>;
+    recommendations: Array<{
+      id: string;
+      title: string;
+      recommended_action: string;
+      severity: string;
+      confidence: number;
+      why: string[];
+      is_automatic: boolean;
+    }>;
+    forecasts: {
+      next_3_days: Array<{
+        label: string;
+        expected_poe_load: number;
+        expected_suspicious: number;
+        reviewer_pressure: string;
+        confidence: number;
+      }>;
+      explanation: string;
+    };
+    priority_widgets: string[];
+    explainability: { method: string; not_used_for: string[] };
+  };
   kpis: {
     active_jobs: number;
     failed_jobs: number;

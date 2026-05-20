@@ -62,6 +62,9 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     operational_hotspot_activity = serializers.IntegerField()
     suspicious_hotspot_label = serializers.CharField()
     suspicious_hotspot_count = serializers.IntegerField()
+    predictive_priority_label = serializers.CharField()
+    predictive_risk_level = serializers.CharField()
+    predictive_confidence = serializers.IntegerField()
 
 
 class MobileEnvironmentModeSerializer(serializers.Serializer):

@@ -14,6 +14,7 @@ from apps.issues.services import sync_issue_sla_status
 from apps.observability.services import (
     build_operational_heatmap_intelligence,
     build_poe_sla_intelligence,
+    build_predictive_operations_intelligence,
     build_system_health_diagnostics,
 )
 from apps.poe.models import ProofOfExecution
@@ -126,6 +127,14 @@ class MobileAdminOperationsService:
         campaigns = build_campaign_performance_analytics()
         system_health = build_system_health_diagnostics()
         heatmap = build_operational_heatmap_intelligence()
+        predictive = build_predictive_operations_intelligence(
+            poe_sla=poe_sla,
+            campaign_performance=campaigns,
+            billing_intelligence=billing,
+            operational_heatmap=heatmap,
+            kpis={},
+            can_view_finance=True,
+        )
         environment_mode = system_health.get("environment_mode", {})
         top_busy_region = heatmap.get("top_busy_region") or {}
         top_suspicious_region = heatmap.get("top_suspicious_region") or {}
@@ -162,6 +171,9 @@ class MobileAdminOperationsService:
             "operational_hotspot_activity": top_busy_region.get("total_uploads", 0),
             "suspicious_hotspot_label": top_suspicious_region.get("region") or "No suspicious area",
             "suspicious_hotspot_count": top_suspicious_region.get("suspicious_count", 0),
+            "predictive_priority_label": predictive["summary"]["plain_language"],
+            "predictive_risk_level": predictive["summary"]["highest_risk_level"],
+            "predictive_confidence": predictive["summary"]["confidence"],
         }
 
     @staticmethod

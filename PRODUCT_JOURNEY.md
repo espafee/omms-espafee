@@ -159,3 +159,9 @@ The guide set now covers the Admin Guide, Operations Guide, Finance Guide, Field
 OMMS now has the first layer of spatial and temporal operational intelligence without turning the dashboard into a technical analytics console. The Operations dashboard surfaces plain-language hotspot signals: busy areas, suspicious activity areas, delayed POE areas, campaign concentration, and reviewer load.
 
 The design stays simple outside and powerful inside. Operators first see what needs attention, while deeper region, campaign, and reviewer details stay behind `View details`. The feature is analytics-only and does not change POE verification, GPS capture, campaign workflows, or field execution behavior.
+
+## Predictive Operations Foundation
+
+OMMS has taken the first safe step from operational intelligence toward predictive operational intelligence. The platform now scores campaign risk, forecasts reviewer pressure, detects rule-assisted suspicious patterns, highlights collection risk, and suggests interventions without executing anything automatically.
+
+Every recommendation remains explainable. Operators can see why a campaign is high risk, why reviewer load may breach, or why a suspicious region needs attention. The UI keeps the simple question first: what should we do next?

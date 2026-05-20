@@ -1542,6 +1542,264 @@ def build_operational_heatmap_intelligence(filters: dict[str, Any] | None = None
     }
 
 
+def _risk_level(score: int) -> str:
+    if score >= 85:
+        return "critical"
+    if score >= 65:
+        return "high"
+    if score >= 35:
+        return "medium"
+    return "low"
+
+
+def _confidence_from_factors(factors: list[dict[str, Any]]) -> int:
+    if not factors:
+        return 55
+    return min(95, 58 + len(factors) * 9)
+
+
+def _recommendation(identifier: str, title: str, action: str, severity: str, factors: list[str]) -> dict[str, Any]:
+    return {
+        "id": identifier,
+        "title": title,
+        "recommended_action": action,
+        "severity": severity,
+        "confidence": _confidence_from_factors([{"label": factor} for factor in factors]),
+        "why": factors,
+        "is_automatic": False,
+    }
+
+
+def build_predictive_operations_intelligence(
+    *,
+    poe_sla: dict[str, Any] | None = None,
+    campaign_performance: dict[str, Any] | None = None,
+    billing_intelligence: dict[str, Any] | None = None,
+    operational_heatmap: dict[str, Any] | None = None,
+    kpis: dict[str, Any] | None = None,
+    can_view_finance: bool = True,
+) -> dict[str, Any]:
+    """Deterministic, explainable prediction layer. No autonomous actions are produced."""
+    poe_sla = poe_sla or {}
+    campaign_performance = campaign_performance or {}
+    billing_intelligence = billing_intelligence or {}
+    operational_heatmap = operational_heatmap or {}
+    kpis = kpis or {}
+    recommendations: list[dict[str, Any]] = []
+
+    campaign_risks = []
+    for campaign in (campaign_performance.get("campaigns") or [])[:8]:
+        factors: list[dict[str, Any]] = []
+        score = 10
+        pending = int(campaign.get("pending_poe_count") or 0)
+        suspicious = int(campaign.get("suspicious_poe_count") or 0)
+        is_ending_soon = bool(campaign.get("is_ending_soon"))
+        overdue_amount = Decimal(str(campaign.get("overdue_amount") or "0"))
+        delay_count = len(campaign.get("operational_delay_indicators") or [])
+        if pending:
+            score += min(30, pending * 6)
+            factors.append({"label": f"{pending} pending POE(s)", "impact": min(30, pending * 6)})
+        if suspicious:
+            score += min(28, suspicious * 10)
+            factors.append({"label": f"{suspicious} suspicious POE(s)", "impact": min(28, suspicious * 10)})
+        if is_ending_soon:
+            score += 18
+            factors.append({"label": "Campaign ending soon", "impact": 18})
+        if can_view_finance and overdue_amount > 0:
+            score += 22
+            factors.append({"label": "Overdue invoice exposure", "impact": 22})
+        if delay_count:
+            score += min(15, delay_count * 5)
+            factors.append({"label": f"{delay_count} operational delay signal(s)", "impact": min(15, delay_count * 5)})
+        score = min(100, score)
+        level = _risk_level(score)
+        row = {
+            "campaign_id": campaign.get("campaign_id"),
+            "campaign_code": campaign.get("campaign_code", ""),
+            "campaign_name": campaign.get("campaign_name", "Unknown campaign"),
+            "risk_score": score,
+            "risk_level": level,
+            "confidence": _confidence_from_factors(factors),
+            "contributing_factors": factors,
+        }
+        campaign_risks.append(row)
+        if level in {"high", "critical"}:
+            recommendations.append(
+                _recommendation(
+                    f"campaign-{campaign.get('campaign_id')}",
+                    f"Prioritize {row['campaign_name']}",
+                    "Review pending POEs, suspicious proofs, and commercial blockers before campaign close.",
+                    "critical" if level == "critical" else "warning",
+                    [factor["label"] for factor in factors],
+                )
+            )
+    campaign_risks = sorted(campaign_risks, key=lambda row: row["risk_score"], reverse=True)
+
+    reviewer_predictions = []
+    overload_threshold = int((poe_sla.get("thresholds") or {}).get("reviewer_overload_threshold") or 10)
+    for reviewer in poe_sla.get("reviewer_workload") or []:
+        pending = int(reviewer.get("pending") or 0)
+        throughput = int(reviewer.get("approved") or 0) + int(reviewer.get("rejected") or 0)
+        rework = int(reviewer.get("rework") or 0)
+        projected_pending = pending + max(0, rework // 2) - max(0, throughput // 6)
+        projected_pending = max(0, projected_pending)
+        factors = []
+        if pending >= overload_threshold:
+            factors.append("Current queue is already at overload threshold")
+        elif projected_pending >= overload_threshold:
+            factors.append("Projected queue may cross overload threshold")
+        if rework:
+            factors.append(f"{rework} suspicious/rework outcome(s) add review pressure")
+        if throughput == 0 and pending:
+            factors.append("No recent completed review outcomes in the current view")
+        severity = "critical" if projected_pending >= overload_threshold else "warning" if projected_pending >= max(1, overload_threshold - 2) else "normal"
+        reviewer_predictions.append(
+            {
+                "reviewer": reviewer.get("reviewer", "Unassigned"),
+                "current_pending": pending,
+                "projected_pending": projected_pending,
+                "overload_threshold": overload_threshold,
+                "severity": severity,
+                "confidence": _confidence_from_factors([{"label": item} for item in factors]),
+                "suggested_signal": "Redistribute reviews" if severity in {"critical", "warning"} else "No redistribution needed",
+                "contributing_factors": factors,
+            }
+        )
+    for row in reviewer_predictions:
+        if row["severity"] in {"critical", "warning"}:
+            recommendations.append(
+                _recommendation(
+                    f"reviewer-{row['reviewer']}",
+                    f"Balance reviewer load for {row['reviewer']}",
+                    row["suggested_signal"],
+                    row["severity"],
+                    row["contributing_factors"] or [f"{row['current_pending']} pending review(s)"],
+                )
+            )
+
+    suspicious_patterns = []
+    top_suspicious = operational_heatmap.get("top_suspicious_region")
+    if top_suspicious:
+        suspicious_patterns.append(
+            {
+                "type": "Suspicious activity area",
+                "label": top_suspicious.get("region", "Unknown region"),
+                "count": top_suspicious.get("suspicious_count", 0),
+                "confidence": 76,
+                "why": [
+                    f"{top_suspicious.get('suspicious_count', 0)} suspicious proof(s)",
+                    f"{top_suspicious.get('total_uploads', 0)} recent upload(s)",
+                ],
+            }
+        )
+    for site in (operational_heatmap.get("site_activity") or [])[:5]:
+        if int(site.get("suspicious_count") or 0) >= 2:
+            suspicious_patterns.append(
+                {
+                    "type": "Repeated suspicious site activity",
+                    "label": site.get("site_name", "Unknown site"),
+                    "count": site.get("suspicious_count", 0),
+                    "confidence": 80,
+                    "why": [f"{site.get('suspicious_count')} suspicious proof(s) at this site"],
+                }
+            )
+
+    collection_risks = []
+    if can_view_finance:
+        for client in billing_intelligence.get("top_overdue_clients") or []:
+            amount = Decimal(str(client.get("amount") or "0"))
+            oldest = int(client.get("oldest_days_overdue") or 0)
+            score = min(100, 25 + min(35, oldest) + min(30, int(amount // Decimal("50000")) * 8) + int(client.get("count") or 0) * 5)
+            level = _risk_level(score)
+            factors = [f"{client.get('count', 0)} overdue invoice(s)", f"Oldest overdue is {oldest} day(s)"]
+            if amount > 0:
+                factors.append(f"Overdue value {amount}")
+            collection_risks.append(
+                {
+                    "client": client.get("client", "Unknown client"),
+                    "risk_score": score,
+                    "risk_level": level,
+                    "confidence": _confidence_from_factors([{"label": item} for item in factors]),
+                    "recommended_escalation": "Owner follow-up" if level in {"high", "critical"} else "Finance follow-up",
+                    "contributing_factors": factors,
+                }
+            )
+    if collection_risks:
+        top_collection = collection_risks[0]
+        recommendations.append(
+            _recommendation(
+                f"collection-{top_collection['client']}",
+                f"Follow up {top_collection['client']}",
+                top_collection["recommended_escalation"],
+                "critical" if top_collection["risk_level"] == "critical" else "warning",
+                top_collection["contributing_factors"],
+            )
+        )
+
+    bottlenecks = []
+    if int(poe_sla.get("breach_count") or 0):
+        bottlenecks.append({"area": "Delayed POE reviews", "severity": "critical", "count": poe_sla.get("breach_count"), "why": "POE SLA breaches are active"})
+    if int((operational_heatmap.get("summary") or {}).get("delayed_regions") or 0):
+        bottlenecks.append({"area": "Delayed areas", "severity": "warning", "count": operational_heatmap["summary"]["delayed_regions"], "why": "One or more regions have delayed POE reviews"})
+    if int(kpis.get("failed_jobs") or 0):
+        bottlenecks.append({"area": "Background jobs", "severity": "warning", "count": kpis.get("failed_jobs"), "why": "Failed import/export jobs need operator review"})
+
+    upload_trend = operational_heatmap.get("upload_trend") or []
+    average_uploads = round(sum(int(row.get("uploads") or 0) for row in upload_trend[-7:]) / max(1, len(upload_trend[-7:])))
+    average_suspicious = round(sum(int(row.get("suspicious") or 0) for row in upload_trend[-7:]) / max(1, len(upload_trend[-7:])))
+    forecasts = {
+        "next_3_days": [
+            {
+                "label": f"Day {index}",
+                "expected_poe_load": average_uploads,
+                "expected_suspicious": average_suspicious,
+                "reviewer_pressure": "high" if any(row["severity"] in {"critical", "warning"} for row in reviewer_predictions) else "normal",
+                "confidence": 65 if upload_trend else 45,
+            }
+            for index in range(1, 4)
+        ],
+        "explanation": "Forecast uses recent average upload and suspicious activity counts; it is directional, not an autonomous decision.",
+    }
+
+    if top_suspicious:
+        recommendations.append(
+            _recommendation(
+                "suspicious-region",
+                f"Investigate {top_suspicious.get('region', 'suspicious region')}",
+                "Review suspicious proofs and field context for this area.",
+                "warning",
+                [f"{top_suspicious.get('suspicious_count', 0)} suspicious proof(s)", "Regional hotspot detected"],
+            )
+        )
+
+    urgency = max(
+        [row["risk_score"] for row in campaign_risks[:1]] + [85 if any(row["severity"] == "critical" for row in reviewer_predictions) else 0] + [70 if bottlenecks else 0]
+    )
+    priority_widgets = ["poe_sla", "campaign_performance", "alerts", "operational_health"]
+    if can_view_finance and collection_risks and collection_risks[0]["risk_score"] >= 65:
+        priority_widgets = ["billing_risk", "collection_efficiency", *priority_widgets]
+
+    return {
+        "summary": {
+            "highest_risk_level": _risk_level(urgency),
+            "highest_risk_score": urgency,
+            "confidence": 78 if recommendations else 55,
+            "plain_language": recommendations[0]["title"] if recommendations else "No major predictive risk detected.",
+            "guardrail": "Recommendations only. No automatic approvals, campaign changes, or financial modifications.",
+        },
+        "campaign_risks": campaign_risks[:8],
+        "reviewer_load_predictions": reviewer_predictions[:8],
+        "suspicious_patterns": suspicious_patterns[:8],
+        "collection_risks": collection_risks[:5],
+        "bottlenecks": bottlenecks[:6],
+        "recommendations": recommendations[:8],
+        "forecasts": forecasts,
+        "priority_widgets": priority_widgets[:6],
+        "explainability": {
+            "method": "Deterministic rule-assisted scoring from current OMMS operational aggregates.",
+            "not_used_for": ["automatic POE approval", "financial modification", "campaign closure", "destructive actions"],
+        },
+    }
 def build_empty_operations_summary(*, error: str = "") -> dict[str, Any]:
     system_health = {
         "status": "degraded" if error else "unknown",
@@ -1665,6 +1923,27 @@ def build_empty_operations_summary(*, error: str = "") -> dict[str, Any]:
             "alert_density": [],
             "job_density": [],
             "filters_applied": {},
+        },
+        "predictive_operations": {
+            "summary": {
+                "highest_risk_level": "low",
+                "highest_risk_score": 0,
+                "confidence": 55,
+                "plain_language": "No major predictive risk detected.",
+                "guardrail": "Recommendations only. No automatic approvals, campaign changes, or financial modifications.",
+            },
+            "campaign_risks": [],
+            "reviewer_load_predictions": [],
+            "suspicious_patterns": [],
+            "collection_risks": [],
+            "bottlenecks": [],
+            "recommendations": [],
+            "forecasts": {"next_3_days": [], "explanation": ""},
+            "priority_widgets": [],
+            "explainability": {
+                "method": "Deterministic rule-assisted scoring from current OMMS operational aggregates.",
+                "not_used_for": ["automatic POE approval", "financial modification", "campaign closure", "destructive actions"],
+            },
         },
         "slow_requests_count": 0,
         "audit_by_severity": [],
@@ -1847,9 +2126,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     ]
     timeline = sorted([*audit_timeline, *job_timeline, *poe_timeline], key=lambda item: item["created_at"], reverse=True)[:20]
 
-    return {
-        "poe": poe_payload,
-        "kpis": {
+    kpis = {
             "active_jobs": job_queryset.filter(status__in=active_job_statuses).count(),
             "failed_jobs": job_queryset.filter(status=ImportExportJob.Status.FAILED).count(),
             "suspicious_poes": poe_payload["suspicious_count"],
@@ -1868,7 +2145,19 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "overdue_invoices": billing_intelligence["overdue_invoice_count"],
             "overdue_invoice_value": billing_intelligence["overdue_amount"],
             "export_activity_today": export_activity_today,
-        },
+        }
+    predictive_operations = build_predictive_operations_intelligence(
+        poe_sla=poe_sla,
+        campaign_performance=campaign_performance,
+        billing_intelligence=billing_intelligence,
+        operational_heatmap=operational_heatmap,
+        kpis=kpis,
+        can_view_finance=can_view_finance,
+    )
+
+    return {
+        "poe": poe_payload,
+        "kpis": kpis,
         "slow_requests_count": request_queryset.filter(is_slow=True).count(),
         "audit_by_severity": list(audit_queryset.values("severity").annotate(total=Count("id")).order_by("severity")),
         "notification_failures_count": notification_queryset.filter(status=EmailNotificationLog.Status.FAILED).count(),
@@ -1903,6 +2192,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
         },
         "poe_sla": poe_sla,
         "operational_heatmap": operational_heatmap,
+        "predictive_operations": predictive_operations,
         "campaign_performance": campaign_performance,
         "billing_intelligence": billing_intelligence,
         "timeline": timeline,

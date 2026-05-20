@@ -2295,6 +2295,11 @@ textarea::placeholder {
   gap: 16px;
 }
 
+.predictive-command-card {
+  gap: 16px;
+  border-color: #b8d9ca;
+}
+
 .heatmap-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

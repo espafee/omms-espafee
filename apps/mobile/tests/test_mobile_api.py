@@ -285,6 +285,9 @@ class MobileApiTests(TestCase):
                 "operational_hotspot_activity",
                 "suspicious_hotspot_label",
                 "suspicious_hotspot_count",
+                "predictive_priority_label",
+                "predictive_risk_level",
+                "predictive_confidence",
             },
         )
         self.assertEqual(response.data["overdue_invoices"], 1)

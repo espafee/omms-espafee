@@ -26,6 +26,7 @@ from apps.observability.services import (
     build_operational_search,
     build_poe_sla_intelligence,
     build_poe_analytics,
+    build_predictive_operations_intelligence,
     build_system_health_diagnostics,
     confirm_inventory_sites_import,
     evaluate_alert_thresholds,
@@ -284,6 +285,64 @@ class ObservabilityFoundationTests(TestCase):
         response = self.client.get(reverse("observability-operations-summary"))
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_predictive_operations_scores_campaign_risk_explainably(self):
+        predictive = build_predictive_operations_intelligence(
+            poe_sla={
+                "reviewer_workload": [
+                    {"reviewer": self.operations.email, "pending": 9, "approved": 1, "rejected": 0, "rework": 3}
+                ],
+                "thresholds": {"reviewer_overload_threshold": 10},
+                "breach_count": 1,
+            },
+            campaign_performance={
+                "campaigns": [
+                    {
+                        "campaign_id": self.campaign.id,
+                        "campaign_code": self.campaign.code,
+                        "campaign_name": self.campaign.name,
+                        "pending_poe_count": 4,
+                        "suspicious_poe_count": 2,
+                        "is_ending_soon": True,
+                        "overdue_amount": "5000.00",
+                        "operational_delay_indicators": ["ending_soon", "missing_poe", "suspicious_poe", "overdue_billing"],
+                    }
+                ]
+            },
+            billing_intelligence={
+                "top_overdue_clients": [
+                    {"client": "Client Risk", "count": 2, "amount": Decimal("10000.00"), "oldest_days_overdue": 16}
+                ]
+            },
+            operational_heatmap={
+                "top_suspicious_region": {"region": "Delhi, Delhi", "suspicious_count": 3, "total_uploads": 8},
+                "site_activity": [],
+                "summary": {"delayed_regions": 1},
+                "upload_trend": [{"uploads": 7, "suspicious": 2}],
+            },
+            kpis={"failed_jobs": 1},
+        )
+
+        self.assertIn(predictive["summary"]["highest_risk_level"], {"high", "critical"})
+        self.assertGreaterEqual(predictive["campaign_risks"][0]["confidence"], 80)
+        self.assertTrue(predictive["campaign_risks"][0]["contributing_factors"])
+        self.assertTrue(predictive["recommendations"])
+        self.assertFalse(predictive["recommendations"][0]["is_automatic"])
+
+    def test_operations_summary_includes_predictive_payload(self):
+        self.client.force_authenticate(self.admin)
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("predictive_operations", response.data)
+        self.assertIn("guardrail", response.data["predictive_operations"]["summary"])
+        self.assertIn("recommendations", response.data["predictive_operations"])
 
     def test_collection_efficiency_groups_overdue_age_buckets(self):
         invoice = Invoice.objects.create(

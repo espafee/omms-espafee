@@ -949,3 +949,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Heatmap filters support date range, campaign, reviewer, city/state, severity, activity type, and suspicious-only views while preserving the existing Operations filter/save-view pattern.
 - No POE verification, GPS capture, reviewer, campaign, billing, import/export, or alert workflow behavior was changed.
 - Mobile sync: mobile admin receives only compact hotspot KPI fields (`Busy area`, `Suspicious area`). Field staff mobile receives no operational intelligence exposure.
+
+## Predictive Operations Foundation
+
+- Operations summary now includes `predictive_operations`, a deterministic recommendation-only intelligence payload. It does not use autonomous AI actions or black-box scoring.
+- Campaign predictive risk scoring combines pending POEs, suspicious POEs, overdue invoice exposure, campaign ending-soon pressure, and operational delay indicators into low/medium/high/critical risk with confidence and contributing factors.
+- Reviewer load prediction projects overload from current pending queue, review outcomes, suspicious/rework pressure, and configured overload threshold.
+- Rule-assisted suspicious pattern detection uses regional/site suspicious activity from the heatmap payload. Collection risk uses overdue client exposure when the user can view finance data.
+- The Operations dashboard now has a `Predictive operations` command section with plain-language recommended action, campaign risk, reviewer load, short forecast, and explainability details behind `Why these predictions?`.
+- Guardrails are explicit in the payload/UI: no automatic POE approval, financial modification, campaign closure, or destructive action.
+- Mobile sync: mobile admin receives only a compact `Predictive focus` KPI. Field staff mobile remains excluded from predictive operational intelligence.
