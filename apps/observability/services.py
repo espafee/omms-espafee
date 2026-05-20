@@ -21,6 +21,7 @@ from openpyxl.worksheet.datavalidation import DataValidation
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
 from apps.campaigns.services import build_campaign_performance_analytics
+from apps.bookings.models import Booking
 from apps.billing.models import Invoice, Payment
 from apps.billing.services import build_collection_efficiency_analytics
 from apps.issues.models import Issue
@@ -1328,6 +1329,219 @@ def _company_filter(queryset, filters: dict[str, Any]):
     return queryset
 
 
+def _site_region_label(city: str | None, state: str | None) -> str:
+    city = (city or "").strip()
+    state = (state or "").strip()
+    if city and state:
+        return f"{city}, {state}"
+    return city or state or "Unknown region"
+
+
+def build_operational_heatmap_intelligence(filters: dict[str, Any] | None = None, *, now=None) -> dict[str, Any]:
+    """Build capped region/site activity aggregates without exposing raw coordinates."""
+    filters = filters or {}
+    now = now or timezone.now()
+    default_since = now - timedelta(days=30)
+
+    poe_queryset = ProofOfExecution.objects.select_related(
+        "checked_by",
+        "booking__campaign",
+        "booking__media_unit__site",
+    ).all()
+    booking_queryset = Booking.objects.select_related("campaign", "media_unit__site").exclude(status=Booking.Status.CANCELLED)
+    job_queryset = _company_filter(ImportExportJob.objects.all(), filters)
+    alert_queryset = AlertEvent.objects.select_related("rule").all()
+
+    if filters.get("date_from"):
+        poe_queryset = poe_queryset.filter(captured_at__date__gte=filters["date_from"])
+        booking_queryset = booking_queryset.filter(created_at__date__gte=filters["date_from"])
+        job_queryset = job_queryset.filter(created_at__date__gte=filters["date_from"])
+        alert_queryset = alert_queryset.filter(created_at__date__gte=filters["date_from"])
+    else:
+        poe_queryset = poe_queryset.filter(captured_at__gte=default_since)
+        booking_queryset = booking_queryset.filter(created_at__gte=default_since)
+        job_queryset = job_queryset.filter(created_at__gte=default_since)
+        alert_queryset = alert_queryset.filter(created_at__gte=default_since)
+    if filters.get("date_to"):
+        poe_queryset = poe_queryset.filter(captured_at__date__lte=filters["date_to"])
+        booking_queryset = booking_queryset.filter(created_at__date__lte=filters["date_to"])
+        job_queryset = job_queryset.filter(created_at__date__lte=filters["date_to"])
+        alert_queryset = alert_queryset.filter(created_at__date__lte=filters["date_to"])
+    if filters.get("campaign"):
+        poe_queryset = poe_queryset.filter(
+            Q(booking__campaign__name__icontains=filters["campaign"]) | Q(booking__campaign__code__icontains=filters["campaign"])
+        )
+        booking_queryset = booking_queryset.filter(
+            Q(campaign__name__icontains=filters["campaign"]) | Q(campaign__code__icontains=filters["campaign"])
+        )
+    if filters.get("reviewer"):
+        poe_queryset = poe_queryset.filter(checked_by__email__icontains=filters["reviewer"])
+    if filters.get("city"):
+        poe_queryset = poe_queryset.filter(booking__media_unit__site__city__icontains=filters["city"])
+        booking_queryset = booking_queryset.filter(media_unit__site__city__icontains=filters["city"])
+    if filters.get("state"):
+        poe_queryset = poe_queryset.filter(booking__media_unit__site__state__icontains=filters["state"])
+        booking_queryset = booking_queryset.filter(media_unit__site__state__icontains=filters["state"])
+    if str(filters.get("suspicious_only", "")).lower() in {"1", "true", "yes"}:
+        poe_queryset = poe_queryset.filter(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)
+    if filters.get("severity"):
+        alert_queryset = alert_queryset.filter(severity=filters["severity"])
+    activity_type = (filters.get("activity_type") or "").strip().lower()
+    if activity_type in {"suspicious", "suspicious_poe", "suspicious_activity"}:
+        poe_queryset = poe_queryset.filter(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)
+    elif activity_type in {"delayed", "delayed_poe", "poe_delay"}:
+        poe_queryset = poe_queryset.filter(review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE)
+    elif activity_type in {"campaign", "campaigns", "campaign_density"}:
+        job_queryset = job_queryset.none()
+        alert_queryset = alert_queryset.none()
+    elif activity_type in {"jobs", "imports", "exports"}:
+        poe_queryset = poe_queryset.none()
+        booking_queryset = booking_queryset.none()
+        alert_queryset = alert_queryset.none()
+    elif activity_type == "alerts":
+        poe_queryset = poe_queryset.none()
+        booking_queryset = booking_queryset.none()
+        job_queryset = job_queryset.none()
+
+    region_rows = list(
+        poe_queryset.values("booking__media_unit__site__city", "booking__media_unit__site__state")
+        .annotate(
+            total_uploads=Count("id"),
+            suspicious_count=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)),
+            delayed_count=Count("id", filter=Q(review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE)),
+            pending_count=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.PENDING)),
+        )
+        .order_by("-total_uploads", "-suspicious_count")[:8]
+    )
+    region_activity = [
+        {
+            "region": _site_region_label(row["booking__media_unit__site__city"], row["booking__media_unit__site__state"]),
+            "city": row["booking__media_unit__site__city"] or "",
+            "state": row["booking__media_unit__site__state"] or "",
+            "total_uploads": row["total_uploads"],
+            "suspicious_count": row["suspicious_count"],
+            "delayed_count": row["delayed_count"],
+            "pending_count": row["pending_count"],
+            "intensity": min(100, row["total_uploads"] * 12 + row["suspicious_count"] * 18 + row["delayed_count"] * 18),
+        }
+        for row in region_rows
+    ]
+
+    site_rows = list(
+        poe_queryset.values(
+            "booking__media_unit__site__id",
+            "booking__media_unit__site__name",
+            "booking__media_unit__site__code",
+            "booking__media_unit__site__city",
+            "booking__media_unit__site__state",
+        )
+        .annotate(
+            total_uploads=Count("id"),
+            suspicious_count=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)),
+            delayed_count=Count("id", filter=Q(review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE)),
+        )
+        .order_by("-suspicious_count", "-delayed_count", "-total_uploads")[:10]
+    )
+    site_activity = [
+        {
+            "site_id": row["booking__media_unit__site__id"],
+            "site_name": row["booking__media_unit__site__name"] or "Unknown site",
+            "site_code": row["booking__media_unit__site__code"] or "",
+            "region": _site_region_label(row["booking__media_unit__site__city"], row["booking__media_unit__site__state"]),
+            "total_uploads": row["total_uploads"],
+            "suspicious_count": row["suspicious_count"],
+            "delayed_count": row["delayed_count"],
+        }
+        for row in site_rows
+    ]
+
+    campaign_density = list(
+        booking_queryset.values("media_unit__site__city", "media_unit__site__state")
+        .annotate(campaigns=Count("campaign", distinct=True), booked_sites=Count("media_unit__site", distinct=True))
+        .order_by("-campaigns", "-booked_sites")[:8]
+    )
+    campaign_regions = [
+        {
+            "region": _site_region_label(row["media_unit__site__city"], row["media_unit__site__state"]),
+            "campaigns": row["campaigns"],
+            "booked_sites": row["booked_sites"],
+        }
+        for row in campaign_density
+    ]
+
+    reviewer_rows = list(
+        poe_queryset.values("checked_by__email")
+        .annotate(
+            reviewed=Count("id", filter=Q(reviewed_at__isnull=False)),
+            pending=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.PENDING)),
+            suspicious=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)),
+        )
+        .order_by("-pending", "-reviewed")[:8]
+    )
+    reviewer_load = [
+        {
+            "reviewer": row["checked_by__email"] or "Unassigned",
+            "reviewed": row["reviewed"],
+            "pending": row["pending"],
+            "suspicious": row["suspicious"],
+        }
+        for row in reviewer_rows
+    ]
+
+    upload_trend = list(
+        poe_queryset.annotate(day=TruncDate("captured_at"))
+        .values("day")
+        .annotate(
+            uploads=Count("id"),
+            suspicious=Count("id", filter=Q(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS)),
+            delayed=Count("id", filter=Q(review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE)),
+        )
+        .order_by("day")[:31]
+    )
+    operational_activity = {
+        "poe_uploads": poe_queryset.count(),
+        "suspicious_poes": poe_queryset.filter(verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS).count(),
+        "delayed_reviews": poe_queryset.filter(review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE).count(),
+        "campaign_bookings": booking_queryset.count(),
+        "alerts": alert_queryset.count(),
+        "jobs": job_queryset.count(),
+    }
+    top_busy = region_activity[0] if region_activity else None
+    top_suspicious = max(region_activity, key=lambda row: row["suspicious_count"], default=None)
+    top_delayed = max(region_activity, key=lambda row: row["delayed_count"], default=None)
+    hotspot_flag = bool(top_suspicious and top_suspicious["suspicious_count"] >= 3)
+
+    return {
+        "summary": {
+            "total_activity": sum(operational_activity.values()),
+            "busy_regions": len(region_activity),
+            "suspicious_regions": sum(1 for row in region_activity if row["suspicious_count"] > 0),
+            "delayed_regions": sum(1 for row in region_activity if row["delayed_count"] > 0),
+            "hotspot_flag": hotspot_flag,
+            "plain_language": "Review suspicious activity areas first." if hotspot_flag else "No major activity hotspot detected.",
+        },
+        "top_busy_region": top_busy,
+        "top_suspicious_region": top_suspicious if top_suspicious and top_suspicious["suspicious_count"] else None,
+        "top_delayed_region": top_delayed if top_delayed and top_delayed["delayed_count"] else None,
+        "region_activity": region_activity,
+        "site_activity": site_activity,
+        "campaign_regions": campaign_regions,
+        "reviewer_load": reviewer_load,
+        "upload_trend": upload_trend,
+        "operational_activity": operational_activity,
+        "alert_density": list(alert_queryset.values("metric", "severity").annotate(total=Count("id")).order_by("-total")[:8]),
+        "job_density": list(job_queryset.values("job_type", "resource_type", "status").annotate(total=Count("id")).order_by("-total")[:8]),
+        "filters_applied": {
+            "date_from": filters.get("date_from") or default_since.date().isoformat(),
+            "date_to": filters.get("date_to") or "",
+            "activity_type": filters.get("activity_type") or "all",
+            "suspicious_only": str(filters.get("suspicious_only", "")).lower() in {"1", "true", "yes"},
+            "city": filters.get("city") or "",
+            "state": filters.get("state") or "",
+        },
+    }
+
+
 def build_empty_operations_summary(*, error: str = "") -> dict[str, Any]:
     system_health = {
         "status": "degraded" if error else "unknown",
@@ -1423,6 +1637,35 @@ def build_empty_operations_summary(*, error: str = "") -> dict[str, Any]:
             "suspicious_unresolved_count": 0,
             "thresholds": get_poe_sla_thresholds(),
         },
+        "operational_heatmap": {
+            "summary": {
+                "total_activity": 0,
+                "busy_regions": 0,
+                "suspicious_regions": 0,
+                "delayed_regions": 0,
+                "hotspot_flag": False,
+                "plain_language": "No operational activity available.",
+            },
+            "top_busy_region": None,
+            "top_suspicious_region": None,
+            "top_delayed_region": None,
+            "region_activity": [],
+            "site_activity": [],
+            "campaign_regions": [],
+            "reviewer_load": [],
+            "upload_trend": [],
+            "operational_activity": {
+                "poe_uploads": 0,
+                "suspicious_poes": 0,
+                "delayed_reviews": 0,
+                "campaign_bookings": 0,
+                "alerts": 0,
+                "jobs": 0,
+            },
+            "alert_density": [],
+            "job_density": [],
+            "filters_applied": {},
+        },
         "slow_requests_count": 0,
         "audit_by_severity": [],
         "notification_failures_count": 0,
@@ -1459,6 +1702,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     )
     poe_payload = build_poe_analytics(filters)
     poe_sla = build_poe_sla_intelligence(filters)
+    operational_heatmap = build_operational_heatmap_intelligence(filters)
     campaign_performance = build_campaign_performance_analytics(user=user)
     request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
     audit_queryset = _company_filter(AuditEvent.objects.all(), filters)
@@ -1658,6 +1902,7 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
             "campaign_operational_health_trend": campaign_performance["operational_health_trend"],
         },
         "poe_sla": poe_sla,
+        "operational_heatmap": operational_heatmap,
         "campaign_performance": campaign_performance,
         "billing_intelligence": billing_intelligence,
         "timeline": timeline,

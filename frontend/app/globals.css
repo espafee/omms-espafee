@@ -2291,6 +2291,85 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+.operational-heatmap-card {
+  gap: 16px;
+}
+
+.heatmap-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.heatmap-focus-card,
+.heatmap-region-row {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.heatmap-focus-card {
+  display: grid;
+  gap: 5px;
+  align-content: start;
+}
+
+.heatmap-focus-card strong {
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.heatmap-region-list {
+  display: grid;
+  gap: 8px;
+}
+
+.heatmap-region-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 26%);
+  gap: 12px;
+  align-items: center;
+}
+
+.heatmap-region-row strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.heatmap-intensity {
+  height: 9px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbece4;
+}
+
+.heatmap-intensity span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8bd3ad, var(--accent));
+}
+
+.ops-details {
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.ops-details summary {
+  cursor: pointer;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.heatmap-detail-grid {
+  margin-top: 10px;
+}
+
 .widget-warning {
   margin: 0 0 10px;
   color: var(--muted);
@@ -3123,6 +3202,7 @@ textarea::placeholder {
   .export-control-panel,
   .ops-active-job-grid,
   .ops-health-grid,
+  .heatmap-summary-grid,
   .notification-preference-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3185,6 +3265,8 @@ textarea::placeholder {
     .export-job-row,
     .ops-active-job-grid,
     .ops-health-grid,
+    .heatmap-summary-grid,
+    .heatmap-region-row,
     .ops-timeline-row,
   .notification-preference-grid,
   .notification-preference-card,

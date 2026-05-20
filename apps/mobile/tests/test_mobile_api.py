@@ -281,6 +281,10 @@ class MobileApiTests(TestCase):
                 "environment_mode_label",
                 "environment_mode_message",
                 "environment_write_blocking",
+                "operational_hotspot_label",
+                "operational_hotspot_activity",
+                "suspicious_hotspot_label",
+                "suspicious_hotspot_count",
             },
         )
         self.assertEqual(response.data["overdue_invoices"], 1)

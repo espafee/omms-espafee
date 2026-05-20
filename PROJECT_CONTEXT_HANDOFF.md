@@ -940,3 +940,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `scripts/regenerate_training_pdfs.py` now regenerates all Training Center PDFs from version-controlled code with ReportLab, embedding current screenshots, terminology, workflows, role guidance, and operational checklists.
 - Existing PDF filenames remain in place for current routes, and new guides were added for POE Review, Dashboard & Alerts, and Mobile App Quick Start.
 - Training Center metadata now includes the modern guide set while preserving role visibility: master manual for all users; finance, operations, field, admin, POE, dashboard/alerts, mobile, and inventory guides by role.
+
+## Operational Activity Heatmap Foundation
+
+- Operations summary now includes an analytics-only `operational_heatmap` payload built from capped aggregation queries, not raw POE records or raw coordinates.
+- Heatmap aggregation groups POE upload density, suspicious POE density, delayed POE review concentration, campaign booking concentration, reviewer load, alert density, and job density by plain regions/sites where data exists.
+- The web Operations dashboard renders a simple first-view section labeled `Operational heatmap`, leading with `What needs attention?`, `Busy area`, `Suspicious activity area`, and `Delayed POE area` before hiding deeper campaign/reviewer details behind `View details`.
+- Heatmap filters support date range, campaign, reviewer, city/state, severity, activity type, and suspicious-only views while preserving the existing Operations filter/save-view pattern.
+- No POE verification, GPS capture, reviewer, campaign, billing, import/export, or alert workflow behavior was changed.
+- Mobile sync: mobile admin receives only compact hotspot KPI fields (`Busy area`, `Suspicious area`). Field staff mobile receives no operational intelligence exposure.

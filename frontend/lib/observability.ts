@@ -52,6 +52,43 @@ export type OperationsSummary = {
       reviewer_overload_threshold: number;
     };
   };
+  operational_heatmap: {
+    summary: {
+      total_activity: number;
+      busy_regions: number;
+      suspicious_regions: number;
+      delayed_regions: number;
+      hotspot_flag: boolean;
+      plain_language: string;
+    };
+    top_busy_region: HeatmapRegion | null;
+    top_suspicious_region: HeatmapRegion | null;
+    top_delayed_region: HeatmapRegion | null;
+    region_activity: HeatmapRegion[];
+    site_activity: Array<{
+      site_id: number | null;
+      site_name: string;
+      site_code: string;
+      region: string;
+      total_uploads: number;
+      suspicious_count: number;
+      delayed_count: number;
+    }>;
+    campaign_regions: Array<{ region: string; campaigns: number; booked_sites: number }>;
+    reviewer_load: Array<{ reviewer: string; reviewed: number; pending: number; suspicious: number }>;
+    upload_trend: Array<{ day: string; uploads: number; suspicious: number; delayed: number }>;
+    operational_activity: {
+      poe_uploads: number;
+      suspicious_poes: number;
+      delayed_reviews: number;
+      campaign_bookings: number;
+      alerts: number;
+      jobs: number;
+    };
+    alert_density: Array<{ metric: string; severity: string; total: number }>;
+    job_density: Array<{ job_type: string; resource_type: string; status: string; total: number }>;
+    filters_applied: Record<string, string | boolean>;
+  };
   kpis: {
     active_jobs: number;
     failed_jobs: number;
@@ -208,6 +245,17 @@ export type OperationsSummary = {
     notification_retries_due: number;
   };
   warnings?: string[];
+};
+
+export type HeatmapRegion = {
+  region: string;
+  city: string;
+  state: string;
+  total_uploads: number;
+  suspicious_count: number;
+  delayed_count: number;
+  pending_count: number;
+  intensity: number;
 };
 
 export type DiagnosticsPayload = {

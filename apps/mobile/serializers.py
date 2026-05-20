@@ -58,6 +58,10 @@ class MobileAdminOverviewSerializer(serializers.Serializer):
     environment_write_blocking = serializers.BooleanField()
     failed_jobs = serializers.IntegerField()
     active_alerts = serializers.IntegerField()
+    operational_hotspot_label = serializers.CharField()
+    operational_hotspot_activity = serializers.IntegerField()
+    suspicious_hotspot_label = serializers.CharField()
+    suspicious_hotspot_count = serializers.IntegerField()
 
 
 class MobileEnvironmentModeSerializer(serializers.Serializer):

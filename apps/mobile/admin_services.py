@@ -11,7 +11,11 @@ from apps.campaigns.models import Campaign
 from apps.campaigns.services import build_campaign_performance_analytics
 from apps.issues.models import Issue
 from apps.issues.services import sync_issue_sla_status
-from apps.observability.services import build_poe_sla_intelligence, build_system_health_diagnostics
+from apps.observability.services import (
+    build_operational_heatmap_intelligence,
+    build_poe_sla_intelligence,
+    build_system_health_diagnostics,
+)
 from apps.poe.models import ProofOfExecution
 from core.images import build_public_media_url
 
@@ -121,7 +125,10 @@ class MobileAdminOperationsService:
         billing = build_collection_efficiency_analytics()
         campaigns = build_campaign_performance_analytics()
         system_health = build_system_health_diagnostics()
+        heatmap = build_operational_heatmap_intelligence()
         environment_mode = system_health.get("environment_mode", {})
+        top_busy_region = heatmap.get("top_busy_region") or {}
+        top_suspicious_region = heatmap.get("top_suspicious_region") or {}
         active_alerts = len([alert for alert in MobileAdminOperationsService.get_alerts() if alert["severity"] in {"warning", "danger"}])
         return {
             "active_campaigns": _active_campaign_queryset(today).count(),
@@ -151,6 +158,10 @@ class MobileAdminOperationsService:
             "environment_write_blocking": bool(environment_mode.get("is_write_blocking", False)),
             "failed_jobs": system_health["recent_failed_background_jobs"],
             "active_alerts": active_alerts,
+            "operational_hotspot_label": top_busy_region.get("region") or "No busy area",
+            "operational_hotspot_activity": top_busy_region.get("total_uploads", 0),
+            "suspicious_hotspot_label": top_suspicious_region.get("region") or "No suspicious area",
+            "suspicious_hotspot_count": top_suspicious_region.get("suspicious_count", 0),
         }
 
     @staticmethod

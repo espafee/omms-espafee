@@ -48,14 +48,19 @@ const INITIAL_FILTERS = {
   campaign: "",
   site: "",
   field_agent: "",
+  reviewer: "",
   client: "",
   company: "",
   module: "",
+  activity_type: "",
   role: "",
   notification_type: "",
   status: "",
   severity: "",
   event_type: "",
+  city: "",
+  state: "",
+  suspicious_only: "",
 };
 
 type OperationsFilters = typeof INITIAL_FILTERS;
@@ -599,7 +604,7 @@ export default function OperationsPage() {
           <button className="ghost" type="button" onClick={() => void load(filters)}>Apply filters</button>
         </div>
         <div className="site-form-grid">
-          {(["date_from", "date_to", "company", "module", "role", "campaign", "site", "client", "field_agent", "status", "severity", "event_type", "notification_type"] as const).map((field) => (
+          {(["date_from", "date_to", "company", "module", "role", "campaign", "site", "client", "field_agent", "reviewer", "city", "state", "status", "severity", "event_type", "notification_type", "activity_type", "suspicious_only"] as const).map((field) => (
             <div className="field" key={field}>
               <label htmlFor={`ops-${field}`}>{field.replaceAll("_", " ")}</label>
               <input
@@ -607,7 +612,7 @@ export default function OperationsPage() {
                 type={field.startsWith("date") ? "date" : "text"}
                 value={filters[field]}
                 onChange={(event) => updateFilter(field, event.target.value)}
-                placeholder={field === "status" ? "pending / suspicious / verified" : ""}
+                placeholder={field === "status" ? "pending / suspicious / verified" : field === "suspicious_only" ? "true / false" : ""}
               />
             </div>
           ))}
@@ -752,6 +757,81 @@ export default function OperationsPage() {
           </div>
           <CompactBars rows={summary?.charts.poe_reviewer_workload ?? []} labelKey="reviewer" valueKey="pending" />
         </article>
+      </section>
+
+      <section className="module-card operational-heatmap-card" aria-label="Operational heatmap">
+        <div className="module-head">
+          <div>
+            <h2>Operational heatmap</h2>
+            <p className="site-copy">Simple view of busy areas, suspicious activity, delayed POE, and campaign concentration.</p>
+          </div>
+          <span className={`status-pill status-${summary?.operational_heatmap?.summary.hotspot_flag ? "warning" : "completed"}`}>
+            {summary?.operational_heatmap?.summary.hotspot_flag ? "hot region" : "calm"}
+          </span>
+        </div>
+        <div className="heatmap-summary-grid">
+          <article className="heatmap-focus-card">
+            <p className="stat-label">What needs attention?</p>
+            <strong>{summary?.operational_heatmap?.summary.plain_language ?? "No heatmap data yet."}</strong>
+            <span className="site-copy">
+              {summary?.operational_heatmap?.summary.total_activity ?? 0} signals across {summary?.operational_heatmap?.summary.busy_regions ?? 0} region(s)
+            </span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Busy area</p>
+            <strong>{summary?.operational_heatmap?.top_busy_region?.region ?? "No busy area"}</strong>
+            <span className="site-copy">{summary?.operational_heatmap?.top_busy_region?.total_uploads ?? 0} POE upload(s)</span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Suspicious activity area</p>
+            <strong>{summary?.operational_heatmap?.top_suspicious_region?.region ?? "No suspicious area"}</strong>
+            <span className="site-copy">{summary?.operational_heatmap?.top_suspicious_region?.suspicious_count ?? 0} suspicious proof(s)</span>
+          </article>
+          <article className="heatmap-focus-card">
+            <p className="stat-label">Delayed POE area</p>
+            <strong>{summary?.operational_heatmap?.top_delayed_region?.region ?? "No delayed area"}</strong>
+            <span className="site-copy">{summary?.operational_heatmap?.top_delayed_region?.delayed_count ?? 0} delayed review(s)</span>
+          </article>
+        </div>
+        <div className="heatmap-region-list">
+          {(summary?.operational_heatmap?.region_activity ?? []).slice(0, 5).map((region) => (
+            <article className="heatmap-region-row" key={`${region.region}-${region.total_uploads}`}>
+              <div>
+                <strong>{region.region}</strong>
+                <p className="site-copy">
+                  {region.total_uploads} uploads · {region.suspicious_count} suspicious · {region.delayed_count} delayed
+                </p>
+              </div>
+              <div className="heatmap-intensity" aria-label={`${region.region} intensity ${region.intensity}%`}>
+                <span style={{ width: `${Math.max(6, region.intensity)}%` }} />
+              </div>
+            </article>
+          ))}
+          {summary && (summary.operational_heatmap?.region_activity?.length ?? 0) === 0 ? (
+            <p className="empty-state">No regional activity for this filter yet.</p>
+          ) : null}
+        </div>
+        <details className="ops-details">
+          <summary>View details</summary>
+          <div className="module-grid heatmap-detail-grid">
+            <article className="module-stat">
+              <p className="stat-label">Campaign concentration</p>
+              {(summary?.operational_heatmap?.campaign_regions ?? []).slice(0, 4).map((row) => (
+                <p className="site-copy" key={row.region}>
+                  <strong>{row.region}</strong> · {row.campaigns} campaign(s), {row.booked_sites} booked site(s)
+                </p>
+              ))}
+            </article>
+            <article className="module-stat">
+              <p className="stat-label">Reviewer load</p>
+              {(summary?.operational_heatmap?.reviewer_load ?? []).slice(0, 4).map((row) => (
+                <p className="site-copy" key={row.reviewer}>
+                  <strong>{row.reviewer}</strong> · {row.pending} pending, {row.suspicious} suspicious
+                </p>
+              ))}
+            </article>
+          </div>
+        </details>
       </section>
 
       <section className="module-grid">

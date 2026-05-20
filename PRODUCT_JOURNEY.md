@@ -153,3 +153,9 @@ The audit timeline now loads reliably again after fixing its serializer contract
 OMMS training materials have been refreshed to match the current product instead of the older static workflow manuals. The Training Center now serves regenerated enterprise PDFs with current web SaaS screenshots, mobile app visuals, operational terminology, role dashboards, alerts, imports/exports, POE review, billing intelligence, diagnostics, maintenance mode, and mobile field workflows.
 
 The guide set now covers the Admin Guide, Operations Guide, Finance Guide, Field Staff Guide, Inventory Import Guide, POE Review Guide, Dashboard & Alerts Guide, Mobile App Quick Start Guide, and the Master Training Manual. The secure backend download architecture remains unchanged, so users still only see the guides appropriate for their role.
+
+## Operational Activity Heatmap Foundation
+
+OMMS now has the first layer of spatial and temporal operational intelligence without turning the dashboard into a technical analytics console. The Operations dashboard surfaces plain-language hotspot signals: busy areas, suspicious activity areas, delayed POE areas, campaign concentration, and reviewer load.
+
+The design stays simple outside and powerful inside. Operators first see what needs attention, while deeper region, campaign, and reviewer details stay behind `View details`. The feature is analytics-only and does not change POE verification, GPS capture, campaign workflows, or field execution behavior.

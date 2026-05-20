@@ -22,6 +22,7 @@ from apps.observability.models import AlertEvent, AlertRule, ApiRequestLog, Audi
 from apps.observability.services import (
     build_campaign_performance_analytics,
     build_dashboard_profile,
+    build_operational_heatmap_intelligence,
     build_operational_search,
     build_poe_sla_intelligence,
     build_poe_analytics,
@@ -234,6 +235,55 @@ class ObservabilityFoundationTests(TestCase):
         reviewer = next(row for row in payload["reviewer_workload"] if row["reviewer"] == self.operations.email)
         self.assertEqual(reviewer["pending"], 1)
         self.assertEqual(reviewer["approved"], 1)
+
+    def test_operational_heatmap_aggregates_activity_by_region_and_reviewer(self):
+        now = timezone.now()
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            checked_by=self.operations,
+            executed_on=date.today(),
+            captured_at=now,
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+            review_sla_status=ProofOfExecution.ReviewSlaStatus.OVERDUE,
+        )
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            checked_by=self.operations,
+            executed_on=date.today(),
+            captured_at=now - timedelta(hours=1),
+            verification_status=ProofOfExecution.VerificationStatus.PENDING,
+        )
+
+        payload = build_operational_heatmap_intelligence()
+
+        self.assertEqual(payload["top_busy_region"]["region"], "Delhi, Delhi")
+        self.assertEqual(payload["top_busy_region"]["total_uploads"], 2)
+        self.assertEqual(payload["top_suspicious_region"]["suspicious_count"], 1)
+        self.assertEqual(payload["top_delayed_region"]["delayed_count"], 1)
+        self.assertEqual(payload["reviewer_load"][0]["reviewer"], self.operations.email)
+        self.assertEqual(payload["operational_activity"]["poe_uploads"], 2)
+
+    def test_operations_summary_includes_heatmap_payload(self):
+        self.client.force_authenticate(self.admin)
+        ProofOfExecution.objects.create(
+            booking=self.booking,
+            executed_on=date.today(),
+            verification_status=ProofOfExecution.VerificationStatus.SUSPICIOUS,
+        )
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("operational_heatmap", response.data)
+        self.assertIn("region_activity", response.data["operational_heatmap"])
+        self.assertEqual(response.data["operational_heatmap"]["top_suspicious_region"]["region"], "Delhi, Delhi")
+
+    def test_operations_heatmap_summary_is_backoffice_only(self):
+        self.client.force_authenticate(self.client_user)
+
+        response = self.client.get(reverse("observability-operations-summary"))
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_collection_efficiency_groups_overdue_age_buckets(self):
         invoice = Invoice.objects.create(
