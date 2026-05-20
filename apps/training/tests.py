@@ -37,9 +37,12 @@ class TrainingDocumentAccessTests(APITestCase):
         self.client.force_authenticate(self.admin)
 
         response = self.client.get(reverse("training-document-download", kwargs={"slug": "admin-super-admin"}))
+        dashboard_response = self.client.get(reverse("training-document-download", kwargs={"slug": "dashboard-alerts"}))
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response["Content-Type"], "application/pdf")
+        self.assertEqual(dashboard_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(dashboard_response["Content-Type"], "application/pdf")
 
     def test_finance_user_sees_finance_guide_but_not_admin_guide(self):
         self.client.force_authenticate(self.finance)
@@ -49,7 +52,9 @@ class TrainingDocumentAccessTests(APITestCase):
 
         self.assertIn("master-manual", slugs)
         self.assertIn("finance-team", slugs)
+        self.assertIn("dashboard-alerts", slugs)
         self.assertNotIn("admin-super-admin", slugs)
+        self.assertNotIn("poe-review", slugs)
 
         forbidden_response = self.client.get(
             reverse("training-document-download", kwargs={"slug": "admin-super-admin"})

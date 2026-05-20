@@ -931,3 +931,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Operations System Status cards now use safer compact card styling with explicit wrapping. Celery and Worker status are split into separate fields to avoid text collisions.
 - POE SLA rules now render as stacked rows: pending review warning/breach and suspicious proof warning/breach, avoiding awkward inline wrapping.
 - Audit timeline refresh warnings are now widget-scoped and muted; live refresh no longer promotes audit-only failures to the full-width dashboard warning.
+
+## Training PDF Modernization
+
+- The protected Training Center architecture remains backend-served through `apps/training`: authenticated users list role-visible guides and download PDFs through the existing secure document endpoint.
+- Fresh web screenshots are captured from the current SaaS UI using `scripts/capture_training_screenshots.mjs`, including dashboard, Operations, campaigns, billing, POE review, and Training Center views.
+- Mobile training screenshots are generated as controlled OMMS mobile mockups that match the current white + forest green field/admin design language: login, POE upload, and admin operations summary.
+- `scripts/regenerate_training_pdfs.py` now regenerates all Training Center PDFs from version-controlled code with ReportLab, embedding current screenshots, terminology, workflows, role guidance, and operational checklists.
+- Existing PDF filenames remain in place for current routes, and new guides were added for POE Review, Dashboard & Alerts, and Mobile App Quick Start.
+- Training Center metadata now includes the modern guide set while preserving role visibility: master manual for all users; finance, operations, field, admin, POE, dashboard/alerts, mobile, and inventory guides by role.

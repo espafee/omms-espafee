@@ -147,3 +147,9 @@ This makes the staged import workflow safer for onboarding teams: they can start
 The Operations dashboard received a small but important reliability and polish pass. System Status now separates Celery and Worker readiness into readable cards, POE SLA rules are displayed as clear warning/breach rows, and compact cards wrap safely instead of colliding text.
 
 The audit timeline now loads reliably again after fixing its serializer contract. If a future timeline refresh fails, the dashboard keeps the warning local to that widget instead of alarming the entire Operations page.
+
+## Training Center Modernization
+
+OMMS training materials have been refreshed to match the current product instead of the older static workflow manuals. The Training Center now serves regenerated enterprise PDFs with current web SaaS screenshots, mobile app visuals, operational terminology, role dashboards, alerts, imports/exports, POE review, billing intelligence, diagnostics, maintenance mode, and mobile field workflows.
+
+The guide set now covers the Admin Guide, Operations Guide, Finance Guide, Field Staff Guide, Inventory Import Guide, POE Review Guide, Dashboard & Alerts Guide, Mobile App Quick Start Guide, and the Master Training Manual. The secure backend download architecture remains unchanged, so users still only see the guides appropriate for their role.
