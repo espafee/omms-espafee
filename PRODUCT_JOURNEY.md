@@ -123,3 +123,9 @@ The Operations dashboard now shows this as a System Status panel with calm healt
 Dashboard customization now changes the actual dashboard, not just the checklist. When a back-office user hides a safe optional widget, the matching dashboard card or section disappears immediately after save and remains hidden after refresh or a new login.
 
 The dashboard also stops requesting billing summary data when all finance widgets are hidden, while still preserving role and permission guardrails. Restore defaults visibly rebuilds the role-default layout, and required widgets are clearly marked so users understand why they cannot be disabled.
+
+## Dynamic Dashboard Widget Architecture
+
+The dashboard has moved from grouped static panels to a true widget-rendering model. Each dashboard profile widget key now maps to a concrete widget component, and the page renders the saved active widgets in preference order.
+
+This makes customization behave like users expect: selecting Campaign Performance shows that widget, hiding Billing Risk removes that widget, and future widgets can be added through the registry without reshaping the whole dashboard page. Unknown or unauthorized widgets are ignored safely.

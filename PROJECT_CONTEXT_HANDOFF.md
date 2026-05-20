@@ -898,3 +898,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The main dashboard reloads data after preference save/restore so changes apply immediately and persist on refresh/logout/login through `DashboardWidgetPreference`.
 - Finance summaries are requested only when the user is finance-authorized and at least one finance widget is visible, preventing hidden finance widgets from driving unnecessary billing API calls.
 - Required widgets remain disabled in the customization panel and are labeled as required; backend preference saving keeps required widgets visible even if a caller attempts to hide them.
+
+## Dynamic Dashboard Widget Architecture
+
+- The main dashboard now renders from a frontend widget registry keyed by dashboard widget IDs instead of old hardcoded sections like `Campaign performance`, `Booking pipeline`, and `Revenue watch`.
+- Active widgets are derived from `GET /api/v1/observability/dashboard-profile/`, sorted by saved `sort_order`, and rendered through a registry/factory so future drag/drop ordering can use the same profile contract.
+- Each widget has its own render component and permission metadata. Unknown widget keys are ignored safely, finance widgets require `can_view_finance`, and operations widgets require `can_view_operations`.
+- Existing dashboard summary APIs remain stable. Finance summary requests are still skipped unless at least one active renderable finance widget is visible.

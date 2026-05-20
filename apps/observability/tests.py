@@ -428,6 +428,19 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(reset_response.status_code, status.HTTP_200_OK)
         self.assertIn("billing_risk", reset_response.data["active_widgets"])
 
+    def test_dashboard_profile_preserves_active_widget_order(self):
+        updated = save_dashboard_widget_preferences(
+            self.admin,
+            [
+                {"widget_key": "campaign_performance", "is_visible": True, "sort_order": 3},
+                {"widget_key": "billing_risk", "is_visible": True, "sort_order": 1},
+                {"widget_key": "alerts", "is_visible": True, "sort_order": 2},
+            ],
+        )
+
+        active_subset = [key for key in updated["active_widgets"] if key in {"billing_risk", "alerts", "campaign_performance"}]
+        self.assertEqual(active_subset, ["billing_risk", "alerts", "campaign_performance"])
+
     @patch("apps.observability.services.REQUIRED_DASHBOARD_WIDGETS", {"campaign_performance"})
     def test_dashboard_widget_preferences_keep_required_widgets_visible(self):
         updated = save_dashboard_widget_preferences(

@@ -96,6 +96,16 @@ const defaultProfile = {
       is_required: true,
       sort_order: 2,
     },
+    {
+      key: "unknown_future_widget",
+      label: "Future widget",
+      category: "future",
+      description: "A future widget that older frontends should ignore.",
+      href: "/dashboard",
+      is_visible: true,
+      is_required: false,
+      sort_order: 3,
+    },
   ],
 };
 
@@ -162,17 +172,32 @@ test("dashboard customization hides, shows, and restores visible sections", asyn
 
   await page.goto("/dashboard");
 
-  await expect(page.getByTestId("dashboard-revenue-watch")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-billing_risk")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-campaign_performance")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-assigned_work")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-slot-unknown_future_widget")).toHaveCount(0);
+  await expect(page.getByTestId("dashboard-widget-slot-campaign_performance")).toHaveCount(1);
+  await expect(page.getByTestId("dashboard-widget-slot-billing_risk")).toHaveCount(1);
+  await expect.poll(async () =>
+    page.locator('[data-testid^="dashboard-widget-slot-"]').evaluateAll((items) =>
+      items.map((item) => item.getAttribute("data-testid")),
+    ),
+  ).toEqual([
+    "dashboard-widget-slot-campaign_performance",
+    "dashboard-widget-slot-billing_risk",
+    "dashboard-widget-slot-assigned_work",
+  ]);
+
   await page.getByLabel(/Billing risk/).uncheck();
   await expect(page.getByText("Dashboard preference saved.")).toBeVisible();
-  await expect(page.getByTestId("dashboard-revenue-watch")).toBeHidden();
+  await expect(page.getByTestId("dashboard-widget-billing_risk")).toBeHidden();
 
   await page.getByLabel(/Billing risk/).check();
-  await expect(page.getByTestId("dashboard-revenue-watch")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-billing_risk")).toBeVisible();
 
   await page.getByLabel(/Campaign performance/).uncheck();
-  await expect(page.getByTestId("dashboard-campaign-performance")).toBeHidden();
+  await expect(page.getByTestId("dashboard-widget-campaign_performance")).toBeHidden();
   await page.getByRole("button", { name: "Restore defaults" }).click();
   await expect(page.getByText("Dashboard defaults restored.")).toBeVisible();
-  await expect(page.getByTestId("dashboard-campaign-performance")).toBeVisible();
+  await expect(page.getByTestId("dashboard-widget-campaign_performance")).toBeVisible();
 });
