@@ -177,3 +177,9 @@ This does not change any user workflow. It makes the validation baseline cleaner
 OMMS moved from feature expansion into launch hardening. The platform now has a formal production readiness report, QA hardening report, and deployment checklist covering workflows, resilience, role safety, deployment configuration, mobile readiness, predictive safety, and operational risks.
 
 The pass confirmed the application is ready for controlled production launch once environment setup is completed. The main remaining work is deployment discipline: production migrations, durable storage, Redis/Celery verification, domain/security configuration, and a planned mobile dependency upgrade review.
+
+## Production Smoke Verification
+
+The production smoke pass verified that the Render backend is alive and that `https://omms.vercel.app` is deployed with the correct backend API root. Protected operational endpoints correctly reject anonymous requests, which confirms the public surface is not accidentally exposing training, import/export, or maintenance controls.
+
+One launch-path issue remains: the `https://www.vistaaitech.com/omms/login` shell loads, but appears wired to the frontend `https://omms.vercel.app` URL instead of the backend API. If VistaAi is the official customer entrypoint, that deployment must be corrected before public launch.

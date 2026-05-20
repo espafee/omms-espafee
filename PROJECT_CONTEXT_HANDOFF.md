@@ -976,3 +976,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Launch hygiene cleanup removed tracked generated `frontend/tmp_login.html`.
 - New readiness documents were added: `PRODUCTION_READINESS_REPORT.md`, `QA_HARDENING_REPORT.md`, and `DEPLOYMENT_CHECKLIST.md`.
 - Remaining launch risks are operational rather than code blockers: apply migrations in production, configure durable media/private document storage, verify Redis/Celery worker/beat, set production security/domain variables, and plan an Expo SDK dependency audit remediation.
+
+## Production Smoke Verification
+
+- Production smoke report added at `PRODUCTION_SMOKE_TEST_REPORT.md`.
+- Verified backend public health at `https://omms-backend.onrender.com/health/` and public observability health at `/api/v1/observability/health/`.
+- Verified `https://omms.vercel.app` is a Ready Vercel production deployment and is built with `https://omms-backend.onrender.com/api/v1` as the API root.
+- Verified protected production endpoints reject anonymous access as expected: Training PDF download, inventory import template download, operational mode, and import/export jobs.
+- Important blocker: `https://www.vistaaitech.com/omms/login` loads, but its built API root appears to be `https://omms.vercel.app`; that URL is a frontend deployment and returns `404` for `/api/v1/...`. If VistaAi is the official launch URL, rebuild/configure that deployment to use `https://omms-backend.onrender.com/api/v1` and allow `https://www.vistaaitech.com` in backend CORS/CSRF settings.
+- Authenticated production role smoke, production migration verification, Redis/Celery worker/beat verification, storage verification, and credential rotation remain pending because production admin/Render credentials were not available in this session.
