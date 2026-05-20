@@ -966,3 +966,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Bookings, Campaigns, Inventory, POE review, and POE capture pages now use stable loader callbacks for authenticated data loading and form hydration.
 - Campaign selection now derives from a memoized campaign list so selected-campaign rendering is stable across preference/layout refreshes.
 - Result: `npm run lint` now completes cleanly with no warnings, making future warnings easier to spot during production hardening.
+
+## Production Readiness And QA Hardening Pass
+
+- A full pre-launch validation pass was completed across backend, frontend, and mobile with no product feature expansion.
+- Backend validation passed: `manage.py check`, `makemigrations --check --dry-run`, `migrate --check` after applying local `observability.0012_operationalmode`, and 278 app tests.
+- Frontend validation passed: lint, production build, npm audit with no moderate/high/critical findings, and 9 Playwright smoke tests.
+- Mobile validation passed: install, lint, TypeScript, and Expo Doctor. Runtime auth/profile console logging was removed from the mobile app before launch.
+- Launch hygiene cleanup removed tracked generated `frontend/tmp_login.html`.
+- New readiness documents were added: `PRODUCTION_READINESS_REPORT.md`, `QA_HARDENING_REPORT.md`, and `DEPLOYMENT_CHECKLIST.md`.
+- Remaining launch risks are operational rather than code blockers: apply migrations in production, configure durable media/private document storage, verify Redis/Celery worker/beat, set production security/domain variables, and plan an Expo SDK dependency audit remediation.
