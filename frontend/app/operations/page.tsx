@@ -12,6 +12,7 @@ import {
   acknowledgeAlertEvent,
   confirmImportJob,
   createExportJob,
+  downloadInventoryImportTemplate,
   fetchAlertRules,
   fetchAuditEvents,
   fetchDiagnostics,
@@ -165,6 +166,7 @@ export default function OperationsPage() {
   const [exportType, setExportType] = useState<ExportType>("inventory-sites");
   const [exportStatusFilter, setExportStatusFilter] = useState("");
   const [isStartingExport, setIsStartingExport] = useState(false);
+  const [isDownloadingTemplate, setIsDownloadingTemplate] = useState(false);
   const [savingAlertRule, setSavingAlertRule] = useState<number | null>(null);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<number | null>(null);
   const [isImportConfirmOpen, setIsImportConfirmOpen] = useState(false);
@@ -404,6 +406,28 @@ export default function OperationsPage() {
       setMessage("Import preview is ready. No records have been imported yet.");
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to preview import file.");
+    }
+  }
+
+  async function handleTemplateDownload() {
+    setError("");
+    setMessage("");
+    setIsDownloadingTemplate(true);
+    try {
+      const blob = await downloadInventoryImportTemplate();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "OMMS_Inventory_Import_Template.xlsx";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      setMessage("Inventory import template downloaded.");
+    } catch (downloadError) {
+      setError(downloadError instanceof Error ? downloadError.message : "Unable to download inventory import template.");
+    } finally {
+      setIsDownloadingTemplate(false);
     }
   }
 
@@ -1030,6 +1054,12 @@ export default function OperationsPage() {
               <label htmlFor="site-import">Inventory import file</label>
               <input id="site-import" type="file" accept=".csv,.xlsx,.xlsm" onChange={(event) => void handleImportUpload(event)} />
               <p className="field-help">Upload CSV or Excel with site fields and optional media-unit columns. This phase validates and previews only.</p>
+            </div>
+            <div className="import-upload-actions">
+              <button className="ghost" type="button" onClick={() => void handleTemplateDownload()} disabled={isDownloadingTemplate}>
+                {isDownloadingTemplate ? "Preparing..." : "Download Excel Template"}
+              </button>
+              <span>Use the official workbook before staging a new inventory import.</span>
             </div>
             <div className="import-schema">
               <span>Required site fields: site_code, site_name, site_type, address, city, state</span>

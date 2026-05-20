@@ -915,3 +915,11 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The web app shell displays a compact global status banner for non-normal modes. The Operations System Status panel shows the current mode and gives admins a controlled mode selector/message field.
 - The dashboard operational health widget reads the same operational-mode API so status language stays consistent across dashboard surfaces.
 - Mobile sync: mobile admin receives the environment mode in its dashboard overview; field staff POE upload fetches `/mobile/environment-mode/`, shows a user-facing notice, and disables submission when writes are blocked.
+
+## Inventory Import Excel Template
+
+- Operations import/export now exposes a generated Excel template at `GET /api/v1/observability/import-export-jobs/inventory-sites/import-template/`.
+- The workbook filename is `OMMS_Inventory_Import_Template.xlsx` and is generated from backend code rather than stored as a static binary.
+- Template columns are `site_code`, `site_name`, `site_type`, `address`, `city`, `state`, `latitude`, `longitude`, `unit_code`, `width`, `height`, `monthly_rate`, and `status`.
+- The workbook includes sample rows, an `Instructions` sheet, and dropdown validation for `site_type` and media-unit `status`.
+- The Operations import panel now includes a `Download Excel Template` button beside the inventory file upload. Existing preview/confirmation/import/export flows are unchanged.

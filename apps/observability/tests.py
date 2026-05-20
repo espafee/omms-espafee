@@ -7,6 +7,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
+from openpyxl import load_workbook
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -678,6 +679,43 @@ class ObservabilityFoundationTests(TestCase):
         self.assertEqual(job.rows_failed, 0)
         self.assertEqual(job.filters["summary"]["duplicate_rows"], 1)
         self.assertTrue(any("will be updated" in item["warning"] for item in job.filters["warnings"]))
+
+    def test_inventory_import_template_download_contains_expected_workbook(self):
+        self.client.force_authenticate(self.operations)
+
+        response = self.client.get("/api/v1/observability/import-export-jobs/inventory-sites/import-template/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            response["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        self.assertIn("OMMS_Inventory_Import_Template.xlsx", response["Content-Disposition"])
+        workbook = load_workbook(filename=BytesIO(b"".join(response.streaming_content)), data_only=True)
+        self.assertIn("Inventory Import", workbook.sheetnames)
+        self.assertIn("Instructions", workbook.sheetnames)
+        sheet = workbook["Inventory Import"]
+        self.assertEqual(
+            [cell.value for cell in sheet[1]],
+            [
+                "site_code",
+                "site_name",
+                "site_type",
+                "address",
+                "city",
+                "state",
+                "latitude",
+                "longitude",
+                "unit_code",
+                "width",
+                "height",
+                "monthly_rate",
+                "status",
+            ],
+        )
+        instructions = workbook["Instructions"]
+        instruction_text = " ".join(str(row[1].value or "") for row in instructions.iter_rows(min_row=2, max_col=2))
+        self.assertIn("Latitude and longitude are optional", instruction_text)
 
     def test_inventory_site_import_preview_accepts_valid_rows_without_creating_sites(self):
         upload = BytesIO(

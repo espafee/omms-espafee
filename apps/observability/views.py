@@ -1,4 +1,5 @@
 import logging
+from io import BytesIO
 
 from django.http import FileResponse
 from django.utils import timezone
@@ -34,6 +35,7 @@ from .services import (
     build_dashboard_profile,
     build_diagnostics_payload,
     build_empty_operations_summary,
+    build_inventory_import_template,
     build_operations_summary,
     build_operational_search,
     get_operational_mode,
@@ -119,6 +121,16 @@ class ImportExportJobViewSet(ServiceModelViewSet):
         except Exception:
             return Response({"file": ["Unable to parse import file. Check the template and try again."]}, status=status.HTTP_400_BAD_REQUEST)
         return Response(self.get_serializer(job).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"], url_path="inventory-sites/import-template")
+    def inventory_sites_import_template(self, request):
+        filename, payload = build_inventory_import_template()
+        return FileResponse(
+            BytesIO(payload),
+            as_attachment=True,
+            filename=filename,
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
 
     @action(detail=False, methods=["post"], url_path="inventory-sites/export")
     def inventory_sites_export(self, request):

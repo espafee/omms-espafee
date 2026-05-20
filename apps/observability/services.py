@@ -4,7 +4,7 @@ import csv
 import hashlib
 from datetime import timedelta
 from decimal import Decimal, InvalidOperation
-from io import StringIO
+from io import BytesIO, StringIO
 from typing import Any
 
 from django.conf import settings
@@ -15,7 +15,8 @@ from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.utils.dateparse import parse_date
 from django.utils import timezone
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
+from openpyxl.worksheet.datavalidation import DataValidation
 
 from apps.inventory.models import MediaSite, MediaUnit
 from apps.campaigns.models import Campaign
@@ -38,6 +39,22 @@ SENSITIVE_METADATA_KEYS = {"password", "token", "otp", "authorization", "secret"
 IMPORT_ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xlsm"}
 IMPORT_MAX_BYTES = 5 * 1024 * 1024
 IMPORT_PREVIEW_LIMIT = 50
+INVENTORY_IMPORT_TEMPLATE_FILENAME = "OMMS_Inventory_Import_Template.xlsx"
+INVENTORY_IMPORT_TEMPLATE_COLUMNS = [
+    "site_code",
+    "site_name",
+    "site_type",
+    "address",
+    "city",
+    "state",
+    "latitude",
+    "longitude",
+    "unit_code",
+    "width",
+    "height",
+    "monthly_rate",
+    "status",
+]
 IMPORT_REQUIRED_SITE_FIELDS = {"site_code", "site_name", "site_type", "address", "city", "state"}
 IMPORT_REQUIRED_UNIT_FIELDS = {"unit_code", "width", "height", "monthly_rate"}
 IMPORT_SITE_FIELD_ALIASES = {
@@ -1755,6 +1772,100 @@ def _normalise_inventory_row(row: dict[str, Any]) -> dict[str, str]:
         next_key = IMPORT_SITE_FIELD_ALIASES.get(next_key, next_key)
         normalised[next_key] = "" if value is None else str(value).strip()
     return normalised
+
+
+def build_inventory_import_template() -> tuple[str, bytes]:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Inventory Import"
+    sheet.append(INVENTORY_IMPORT_TEMPLATE_COLUMNS)
+    sheet.append(
+        [
+            "SITE-001",
+            "MG Road Billboard",
+            MediaSite.SiteType.BILLBOARD,
+            "MG Road near Metro Gate 2",
+            "Gurugram",
+            "Haryana",
+            "",
+            "",
+            "UNIT-001-A",
+            "20",
+            "10",
+            "50000",
+            MediaUnit.Status.AVAILABLE,
+        ]
+    )
+    sheet.append(
+        [
+            "SITE-002",
+            "Airport Road Digital Screen",
+            MediaSite.SiteType.DIGITAL,
+            "Airport Road Junction",
+            "Bengaluru",
+            "Karnataka",
+            "12.971599",
+            "77.594566",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ]
+    )
+    sheet.freeze_panes = "A2"
+    for cell in sheet[1]:
+        cell.style = "Headline 4"
+
+    widths = {
+        "A": 16,
+        "B": 28,
+        "C": 20,
+        "D": 34,
+        "E": 18,
+        "F": 18,
+        "G": 14,
+        "H": 14,
+        "I": 18,
+        "J": 12,
+        "K": 12,
+        "L": 16,
+        "M": 16,
+    }
+    for column, width in widths.items():
+        sheet.column_dimensions[column].width = width
+
+    site_types = ",".join(choice[0] for choice in MediaSite.SiteType.choices)
+    statuses = ",".join(choice[0] for choice in MediaUnit.Status.choices)
+    site_type_validation = DataValidation(type="list", formula1=f'"{site_types}"', allow_blank=False)
+    status_validation = DataValidation(type="list", formula1=f'"{statuses}"', allow_blank=True)
+    sheet.add_data_validation(site_type_validation)
+    sheet.add_data_validation(status_validation)
+    site_type_validation.add("C2:C500")
+    status_validation.add("M2:M500")
+
+    instructions = workbook.create_sheet("Instructions")
+    instruction_rows = [
+        ("Purpose", "Use this template to stage inventory imports from Operations -> Import / Export Data."),
+        ("No immediate import", "Uploading this file creates a validation preview first. Records are not committed until Start Import is confirmed."),
+        ("Required site fields", "site_code, site_name, site_type, address, city, state."),
+        ("Optional fields", "latitude, longitude, unit_code, width, height, monthly_rate, status."),
+        ("Coordinates", "Latitude and longitude are optional because OMMS can capture GPS from the first verified POE."),
+        ("Site type values", site_types),
+        ("Status values", statuses),
+        ("Duplicate handling", "Existing sites are updated safely; existing media units are skipped; repeated unit codes in the file are rejected."),
+    ]
+    instructions.append(("Topic", "Instruction"))
+    for row in instruction_rows:
+        instructions.append(row)
+    instructions.column_dimensions["A"].width = 24
+    instructions.column_dimensions["B"].width = 110
+    for cell in instructions[1]:
+        cell.style = "Headline 4"
+
+    output = BytesIO()
+    workbook.save(output)
+    return INVENTORY_IMPORT_TEMPLATE_FILENAME, output.getvalue()
 
 
 def _read_inventory_import_rows(file_obj) -> tuple[list[dict[str, str]], bytes, str]:

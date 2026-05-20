@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/auth";
+import { apiDownload, apiFetch } from "@/lib/auth";
 
 type Paginated<T> = {
   results: T[];
@@ -361,6 +361,10 @@ export async function uploadInventorySiteImport(file: File) {
     method: "POST",
     body: formData,
   });
+}
+
+export async function downloadInventoryImportTemplate() {
+  return apiDownload("observability/import-export-jobs/inventory-sites/import-template/");
 }
 
 export async function fetchImportJob(id: number) {

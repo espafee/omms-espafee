@@ -135,3 +135,9 @@ This makes customization behave like users expect: selecting Campaign Performanc
 OMMS now has a first controlled-environment layer for deployments, migrations, and incidents. Admins can place the platform into normal, degraded, maintenance, or read-only mode from Operations, with a clear global banner communicating the current state to users.
 
 The implementation is conservative: safe reads and login stay available, admin diagnostics remain reachable, and non-admin write actions are blocked only in maintenance/read-only modes. Mobile follows the same source of truth, showing field users when changes are temporarily disabled and preventing POE submission while the backend is write-blocking.
+
+## Inventory Import Template Download
+
+The Operations import/export workbench now gives users the correct inventory onboarding format before they upload data. A `Download Excel Template` action generates `OMMS_Inventory_Import_Template.xlsx` from backend code, including required site columns, optional unit/GPS fields, sample rows, dropdowns, and instructions.
+
+This makes the staged import workflow safer for onboarding teams: they can start with a verified workbook, understand that GPS coordinates are optional, and still rely on preview/confirmation before any inventory records are committed.

@@ -1986,6 +1986,19 @@ textarea::placeholder {
   gap: 8px;
 }
 
+.import-upload-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.import-upload-actions span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .import-schema span,
 .import-issue-list span {
   display: inline-flex;

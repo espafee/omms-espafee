@@ -210,6 +210,34 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   return response.json() as Promise<T>;
 }
 
+export async function apiDownload(path: string, init: RequestInit = {}): Promise<Blob> {
+  const token = getAccessToken();
+  const headers = new Headers(init.headers);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(normalizeUrl(API_ROOT, path), {
+      ...init,
+      headers,
+    });
+  } catch {
+    throw new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error");
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuthSession();
+      throw new ApiError("Your session has expired. Please sign in again.", response.status, {}, "session_expired");
+    }
+    throw await parseApiError(response);
+  }
+
+  return response.blob();
+}
+
 export async function apiUpload<T>(
   path: string,
   formData: FormData,
