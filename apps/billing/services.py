@@ -23,6 +23,7 @@ from core.storage_backends import PrivateDocumentStorage, build_private_document
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import RateCard
+from apps.tenants.services import get_default_client_tenant, get_user_tenant, is_platform_super_admin, require_same_tenant, resolve_write_tenant
 
 from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .pdf import (
@@ -60,8 +61,24 @@ def get_booking_media_cost(booking: Booking) -> Decimal:
     return quantize_money(media_cost if media_cost > ZERO else booking.booked_rate)
 
 
-def get_default_supplier_profile() -> SupplierProfile | None:
-    return SupplierProfile.objects.filter(is_active=True).order_by("id").first()
+def get_default_supplier_profile(*, actor=None, tenant=None) -> SupplierProfile | None:
+    tenant = tenant or resolve_write_tenant(actor) or get_default_client_tenant()
+    profile = SupplierProfile.objects.filter(tenant=tenant, is_active=True).order_by("id").first()
+    if profile or tenant is None:
+        return profile
+
+    legacy_profile = SupplierProfile.objects.filter(tenant__isnull=True, is_active=True).order_by("id").first()
+    if legacy_profile:
+        SupplierProfile.objects.filter(pk=legacy_profile.pk, tenant__isnull=True).update(tenant=tenant)
+        legacy_profile.tenant = tenant
+    return legacy_profile
+
+
+def ensure_supplier_profile_tenant(supplier_profile: SupplierProfile | None, tenant) -> SupplierProfile | None:
+    if supplier_profile and tenant and supplier_profile.tenant_id is None:
+        SupplierProfile.objects.filter(pk=supplier_profile.pk, tenant__isnull=True).update(tenant=tenant)
+        supplier_profile.tenant = tenant
+    return supplier_profile
 
 
 def log_invoice_event(
@@ -713,6 +730,16 @@ def get_invoice_for_pdf_fallback(invoice: Invoice) -> Invoice:
 class SupplierProfileService(BaseService):
     repository_class = SupplierProfileRepository
 
+    def create(self, actor=None, **validated_data):
+        validated_data.setdefault("tenant", resolve_write_tenant(actor))
+        return super().create(actor=actor, **validated_data)
+
+    def update(self, instance, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, instance.tenant, message="You can only manage supplier profiles for your own company.")
+        validated_data.pop("tenant", None)
+        return super().update(instance, actor=actor, **validated_data)
+
 
 def calculate_estimate_totals(estimate: CampaignEstimate) -> CampaignEstimate:
     subtotal = ZERO
@@ -972,12 +999,24 @@ class CampaignEstimateService(BaseService):
             raise ValidationError({"status": ["Approved estimates are locked and cannot be edited."]})
 
     def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["client"].tenant, message="You can only create estimates for your own company clients.")
+        if actor and validated_data.get("campaign"):
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only create estimates for your own company campaigns.")
+        if validated_data.get("campaign") and validated_data["campaign"].tenant_id != validated_data["client"].tenant_id:
+            raise ValidationError({"campaign": ["Campaign must belong to the client tenant."]})
         estimate = super().create(actor=actor, created_by=actor, **validated_data)
         estimate.estimate_number = f"EST/{estimate.created_at:%Y-%y}/{estimate.id:04d}"
         estimate.save(update_fields=["estimate_number", "updated_at"])
         return estimate
 
     def update(self, instance, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, instance.client.tenant, message="You can only update estimates for your own company clients.")
+        if actor and validated_data.get("client"):
+            require_same_tenant(actor, validated_data["client"].tenant, message="You can only update estimates for your own company clients.")
+        if actor and validated_data.get("campaign"):
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only update estimates for your own company campaigns.")
         self._assert_editable(instance)
         return super().update(instance, actor=actor, **validated_data)
 
@@ -1038,12 +1077,18 @@ class CampaignEstimateLineService(BaseService):
             raise ValidationError({"estimate": ["Approved estimates are locked and cannot be edited."]})
 
     def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["estimate"].client.tenant, message="You can only manage estimate lines for your own company.")
+        if validated_data.get("media_unit") and validated_data["media_unit"].site.tenant_id != validated_data["estimate"].client.tenant_id:
+            raise ValidationError({"media_unit": ["Media unit must belong to the estimate tenant."]})
         self._assert_estimate_editable(validated_data["estimate"])
         line = super().create(actor=actor, **validated_data)
         calculate_estimate_totals(line.estimate)
         return line
 
     def update(self, instance, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, instance.estimate.client.tenant, message="You can only manage estimate lines for your own company.")
         self._assert_estimate_editable(instance.estimate)
         line = super().update(instance, actor=actor, **validated_data)
         calculate_estimate_totals(line.estimate)
@@ -1058,6 +1103,11 @@ class CampaignEstimateLineService(BaseService):
 
 class CreditNoteService(BaseService):
     repository_class = CreditNoteRepository
+
+    def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["invoice"].campaign.tenant, message="You can only create credit notes for your own company invoices.")
+        return super().create(actor=actor, **validated_data)
 
 
 class InvoiceEventService(BaseService):
@@ -1097,7 +1147,9 @@ class InvoiceService(BaseService):
         invoice_queryset = self.get_queryset(user=user)
         payment_queryset = Payment.objects.filter(invoice_id__in=invoice_queryset.values("id"))
         estimate_queryset = CampaignEstimate.objects.all()
-        if user and getattr(user, "role", None) == "client":
+        if user and not is_platform_super_admin(user):
+            estimate_queryset = estimate_queryset.filter(client__tenant=get_user_tenant(user))
+        if user and getattr(user, "role", None) == "client" and not is_platform_super_admin(user):
             estimate_queryset = estimate_queryset.filter(client=user)
 
         summary = invoice_queryset.aggregate(
@@ -1173,6 +1225,12 @@ class InvoiceService(BaseService):
     @transaction.atomic
     def create(self, actor=None, **validated_data):
         validated_data.pop("invoice_number", None)
+        if actor and validated_data.get("campaign"):
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only create invoices for your own company campaigns.")
+        if validated_data.get("supplier_profile") and validated_data.get("campaign"):
+            ensure_supplier_profile_tenant(validated_data["supplier_profile"], validated_data["campaign"].tenant)
+        if validated_data.get("supplier_profile") and validated_data.get("campaign") and validated_data["supplier_profile"].tenant_id != validated_data["campaign"].tenant_id:
+            raise ValidationError({"supplier_profile": ["Supplier profile must belong to the campaign tenant."]})
         validated_data["status"] = Invoice.Status.DRAFT
         if not validated_data.get("invoice_date") and validated_data.get("issue_date"):
             validated_data["invoice_date"] = validated_data["issue_date"]
@@ -1186,6 +1244,15 @@ class InvoiceService(BaseService):
 
     @transaction.atomic
     def update(self, instance, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, instance.campaign.tenant, message="You can only update invoices for your own company campaigns.")
+        if actor and validated_data.get("campaign"):
+            require_same_tenant(actor, validated_data["campaign"].tenant, message="You can only move invoices inside your own company campaigns.")
+        target_campaign = validated_data.get("campaign") or instance.campaign
+        target_supplier = validated_data.get("supplier_profile") or instance.supplier_profile
+        ensure_supplier_profile_tenant(target_supplier, target_campaign.tenant if target_campaign else None)
+        if target_supplier and target_campaign and target_supplier.tenant_id != target_campaign.tenant_id:
+            raise ValidationError({"supplier_profile": ["Supplier profile must belong to the campaign tenant."]})
         if instance.status in self.LOCKED_STATUSES:
             raise ValidationError({"status": ["Issued, paid, cancelled, or overdue invoices cannot be edited directly."]})
         if "invoice_date" in validated_data and "issue_date" not in validated_data:
@@ -1292,6 +1359,8 @@ class InvoiceService(BaseService):
         return invoice
 
     def get_client_statement(self, *, client, user=None):
+        if user:
+            require_same_tenant(user, client.tenant, message="You can only access statements for your own company clients.")
         invoice_queryset = self.get_queryset(user=user).filter(campaign__client=client)
         invoices = list(
             invoice_queryset.prefetch_related("payments__recorded_by", "credit_notes__created_by")
@@ -1330,13 +1399,18 @@ class InvoiceService(BaseService):
 
     @transaction.atomic
     def generate_from_bookings(self, *, actor=None, campaign, supplier_profile=None, invoice_date=None, due_date=None, payment_terms="", gst_rate=None, sac_code=DEFAULT_SAC_CODE):
+        if actor:
+            require_same_tenant(actor, campaign.tenant, message="You can only generate invoices for your own company campaigns.")
         invoice_date = invoice_date or timezone.localdate()
         due_date = due_date or invoice_date + timedelta(days=15)
         existing_invoice = campaign.invoices.exclude(status=Invoice.Status.CANCELLED).order_by("-created_at").first()
         if existing_invoice:
             raise ValidationError({"campaign": ["An invoice already exists for this campaign."]})
 
-        supplier_profile = supplier_profile or get_default_supplier_profile()
+        supplier_profile = supplier_profile or get_default_supplier_profile(actor=actor, tenant=campaign.tenant)
+        ensure_supplier_profile_tenant(supplier_profile, campaign.tenant)
+        if supplier_profile and supplier_profile.tenant_id != campaign.tenant_id:
+            raise ValidationError({"supplier_profile": ["Supplier profile must belong to the campaign tenant."]})
 
         invoice = Invoice(
             campaign=campaign,
@@ -1610,6 +1684,8 @@ class PaymentService(BaseService):
 
     @transaction.atomic
     def create(self, actor=None, **validated_data):
+        if actor:
+            require_same_tenant(actor, validated_data["invoice"].campaign.tenant, message="You can only record payments for your own company invoices.")
         self._validate_payment(invoice=validated_data["invoice"], amount=validated_data["amount"])
         if actor and not validated_data.get("recorded_by"):
             validated_data["recorded_by"] = actor

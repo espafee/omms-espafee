@@ -1,7 +1,7 @@
 {
-  "phase": "1D",
-  "intent": "derived_operational_scoping",
-  "completed_phases": ["1A_tenant_identity", "1B_ownership_audit", "1C_inventory_campaign_roots"],
+  "phase": "1E",
+  "intent": "finance_jobs_alerts_search_dashboard_scoping",
+  "completed_phases": ["1A_tenant_identity", "1B_ownership_audit", "1C_inventory_campaign_roots", "1D_derived_operational_scoping"],
   "root_models": [
     {
       "model": "inventory.MediaSite",
@@ -65,14 +65,96 @@
     "operational search for campaign/site/unit/POE/invoice/client modules",
     "export payload generation for inventory/campaign/POE/invoice/client statement data"
   ],
+  "finance_and_operations_phase_1e": [
+    {
+      "model": "billing.SupplierProfile",
+      "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": ["future: supplier GST uniqueness business decision"],
+      "surfaces": ["billing supplier API", "invoice generation"]
+    },
+    {
+      "model": "billing.Invoice",
+      "tenant_owner": "campaign.tenant",
+      "status": "derived_queryset_serializer_service_validation",
+      "constraint_changes": ["future: invoice_number unique per tenant/sequence"],
+      "surfaces": ["invoice API", "payments", "credit notes", "statements", "finance analytics", "exports", "search"]
+    },
+    {
+      "model": "billing.CampaignEstimate",
+      "tenant_owner": "campaign.tenant or client.tenant",
+      "status": "derived_queryset_serializer_service_validation",
+      "constraint_changes": ["future: estimate_number unique per tenant/sequence"],
+      "surfaces": ["estimate API", "estimate lines", "client approval"]
+    },
+    {
+      "model": "observability.ImportExportJob",
+      "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": [],
+      "surfaces": ["import preview", "import confirmation", "retry", "exports", "job history", "dashboard"]
+    },
+    {
+      "model": "notifications.Notification",
+      "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": [],
+      "surfaces": ["notification inbox", "operations dashboard"]
+    },
+    {
+      "model": "notifications.EmailNotificationLog",
+      "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": [],
+      "surfaces": ["notification retry logs", "operations dashboard"]
+    },
+    {
+      "model": "observability.AlertRule",
+      "tenant_owner": "tenant or global default",
+      "status": "implemented_nullable_fk_global_metric_unique_retained",
+      "constraint_changes": ["future: platform default plus tenant override metric uniqueness"],
+      "surfaces": ["alert configuration", "threshold evaluation"]
+    },
+    {
+      "model": "observability.AlertEvent",
+      "tenant_owner": "tenant",
+      "status": "implemented_nullable_fk_tenant_cooldown",
+      "constraint_changes": [],
+      "surfaces": ["alert event history", "dashboard", "notifications", "search"]
+    },
+    {
+      "model": "observability.SavedOperationalView",
+      "tenant_owner": "tenant plus user",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": ["future: unique user + tenant + name"],
+      "surfaces": ["saved operational views", "saved search filters"]
+    },
+    {
+      "model": "observability.DashboardWidgetPreference",
+      "tenant_owner": "tenant plus user",
+      "status": "implemented_nullable_fk_backfilled",
+      "constraint_changes": ["future: unique user + tenant + widget_key"],
+      "surfaces": ["role dashboard customization"]
+    }
+  ],
+  "hardened_services_phase_1e": [
+    "billing repositories/serializers/services/views",
+    "ImportExportJob repositories/services/tasks/export builders",
+    "notification services/views/repositories",
+    "alert threshold evaluation and cooldown logic",
+    "operational search for jobs/alerts/audit/notifications plus finance modules",
+    "operations dashboard aggregation and widget preferences",
+    "saved operational views"
+  ],
   "blocked_changes": [
     "Do not change global uniqueness constraints until production data conflicts are audited.",
-    "Do not add broad tenant FKs to remaining operational records in one migration.",
-    "Do not replace company_name job scoping with tenant scoping without backfilling historical jobs.",
-    "Do not change billing invoice/estimate sequences until Phase 1E billing sequence design is approved."
+    "Do not change billing invoice/estimate sequences until a production sequence audit is complete.",
+    "Do not replace SupplierProfile.gstin uniqueness until legal/business ownership is approved.",
+    "Do not replace AlertRule.metric uniqueness until platform default and tenant override semantics are designed.",
+    "Do not replace legacy company_name saved-view/preference uniqueness until a data migration plan exists."
   ],
   "next_phase": {
-    "phase": "1E",
-    "recommendation": "billing and finance tenant scoping, invoice/estimate sequence audit, ImportExportJob tenant FK design, tenant-aware alert rule ownership"
+    "phase": "1F",
+    "recommendation": "tenant-scoped sequence/uniqueness audit for invoice numbers, estimate numbers, invoice sequences, media unit codes, POE client upload IDs, alert rule overrides, and saved-view/dashboard preference constraints"
   }
 }

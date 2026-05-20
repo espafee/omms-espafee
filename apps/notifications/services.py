@@ -14,6 +14,7 @@ from apps.billing.models import Invoice, Payment
 from apps.issues.models import Issue
 from apps.poe.models import ProofOfExecution
 from apps.poe.models import ProofOfExecutionMedia
+from apps.tenants.services import get_user_tenant, is_platform_super_admin
 
 from .models import EmailNotificationLog, Notification, NotificationPreference
 
@@ -66,6 +67,21 @@ class NotificationResult:
 
 
 class NotificationService:
+    def _derive_tenant(self, *, tenant=None, recipient=None, campaign=None, booking=None, poe_record=None, issue=None):
+        if tenant is not None:
+            return tenant
+        if recipient is not None and getattr(recipient, "is_authenticated", False):
+            return get_user_tenant(recipient)
+        if campaign is not None:
+            return getattr(campaign, "tenant", None)
+        if booking is not None:
+            return getattr(getattr(booking, "campaign", None), "tenant", None)
+        if poe_record is not None:
+            return getattr(getattr(getattr(poe_record, "booking", None), "campaign", None), "tenant", None)
+        if issue is not None:
+            return getattr(getattr(getattr(issue, "booking", None), "campaign", None), "tenant", None)
+        return None
+
     def _recipient_allows_in_app(self, user, notification_type: str) -> bool:
         if not user:
             return True
@@ -82,6 +98,7 @@ class NotificationService:
         message: str = "",
         severity: str = Notification.Severity.INFO,
         metadata: dict | None = None,
+        tenant=None,
     ) -> Notification:
         try:
             from apps.observability.services import get_company_name, scrub_metadata
@@ -91,8 +108,9 @@ class NotificationService:
         if recipient and not self._recipient_allows_in_app(recipient, event_type):
             return Notification(
                 recipient=recipient,
-                recipient_role=recipient_role,
-                event_type=event_type,
+            recipient_role=recipient_role,
+            tenant=self._derive_tenant(tenant=tenant, recipient=recipient),
+            event_type=event_type,
                 title=title[:255],
                 message=message,
                 severity=severity,
@@ -103,6 +121,7 @@ class NotificationService:
         return Notification.objects.create(
             recipient=recipient if getattr(recipient, "is_authenticated", False) else recipient,
             recipient_role=recipient_role,
+            tenant=self._derive_tenant(tenant=tenant, recipient=recipient),
             company_name=get_company_name(),
             event_type=event_type,
             title=title[:255],
@@ -119,6 +138,7 @@ class NotificationService:
         message: str = "",
         severity: str = Notification.Severity.INFO,
         metadata: dict | None = None,
+        tenant=None,
     ) -> Notification:
         return self.create_internal_notification(
             recipient_role="operations",
@@ -127,6 +147,7 @@ class NotificationService:
             message=message,
             severity=severity,
             metadata=metadata,
+            tenant=tenant,
         )
 
     def _recipient_allows_email(self, user, notification_type: str) -> bool:
@@ -142,6 +163,7 @@ class NotificationService:
                 defaults={
                     "notification_type": notification_type,
                     "campaign": campaign,
+                    "tenant": self._derive_tenant(campaign=campaign, booking=booking, poe_record=poe_record, issue=issue),
                     "booking": booking,
                     "poe_record": poe_record,
                     "poe_media": poe_media,
@@ -287,6 +309,7 @@ class NotificationService:
             title=f"Invoice issued: {invoice.invoice_number or invoice.pk}",
             message=f"Invoice for {campaign.name} was issued.",
             metadata={"invoice_id": invoice.id, "campaign_id": campaign.id},
+            tenant=campaign.tenant,
         )
         return self._get_or_create_log(
             event_key=f"invoice_issued:{invoice.id}",
@@ -307,6 +330,7 @@ class NotificationService:
             title=f"Payment recorded: {invoice.invoice_number or invoice.pk}",
             message=f"Payment of {payment.amount} was recorded.",
             metadata={"invoice_id": invoice.id, "payment_id": payment.id},
+            tenant=campaign.tenant,
         )
         return self._get_or_create_log(
             event_key=f"payment_recorded:{payment.id}",
@@ -327,6 +351,7 @@ class NotificationService:
             message=poe_record.verification_notes,
             severity=Notification.Severity.WARNING,
             metadata={"poe_record_id": poe_record.id, "campaign_id": campaign.id},
+            tenant=campaign.tenant,
         )
         return self._get_or_create_log(
             event_key=f"suspicious_poe:{poe_record.id}:{poe_record.verification_status}",
@@ -348,6 +373,7 @@ class NotificationService:
             message=issue.description[:500],
             severity=Notification.Severity.WARNING if issue.priority in {"high", "critical"} else Notification.Severity.INFO,
             metadata={"issue_id": issue.id, "priority": issue.priority},
+            tenant=campaign.tenant,
         )
         return self._get_or_create_log(
             event_key=f"issue_reported:{issue.id}",
@@ -370,6 +396,7 @@ class NotificationService:
             message=issue.escalation_reason,
             severity=Notification.Severity.CRITICAL if issue.priority == "critical" else Notification.Severity.WARNING,
             metadata={"issue_id": issue.id, "priority": issue.priority, "sla_status": issue.sla_status},
+            tenant=campaign.tenant,
         )
         return self._get_or_create_log(
             event_key=f"issue_escalated:{issue.id}:{event_time}",

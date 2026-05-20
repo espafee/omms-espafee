@@ -8,6 +8,7 @@ from core.roles import ALL_ROLES, ADMIN, FINANCE, OPERATIONS
 from core.viewsets import ServiceModelViewSet
 from core.services import BaseService
 from core.repositories import BaseRepository
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 
 from .models import EmailNotificationLog, Notification, NotificationPreference
 from .serializers import EmailNotificationLogSerializer, NotificationPreferenceSerializer, NotificationSerializer
@@ -33,7 +34,12 @@ NOTIFICATION_EVENT_METADATA = {
 
 class EmailNotificationLogRepository(BaseRepository):
     model = EmailNotificationLog
-    select_related = ("campaign", "booking", "poe_record", "poe_media", "issue")
+    select_related = ("campaign", "booking", "poe_record", "poe_media", "issue", "tenant")
+
+    def scope_queryset(self, queryset, user=None):
+        if is_platform_super_admin(user):
+            return queryset
+        return queryset.filter(Q(tenant=get_user_tenant(user)) | Q(tenant__isnull=True))
 
 
 class NotificationPreferenceRepository(BaseRepository):
@@ -41,14 +47,16 @@ class NotificationPreferenceRepository(BaseRepository):
     select_related = ("user",)
 
     def scope_queryset(self, queryset, user=None):
-        if user and getattr(user, "role", None) not in {ADMIN, FINANCE, OPERATIONS} and not getattr(user, "is_superuser", False):
+        if user and getattr(user, "role", None) not in {ADMIN, FINANCE, OPERATIONS} and not is_platform_super_admin(user):
             queryset = queryset.filter(user=user)
+        if not is_platform_super_admin(user):
+            queryset = queryset.filter(user__tenant=get_user_tenant(user))
         return queryset
 
 
 class NotificationRepository(BaseRepository):
     model = Notification
-    select_related = ("recipient",)
+    select_related = ("recipient", "tenant")
 
     def scope_queryset(self, queryset, user=None):
         if not user:
@@ -57,10 +65,12 @@ class NotificationRepository(BaseRepository):
             user=user,
             in_app_enabled=False,
         ).values_list("notification_type", flat=True)
-        if getattr(user, "is_superuser", False) or getattr(user, "role", None) in {ADMIN, FINANCE, OPERATIONS}:
+        if is_platform_super_admin(user):
             queryset = queryset.filter(Q(recipient=user) | Q(recipient__isnull=True, recipient_role__in=["", getattr(user, "role", "")]))
+        elif getattr(user, "role", None) in {ADMIN, FINANCE, OPERATIONS}:
+            queryset = queryset.filter(Q(tenant=get_user_tenant(user)) | Q(tenant__isnull=True)).filter(Q(recipient=user) | Q(recipient__isnull=True, recipient_role__in=["", getattr(user, "role", "")]))
         else:
-            queryset = queryset.filter(recipient=user)
+            queryset = queryset.filter(recipient=user).filter(Q(tenant=get_user_tenant(user)) | Q(tenant__isnull=True))
         return queryset.exclude(event_type__in=muted_event_types)
 
 
@@ -72,8 +82,10 @@ class NotificationPreferenceService(BaseService):
     repository_class = NotificationPreferenceRepository
 
     def create(self, actor=None, **validated_data):
-        if actor and getattr(actor, "role", None) not in {ADMIN, FINANCE, OPERATIONS} and not getattr(actor, "is_superuser", False):
+        if actor and getattr(actor, "role", None) not in {ADMIN, FINANCE, OPERATIONS} and not is_platform_super_admin(actor):
             validated_data["user"] = actor
+        if actor and validated_data.get("user"):
+            require_same_tenant(actor, validated_data["user"].tenant, message="You can only manage notification preferences for your own company users.")
         preference, _created = NotificationPreference.objects.update_or_create(
             user=validated_data["user"],
             notification_type=validated_data["notification_type"],

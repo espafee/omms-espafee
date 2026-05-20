@@ -118,3 +118,31 @@ Still intentionally deferred:
 - billing sequence and invoice-number tenant uniqueness
 
 Phase 1E should focus on billing/finance scoping and invoice sequence strategy only after duplicate invoice/estimate number audits are complete.
+
+## Phase 1E Finance, Jobs, Alerts, Search, Dashboard Scoping
+
+Implemented safely:
+
+- Added nullable, backfilled tenant ownership to `SupplierProfile`, `ImportExportJob`, `Notification`, `EmailNotificationLog`, `AlertRule`, `AlertEvent`, `SavedOperationalView`, and `DashboardWidgetPreference`.
+- Supplier profiles backfill to the default beta client tenant.
+- Import/export jobs backfill from `created_by.tenant`, falling back to the default beta client tenant.
+- Notifications backfill from recipient tenant or related campaign/booking/POE/issue tenant where available.
+- Saved views and dashboard preferences backfill from their owning user tenant.
+- Alert events backfill from their rule tenant where known; existing global alert rules remain platform/global defaults.
+
+Runtime enforcement:
+
+- Finance APIs filter invoices/payments/credit notes/events/statements through `campaign.tenant` and restrict client lookups to the requester tenant.
+- Import/export preview, confirmation, retry, and processing require the actor to match the job tenant unless the actor is a platform superadmin.
+- Export payload builders carry the requesting user so CSV output is tenant-filtered.
+- Alert evaluation checks tenant-scoped metrics per tenant, stores tenant on alert events, and applies cooldowns per rule plus tenant.
+- Notifications and notification logs are tenant-filtered for company users and globally visible only to platform superadmins.
+- Saved views/dashboard preferences are user-owned and tenant-owned.
+- Operations dashboard and operational search apply tenant filters before aggregation/result rendering.
+
+Still deferred:
+
+- Do not change `Invoice.invoice_number`, `CampaignEstimate.estimate_number`, or `InvoiceSequence` uniqueness until a production duplicate/sequence audit is complete.
+- Do not change `SupplierProfile.gstin` uniqueness until legal/business ownership rules are approved.
+- Do not change `AlertRule.metric` uniqueness until a platform-default plus tenant-override model is designed.
+- Do not change saved-view/dashboard preference unique constraints until legacy `company_name` snapshots are migrated or retired.

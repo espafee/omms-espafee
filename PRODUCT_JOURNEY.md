@@ -235,3 +235,11 @@ OMMS has extended tenant safety into the operational workflows that sit under ca
 This is intentionally invisible to normal beta users. The product keeps its current workflows, but the platform is safer for future multi-company operation: company teams stay inside their own bookings, proofs, issues, and mobile work queues, while platform owners keep cross-tenant oversight.
 
 The next SaaS milestone should be finance-specific. Invoice and estimate numbering, billing sequence ownership, and tenant-aware alert/job ownership remain separate because they require careful production data audits before uniqueness rules change.
+
+## SaaS Finance And Operations Isolation
+
+OMMS has now closed the highest-risk remaining tenant visibility gaps around finance, operational jobs, alerts, notifications, search, and dashboard analytics.
+
+For company users, billing data, import/export jobs, notification inboxes, alert events, saved views, dashboard preferences, operational search results, and operations dashboard counts now stay inside their own company tenant. Platform owners keep intentional cross-tenant visibility for support and SaaS operations.
+
+This milestone deliberately avoids changing invoice numbers, estimate numbers, supplier GST uniqueness, and alert metric uniqueness. Those identifiers still need a production duplicate/sequence audit before OMMS moves from visibility isolation to fully tenant-scoped numbering.

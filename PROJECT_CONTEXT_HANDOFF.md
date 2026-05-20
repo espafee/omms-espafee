@@ -1060,3 +1060,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Operational search and export builders now apply requesting-user tenant filters where Phase 1C roots support it.
 - Platform superadmins retain global visibility; company users remain tenant-only; field staff remain assigned-work-only.
 - No billing sequences, invoice numbers, estimate numbers, POE upload ID uniqueness, or direct dependent-model tenant FKs were changed. Phase 1E should address billing/finance scoping and sequence design separately.
+
+## SaaS Finance And Operations Tenant Scoping Phase 1E
+
+- Finance visibility is now tenant-contained for supplier profiles, campaign estimates, invoices, invoice lines, payments, credit notes, invoice events, client statements, and finance analytics.
+- Billing records still derive tenant ownership from `campaign.tenant` where possible; `SupplierProfile.tenant` was added with a default-beta backfill.
+- `ImportExportJob.tenant` was added and backfilled from the creating user/default beta tenant. Import preview, confirmation, retry, export creation, background processors, and export payload builders preserve the job/actor tenant context.
+- `Notification.tenant`, `EmailNotificationLog.tenant`, `AlertRule.tenant`, `AlertEvent.tenant`, `SavedOperationalView.tenant`, and `DashboardWidgetPreference.tenant` were added or enforced so inboxes, logs, alerts, cooldowns, saved views, and dashboard preferences remain tenant-safe.
+- Operational search and operations dashboard aggregations now apply tenant filters for jobs, alerts, notifications, audit/request logs, finance metrics, campaigns, POEs, heatmap data, and saved dashboard state.
+- Platform superadmins retain intentional global visibility; company admins/operations/finance remain tenant-only; client/field finance and operations restrictions are preserved.
+- Global invoice numbers, estimate numbers, invoice sequences, supplier GST uniqueness, alert metric uniqueness, saved-view uniqueness, and dashboard preference uniqueness remain unchanged pending a dedicated duplicate-code/sequence audit.

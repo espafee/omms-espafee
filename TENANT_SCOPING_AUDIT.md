@@ -120,3 +120,28 @@ Remaining audit findings:
 - `ImportExportJob` still relies on `company_name` for job ownership. Export payloads are now actor-scoped, but job ownership itself should receive a real tenant FK in a later phase.
 - Billing APIs and invoice/estimate sequence ownership need a dedicated Phase 1E because number uniqueness and finance visibility are higher-risk than derived filters.
 - `ProofOfExecution.client_upload_id` remains globally unique. A future tenant-scoped unique constraint requires data-audit and migration planning.
+
+## Phase 1E Audit Result
+
+| Surface | Tenant path / owner | Phase 1E status |
+| --- | --- | --- |
+| Supplier profiles | `SupplierProfile.tenant` | tenant FK added and backfilled |
+| Invoices / payments / credit notes / events | `invoice.campaign.tenant` | scoped in repositories, serializers, services, statements, and analytics |
+| Campaign estimates | `estimate.campaign.tenant` or `estimate.client.tenant` | scoped and same-tenant validated |
+| Import/export jobs | `ImportExportJob.tenant` | tenant FK added, backfilled, and enforced for preview/confirm/retry/export/process |
+| Export files | actor/job tenant context | payload builders scoped before file generation |
+| Notifications / email logs | `Notification.tenant`, `EmailNotificationLog.tenant` | tenant FK added/backfilled; inbox/log views scoped |
+| Alert events | `AlertEvent.tenant` | tenant FK added; evaluation/cooldown stores tenant |
+| Alert rules | `AlertRule.tenant` plus global defaults | tenant FK added; global metric uniqueness retained |
+| Saved operational views | `SavedOperationalView.tenant` | tenant FK added/backfilled and user-scoped |
+| Dashboard widget preferences | `DashboardWidgetPreference.tenant` | tenant FK added/backfilled and user-scoped |
+| Operational search | module tenant paths | campaigns, sites, units, POEs, invoices, jobs, alerts, audit events, notifications scoped |
+| Operations dashboard | requesting user tenant | KPIs, jobs, alerts, notifications, request/audit logs, billing intelligence, campaign/POE analytics scoped |
+
+Remaining tenant-scoping work:
+
+- Convert billing sequences and invoice/estimate numbering to tenant-aware constraints only after a duplicate/sequence audit.
+- Decide whether supplier GST identity should remain globally unique or become tenant-specific.
+- Replace global `AlertRule.metric` uniqueness with platform-default plus tenant-override semantics.
+- Migrate saved-view and dashboard-preference uniqueness from legacy `company_name` snapshots to explicit tenant constraints.
+- Convert setup/company profile and training/plan gates to tenant-specific configuration in a later SaaS plan phase.

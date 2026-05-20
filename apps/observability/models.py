@@ -120,6 +120,13 @@ class ImportExportJob(TimeStampedModel):
         null=True,
         blank=True,
     )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="import_export_jobs",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
     company_name = models.CharField(max_length=255, blank=True)
     job_type = models.CharField(max_length=20, choices=JobType.choices)
     resource_type = models.CharField(max_length=40, choices=ResourceType.choices)
@@ -172,6 +179,13 @@ class SavedOperationalView(TimeStampedModel):
         related_name="saved_operational_views",
         on_delete=models.CASCADE,
     )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="saved_operational_views",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
     company_name = models.CharField(max_length=255, blank=True, db_index=True)
     name = models.CharField(max_length=120)
     view_type = models.CharField(max_length=30, choices=ViewType.choices, default=ViewType.OPERATIONS, db_index=True)
@@ -197,6 +211,13 @@ class DashboardWidgetPreference(TimeStampedModel):
         settings.AUTH_USER_MODEL,
         related_name="dashboard_widget_preferences",
         on_delete=models.CASCADE,
+    )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="dashboard_widget_preferences",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
     )
     company_name = models.CharField(max_length=255, blank=True, db_index=True)
     widget_key = models.CharField(max_length=80)
@@ -259,6 +280,13 @@ class AlertRule(TimeStampedModel):
         CRITICAL = "critical", "Critical"
 
     name = models.CharField(max_length=120)
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="alert_rules",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
     metric = models.CharField(max_length=40, choices=Metric.choices, unique=True)
     threshold = models.PositiveIntegerField(default=1)
     window_minutes = models.PositiveIntegerField(default=60)
@@ -275,6 +303,13 @@ class AlertRule(TimeStampedModel):
 
 class AlertEvent(TimeStampedModel):
     rule = models.ForeignKey(AlertRule, related_name="events", on_delete=models.CASCADE)
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="alert_events",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
     metric = models.CharField(max_length=40, db_index=True)
     observed_value = models.PositiveIntegerField(default=0)
     threshold = models.PositiveIntegerField(default=0)

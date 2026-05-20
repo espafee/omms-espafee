@@ -10,6 +10,7 @@ from rest_framework.views import APIView
 from core.permissions import RoleBasedPermission
 from core.roles import ALL_ROLES, ADMIN, CLIENT, FINANCE
 from core.viewsets import ServiceModelViewSet
+from apps.tenants.services import get_user_tenant, is_platform_super_admin
 
 from .serializers import (
     CampaignEstimateLineSerializer,
@@ -137,7 +138,7 @@ class InvoiceViewSet(ServiceModelViewSet):
     @action(detail=False, methods=["post"], url_path="generate-from-bookings")
     def generate_from_bookings(self, request):
         enforce_finance_permission(request.user, "issue_invoice")
-        serializer = GenerateInvoiceFromBookingsSerializer(data=request.data)
+        serializer = GenerateInvoiceFromBookingsSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         invoice = self.get_service().generate_from_bookings(actor=request.user, **serializer.validated_data)
         return Response(self.get_serializer(instance=invoice).data)
@@ -175,7 +176,10 @@ class InvoiceViewSet(ServiceModelViewSet):
         if not client_id:
             return None, Response({"client": ["Client query parameter is required."]}, status=400)
         try:
-            client = User.objects.get(pk=client_id)
+            queryset = User.objects.all()
+            if not is_platform_super_admin(request.user):
+                queryset = queryset.filter(tenant=get_user_tenant(request.user))
+            client = queryset.get(pk=client_id)
         except User.DoesNotExist:
             return None, Response({"client": ["Client does not exist."]}, status=404)
         if getattr(request.user, "role", None) == CLIENT and client.pk != request.user.pk:

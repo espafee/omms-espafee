@@ -129,3 +129,27 @@ This preserves beta data and avoids a destructive rewrite while still blocking t
 Platform super admins continue to see all tenants. Company admins and company operators only see data whose root campaign/site belongs to their tenant. Field staff remain limited to assigned work.
 
 Phase 1D does not solve global identifier uniqueness. `MediaUnit.unit_code`, `ProofOfExecution.client_upload_id`, invoice numbers, estimate numbers, and billing sequences remain globally constrained until a dedicated scoped-uniqueness migration is planned.
+
+## Phase 1E Finance And Operations Scoping
+
+Phase 1E adds tenant visibility controls to the remaining high-risk business and operational surfaces while preserving current beta workflows and global numbering constraints.
+
+Implemented ownership:
+
+- `billing.SupplierProfile.tenant` stores tenant-owned billing supplier configuration.
+- Invoices, invoice lines, payments, credit notes, invoice events, campaign estimates, and estimate lines are filtered through `campaign.tenant`, `client.tenant`, or their parent invoice/estimate.
+- `observability.ImportExportJob.tenant` stores the actor/job tenant for previews, confirmations, retries, exports, and background processors.
+- `notifications.Notification.tenant` and `notifications.EmailNotificationLog.tenant` isolate inbox fanout and notification retry/log history.
+- `observability.AlertRule.tenant` and `observability.AlertEvent.tenant` support tenant-aware alert ownership and tenant-specific cooldown checks.
+- `observability.SavedOperationalView.tenant` and `observability.DashboardWidgetPreference.tenant` keep saved operational filters and widget preferences tenant-safe.
+
+Dashboard/search behavior:
+
+- operations dashboard KPIs, charts, billing intelligence, jobs, alerts, notifications, audit/request logs, heatmap data, campaign analytics, and POE analytics are scoped to the requesting user's tenant
+- operational search returns only tenant-visible campaigns, sites, units, POEs, invoices, jobs, alerts, audit events, and notifications
+- exports continue to use actor/job tenant context so generated files do not mix tenant data
+
+Deferred uniqueness strategy:
+
+- `Invoice.invoice_number`, `CampaignEstimate.estimate_number`, `InvoiceSequence.document_type + financial_year`, `SupplierProfile.gstin`, `AlertRule.metric`, `SavedOperationalView.user + company_name + name`, and `DashboardWidgetPreference.user + company_name + widget_key` remain globally or legacy-scoped.
+- The next phase should audit production duplicates and design tenant-aware sequence/override constraints before changing these unique indexes.

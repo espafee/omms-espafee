@@ -3,6 +3,7 @@ from decimal import Decimal
 from rest_framework import serializers
 
 from apps.campaigns.models import Campaign
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 
 from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, InvoiceSequence, Payment, SupplierProfile
 from .services import get_invoice_escalation_status, get_invoice_payment_status
@@ -37,7 +38,7 @@ class SupplierProfileSerializer(serializers.ModelSerializer):
     class Meta:
         model = SupplierProfile
         fields = "__all__"
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "tenant", "created_at", "updated_at"]
 
 
 class InvoiceSequenceSerializer(serializers.ModelSerializer):
@@ -52,6 +53,27 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         model = InvoiceLine
         fields = "__all__"
         read_only_fields = ["id", "created_at", "updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            tenant = get_user_tenant(user)
+            self.fields["invoice"].queryset = self.fields["invoice"].queryset.filter(campaign__tenant=tenant)
+            self.fields["booking"].queryset = self.fields["booking"].queryset.filter(campaign__tenant=tenant)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        invoice = attrs.get("invoice") or getattr(self.instance, "invoice", None)
+        booking = attrs.get("booking") or getattr(self.instance, "booking", None)
+        if user and invoice:
+            require_same_tenant(user, invoice.campaign.tenant, message="You can only manage invoice lines for your own company.")
+        if invoice and booking and invoice.campaign.tenant_id != booking.campaign.tenant_id:
+            raise serializers.ValidationError({"booking": "Booking must belong to the same tenant as the invoice campaign."})
+        return attrs
 
 
 class PaymentSerializer(serializers.ModelSerializer):
@@ -75,6 +97,20 @@ class PaymentSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "recorded_by", "recorded_by_name", "created_at", "updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["invoice"].queryset = self.fields["invoice"].queryset.filter(campaign__tenant=get_user_tenant(user))
+
+    def validate_invoice(self, invoice):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, invoice.campaign.tenant, message="You can only record payments for your own company invoices.")
+        return invoice
 
     def get_recorded_by_name(self, obj):
         user = obj.recorded_by
@@ -105,6 +141,20 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = ["id", "created_by", "created_by_name", "created_at", "updated_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["invoice"].queryset = self.fields["invoice"].queryset.filter(campaign__tenant=get_user_tenant(user))
+
+    def validate_invoice(self, invoice):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, invoice.campaign.tenant, message="You can only create credit notes for your own company invoices.")
+        return invoice
 
     def get_created_by_name(self, obj):
         user = obj.created_by
@@ -197,6 +247,27 @@ class CampaignEstimateLineSerializer(serializers.ModelSerializer):
         fields = "__all__"
         read_only_fields = ["id", "taxable_amount", "tax_amount", "total_amount", "created_at", "updated_at"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            tenant = get_user_tenant(user)
+            self.fields["estimate"].queryset = self.fields["estimate"].queryset.filter(client__tenant=tenant)
+            self.fields["media_unit"].queryset = self.fields["media_unit"].queryset.filter(site__tenant=tenant)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        estimate = attrs.get("estimate") or getattr(self.instance, "estimate", None)
+        media_unit = attrs.get("media_unit") or getattr(self.instance, "media_unit", None)
+        if user and estimate:
+            require_same_tenant(user, estimate.client.tenant, message="You can only manage estimates for your own company.")
+        if estimate and media_unit and estimate.client.tenant_id != media_unit.site.tenant_id:
+            raise serializers.ValidationError({"media_unit": "Media unit must belong to the estimate tenant."})
+        return attrs
+
     def get_media_unit_label(self, obj):
         if not obj.media_unit:
             return ""
@@ -230,6 +301,27 @@ class CampaignEstimateSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            tenant = get_user_tenant(user)
+            self.fields["client"].queryset = self.fields["client"].queryset.filter(tenant=tenant)
+            self.fields["campaign"].queryset = self.fields["campaign"].queryset.filter(tenant=tenant)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        client = attrs.get("client") or getattr(self.instance, "client", None)
+        campaign = attrs.get("campaign") or getattr(self.instance, "campaign", None)
+        if user and client:
+            require_same_tenant(user, client.tenant, message="You can only manage estimates for your own company clients.")
+        if campaign and client and campaign.tenant_id != client.tenant_id:
+            raise serializers.ValidationError({"campaign": "Campaign must belong to the client tenant."})
+        return attrs
 
     def get_client_name(self, obj):
         return obj.client.organization_name or obj.client.get_full_name() or obj.client.email
@@ -314,6 +406,14 @@ class GenerateInvoiceFromBookingsSerializer(serializers.Serializer):
     gst_rate = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
     sac_code = serializers.CharField(required=False, allow_blank=True, default="998361")
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["campaign"].queryset = self.fields["campaign"].queryset.filter(tenant=get_user_tenant(user))
+            self.fields["supplier_profile"].queryset = self.fields["supplier_profile"].queryset.filter(tenant=get_user_tenant(user))
+
 
 class InvoiceSerializer(serializers.ModelSerializer):
     pdf_file = serializers.SerializerMethodField()
@@ -371,6 +471,29 @@ class InvoiceSerializer(serializers.ModelSerializer):
             "grand_total",
             "pdf_file",
         ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and not is_platform_super_admin(user):
+            self.fields["campaign"].queryset = self.fields["campaign"].queryset.filter(tenant=get_user_tenant(user))
+            self.fields["supplier_profile"].queryset = self.fields["supplier_profile"].queryset.filter(tenant=get_user_tenant(user))
+
+    def validate_campaign(self, campaign):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user:
+            require_same_tenant(user, campaign.tenant, message="You can only manage invoices for your own company campaigns.")
+        return campaign
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        campaign = attrs.get("campaign") or getattr(self.instance, "campaign", None)
+        supplier_profile = attrs.get("supplier_profile") or getattr(self.instance, "supplier_profile", None)
+        if campaign and supplier_profile and supplier_profile.tenant_id and campaign.tenant_id != supplier_profile.tenant_id:
+            raise serializers.ValidationError({"supplier_profile": "Supplier profile must belong to the campaign tenant."})
+        return attrs
 
 
 class ClientStatementSerializer(serializers.Serializer):

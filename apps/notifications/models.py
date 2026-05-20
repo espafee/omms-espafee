@@ -40,6 +40,13 @@ class EmailNotificationLog(TimeStampedModel):
         null=True,
         blank=True,
     )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="email_notification_logs",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+    )
     booking = models.ForeignKey(
         Booking,
         related_name="email_notification_logs",
@@ -118,6 +125,13 @@ class Notification(TimeStampedModel):
 
     recipient = models.ForeignKey(
         settings.AUTH_USER_MODEL,
+        related_name="notifications",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
         related_name="notifications",
         on_delete=models.CASCADE,
         null=True,

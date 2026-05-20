@@ -12,6 +12,13 @@ from core.models import TimeStampedModel
 
 
 class SupplierProfile(TimeStampedModel):
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        related_name="supplier_profiles",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+    )
     legal_name = models.CharField(max_length=255)
     trade_name = models.CharField(max_length=255, blank=True)
     gstin = models.CharField(max_length=15, unique=True)

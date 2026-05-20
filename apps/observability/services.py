@@ -28,7 +28,8 @@ from apps.issues.models import Issue
 from apps.notifications.models import EmailNotificationLog, Notification
 from apps.poe.models import ProofOfExecution
 from apps.poe.services import get_poe_sla_status, get_poe_sla_thresholds, resolve_review_sla_status
-from apps.tenants.services import is_platform_super_admin, scope_queryset_to_tenant_path, scope_users_to_requesting_tenant
+from apps.tenants.models import Tenant
+from apps.tenants.services import get_default_client_tenant, get_user_tenant, is_platform_super_admin, resolve_write_tenant, scope_queryset_to_tenant_path, scope_users_to_requesting_tenant
 from apps.users.models import User
 from core.repositories import BaseRepository
 from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, OPERATIONS, SALES
@@ -314,18 +315,37 @@ class ApiRequestLogRepository(BaseRepository):
     model = ApiRequestLog
     select_related = ("user",)
 
+    def scope_queryset(self, queryset, user=None):
+        if is_platform_super_admin(user):
+            return queryset
+        return queryset.filter(user__tenant=get_user_tenant(user))
+
 
 class AuditEventRepository(BaseRepository):
     model = AuditEvent
     select_related = ("actor",)
 
+    def scope_queryset(self, queryset, user=None):
+        if is_platform_super_admin(user):
+            return queryset
+        return queryset.filter(
+            Q(actor__tenant=get_user_tenant(user))
+            | Q(metadata__tenant_id=getattr(get_user_tenant(user), "id", None))
+            | Q(actor__isnull=True, metadata__tenant_id__isnull=True)
+        )
+
 
 class ImportExportJobRepository(BaseRepository):
     model = ImportExportJob
-    select_related = ("created_by",)
+    select_related = ("created_by", "tenant")
 
     def scope_queryset(self, queryset, user=None):
-        return queryset.filter(company_name=get_company_name())
+        if is_platform_super_admin(user):
+            return queryset
+        tenant = get_user_tenant(user)
+        if tenant is None:
+            return queryset.none()
+        return queryset.filter(tenant=tenant)
 
 
 class ApiRequestLogService(BaseService):
@@ -342,17 +362,18 @@ class ImportExportJobService(BaseService):
     def create(self, actor=None, **validated_data):
         validated_data.setdefault("created_by", actor if getattr(actor, "is_authenticated", False) else None)
         validated_data.setdefault("company_name", get_company_name())
+        validated_data.setdefault("tenant", resolve_write_tenant(actor))
         return super().create(actor=actor, **validated_data)
 
 
 class SavedOperationalViewRepository(BaseRepository):
     model = SavedOperationalView
-    select_related = ("user",)
+    select_related = ("user", "tenant")
 
     def scope_queryset(self, queryset, user=None):
         if not user or not getattr(user, "is_authenticated", False):
             return queryset.none()
-        return queryset.filter(user=user, company_name=get_company_name())
+        return queryset.filter(user=user, tenant=get_user_tenant(user))
 
 
 class SavedOperationalViewService(BaseService):
@@ -361,22 +382,24 @@ class SavedOperationalViewService(BaseService):
     def create(self, actor=None, **validated_data):
         validated_data.setdefault("user", actor)
         validated_data.setdefault("company_name", get_company_name())
+        validated_data.setdefault("tenant", get_user_tenant(actor))
         return super().create(actor=actor, **validated_data)
 
     def update(self, instance, actor=None, **validated_data):
         validated_data.pop("user", None)
         validated_data.pop("company_name", None)
+        validated_data.pop("tenant", None)
         return super().update(instance, actor=actor, **validated_data)
 
 
 class DashboardWidgetPreferenceRepository(BaseRepository):
     model = DashboardWidgetPreference
-    select_related = ("user",)
+    select_related = ("user", "tenant")
 
     def scope_queryset(self, queryset, user=None):
         if not user or not getattr(user, "is_authenticated", False):
             return queryset.none()
-        return queryset.filter(user=user, company_name=get_company_name())
+        return queryset.filter(user=user, tenant=get_user_tenant(user))
 
 
 class DashboardWidgetPreferenceService(BaseService):
@@ -413,10 +436,11 @@ def _is_widget_allowed_for_user(widget_key: str, user) -> bool:
 def build_dashboard_profile(user) -> dict[str, Any]:
     role = getattr(user, "role", CLIENT) or CLIENT
     company_name = get_company_name()
+    tenant = get_user_tenant(user)
     default_widgets = [key for key in get_role_dashboard_defaults(role) if _is_widget_allowed_for_user(key, user)]
     preferences = {
         preference.widget_key: preference
-        for preference in DashboardWidgetPreference.objects.filter(user=user, company_name=company_name)
+        for preference in DashboardWidgetPreference.objects.filter(user=user, tenant=tenant)
     }
     available_widgets = []
     active_widgets = []
@@ -481,6 +505,7 @@ def save_dashboard_widget_preferences(user, widgets: list[dict[str, Any]]) -> di
                 is_visible = bool(widget.get("is_visible", True))
             DashboardWidgetPreference.objects.update_or_create(
                 user=user,
+                tenant=get_user_tenant(user),
                 company_name=company_name,
                 widget_key=widget_key,
                 defaults={"is_visible": is_visible, "sort_order": int(widget.get("sort_order", index) or index)},
@@ -489,21 +514,42 @@ def save_dashboard_widget_preferences(user, widgets: list[dict[str, Any]]) -> di
 
 
 def reset_dashboard_widget_preferences(user) -> dict[str, Any]:
-    DashboardWidgetPreference.objects.filter(user=user, company_name=get_company_name()).delete()
+    DashboardWidgetPreference.objects.filter(user=user, tenant=get_user_tenant(user)).delete()
     return build_dashboard_profile(user)
 
 
 class AlertRuleRepository(BaseRepository):
     model = AlertRule
 
+    def scope_queryset(self, queryset, user=None):
+        if is_platform_super_admin(user):
+            return queryset
+        tenant = get_user_tenant(user)
+        return queryset.filter(Q(tenant=tenant) | Q(tenant__isnull=True))
+
 
 class AlertEventRepository(BaseRepository):
     model = AlertEvent
-    select_related = ("rule",)
+    select_related = ("rule", "tenant")
+
+    def scope_queryset(self, queryset, user=None):
+        if is_platform_super_admin(user):
+            return queryset
+        return queryset.filter(tenant=get_user_tenant(user))
 
 
 class AlertRuleService(BaseService):
     repository_class = AlertRuleRepository
+
+    def create(self, actor=None, **validated_data):
+        if not is_platform_super_admin(actor):
+            validated_data["tenant"] = get_user_tenant(actor)
+        return super().create(actor=actor, **validated_data)
+
+    def update(self, instance, actor=None, **validated_data):
+        if not is_platform_super_admin(actor):
+            validated_data.pop("tenant", None)
+        return super().update(instance, actor=actor, **validated_data)
 
 
 class AlertEventService(BaseService):
@@ -691,7 +737,7 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "jobs" in modules:
-        queryset = ImportExportJob.objects.filter(company_name=get_company_name()).select_related("created_by").order_by("-created_at")
+        queryset = ImportExportJobRepository().get_queryset(user=user).select_related("created_by").order_by("-created_at")
         if query:
             queryset = queryset.filter(Q(resource_type__icontains=query) | Q(job_type__icontains=query) | Q(created_by__email__icontains=query))
         if status_filter:
@@ -715,7 +761,7 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "alerts" in modules:
-        queryset = AlertEvent.objects.select_related("rule").order_by("-created_at")
+        queryset = AlertEventRepository().get_queryset(user=user).select_related("rule").order_by("-created_at")
         if query:
             queryset = queryset.filter(Q(summary__icontains=query) | Q(metric__icontains=query) | Q(rule__name__icontains=query))
         if status_filter:
@@ -744,7 +790,7 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "audit" in modules:
-        queryset = AuditEvent.objects.select_related("actor").filter(company_name=get_company_name()).order_by("-created_at")
+        queryset = AuditEventRepository().get_queryset(user=user).select_related("actor").order_by("-created_at")
         if query:
             queryset = queryset.filter(Q(summary__icontains=query) | Q(event_type__icontains=query) | Q(entity_type__icontains=query) | Q(campaign_reference__icontains=query) | Q(client_reference__icontains=query))
         if status_filter:
@@ -768,7 +814,9 @@ def build_operational_search(user, params: dict[str, Any] | None = None) -> dict
         )
 
     if "notifications" in modules:
-        queryset = Notification.objects.filter(Q(recipient=user) | Q(recipient_role=getattr(user, "role", "")), company_name=get_company_name()).order_by("-created_at")
+        queryset = Notification.objects.filter(Q(recipient=user) | Q(recipient_role=getattr(user, "role", "")), tenant=get_user_tenant(user)).order_by("-created_at")
+        if is_platform_super_admin(user):
+            queryset = Notification.objects.filter(Q(recipient=user) | Q(recipient_role=getattr(user, "role", ""))).order_by("-created_at")
         if query:
             queryset = queryset.filter(Q(title__icontains=query) | Q(message__icontains=query) | Q(event_type__icontains=query))
         if status_filter:
@@ -1053,7 +1101,27 @@ def ensure_default_alert_rules() -> None:
         )
 
 
-def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
+TENANT_ALERT_METRICS = {
+    AlertRule.Metric.FAILED_NOTIFICATIONS,
+    AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS,
+    AlertRule.Metric.SUSPICIOUS_POES,
+    AlertRule.Metric.OVERDUE_POE_REVIEWS,
+    AlertRule.Metric.POE_SLA_BREACHES,
+    AlertRule.Metric.CAMPAIGNS_AT_RISK,
+    AlertRule.Metric.BREACHED_ISSUES,
+    AlertRule.Metric.OVERDUE_INVOICES,
+}
+
+
+def _alert_evaluation_tenants(rule: AlertRule):
+    if rule.tenant_id:
+        return [rule.tenant]
+    if rule.metric in TENANT_ALERT_METRICS:
+        return list(Tenant.objects.filter(tenant_type=Tenant.TenantType.CLIENT))
+    return [None]
+
+
+def get_alert_metric_value(rule: AlertRule, *, now=None, tenant=None) -> int:
     now = now or timezone.now()
     since = now - timedelta(minutes=rule.window_minutes)
     if rule.metric == AlertRule.Metric.SLOW_REQUESTS:
@@ -1061,26 +1129,47 @@ def get_alert_metric_value(rule: AlertRule, *, now=None) -> int:
     if rule.metric == AlertRule.Metric.FAILED_API_REQUESTS:
         return ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
     if rule.metric == AlertRule.Metric.FAILED_NOTIFICATIONS:
-        return EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED, updated_at__gte=since).count()
+        queryset = EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED, updated_at__gte=since)
+        if tenant is not None:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset.count()
     if rule.metric == AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS:
-        return ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since).count()
+        queryset = ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since)
+        if tenant is not None:
+            queryset = queryset.filter(tenant=tenant)
+        return queryset.count()
     if rule.metric == AlertRule.Metric.SUSPICIOUS_POES:
-        return ProofOfExecution.objects.filter(
+        queryset = ProofOfExecution.objects.filter(
             verification_status__in=[ProofOfExecution.VerificationStatus.SUSPICIOUS, ProofOfExecution.VerificationStatus.REJECTED],
             created_at__gte=since,
-        ).count()
+        )
+        if tenant is not None:
+            queryset = queryset.filter(booking__campaign__tenant=tenant)
+        return queryset.count()
     if rule.metric == AlertRule.Metric.OVERDUE_POE_REVIEWS:
-        return ProofOfExecution.objects.filter(reviewed_at__isnull=True, review_due_at__lt=now).count()
+        queryset = ProofOfExecution.objects.filter(reviewed_at__isnull=True, review_due_at__lt=now)
+        if tenant is not None:
+            queryset = queryset.filter(booking__campaign__tenant=tenant)
+        return queryset.count()
     if rule.metric == AlertRule.Metric.POE_SLA_BREACHES:
-        return build_poe_sla_intelligence(now=now)["breach_count"]
+        return build_poe_sla_intelligence({"_tenant": tenant}, now=now)["breach_count"]
     if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
-        return build_campaign_performance_analytics()["critical_count"]
+        queryset = Campaign.objects.all()
+        if tenant is not None:
+            queryset = queryset.filter(tenant=tenant)
+        return build_campaign_performance_analytics(queryset=queryset)["critical_count"]
     if rule.metric == AlertRule.Metric.SYSTEM_HEALTH_DEGRADED:
         return 1 if build_system_health_diagnostics(now=now)["status"] == "degraded" else 0
     if rule.metric == AlertRule.Metric.BREACHED_ISSUES:
-        return Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED).count()
+        queryset = Issue.objects.filter(sla_status=Issue.SlaStatus.BREACHED).exclude(status=Issue.Status.RESOLVED)
+        if tenant is not None:
+            queryset = queryset.filter(booking__campaign__tenant=tenant)
+        return queryset.count()
     if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
-        return build_collection_efficiency_analytics()["overdue_invoice_count"]
+        queryset = Invoice.objects.all()
+        if tenant is not None:
+            queryset = queryset.filter(campaign__tenant=tenant)
+        return build_collection_efficiency_analytics(queryset)["overdue_invoice_count"]
     return 0
 
 
@@ -1088,74 +1177,81 @@ def evaluate_alert_thresholds(*, now=None) -> list[AlertEvent]:
     ensure_default_alert_rules()
     now = now or timezone.now()
     created_events = []
-    for rule in AlertRule.objects.filter(is_enabled=True):
-        observed_value = get_alert_metric_value(rule, now=now)
-        if observed_value < rule.threshold:
-            continue
-        cooldown_since = now - timedelta(minutes=rule.cooldown_minutes)
-        if AlertEvent.objects.filter(rule=rule, created_at__gte=cooldown_since).exists():
-            continue
-        summary = f"{rule.name}: observed {observed_value}, threshold {rule.threshold}."
-        event = AlertEvent.objects.create(
-            rule=rule,
-            metric=rule.metric,
-            observed_value=observed_value,
-            threshold=rule.threshold,
-            severity=rule.severity,
-            summary=summary,
-            metadata={"window_minutes": rule.window_minutes},
-        )
-        record_audit_event(
-            event_type="alert.triggered",
-            entity_type="alert_rule",
-            entity_id=rule.id,
-            severity=rule.severity,
-            summary=summary,
-            metadata={"metric": rule.metric, "observed_value": observed_value, "threshold": rule.threshold},
-        )
-        try:
-            from apps.notifications.services import NotificationService
-
-            NotificationService().notify_operations(
-                event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
-                title=f"Operational alert: {rule.name}",
-                message=summary,
-                severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
-                metadata={"alert_rule_id": rule.id, "alert_event_id": event.id},
+    for rule in AlertRule.objects.select_related("tenant").filter(is_enabled=True):
+        for tenant in _alert_evaluation_tenants(rule):
+            observed_value = get_alert_metric_value(rule, now=now, tenant=tenant)
+            if observed_value < rule.threshold:
+                continue
+            cooldown_since = now - timedelta(minutes=rule.cooldown_minutes)
+            if AlertEvent.objects.filter(rule=rule, tenant=tenant, created_at__gte=cooldown_since).exists():
+                continue
+            tenant_label = f" ({tenant.name})" if tenant else ""
+            summary = f"{rule.name}{tenant_label}: observed {observed_value}, threshold {rule.threshold}."
+            event = AlertEvent.objects.create(
+                rule=rule,
+                tenant=tenant,
+                metric=rule.metric,
+                observed_value=observed_value,
+                threshold=rule.threshold,
+                severity=rule.severity,
+                summary=summary,
+                metadata={"window_minutes": rule.window_minutes, "tenant_id": getattr(tenant, "id", None)},
             )
-            if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
-                for role in ("admin", "finance"):
-                    NotificationService().create_internal_notification(
-                        recipient_role=role,
-                        event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
-                        title=f"Billing risk alert: {rule.name}",
-                        message=summary,
-                        severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
-                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
-                    )
-            if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
-                for role in ("admin", "operations"):
-                    NotificationService().create_internal_notification(
-                        recipient_role=role,
-                        event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
-                        title=f"Campaign risk alert: {rule.name}",
-                        message=summary,
-                        severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
-                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
-                    )
-            if rule.metric == AlertRule.Metric.SYSTEM_HEALTH_DEGRADED:
-                for role in ("admin", "operations"):
-                    NotificationService().create_internal_notification(
-                        recipient_role=role,
-                        event_type=EmailNotificationLog.NotificationType.SYSTEM_DIAGNOSTIC_ALERT,
-                        title=f"System health alert: {rule.name}",
-                        message=summary,
-                        severity="critical",
-                        metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
-                    )
-        except Exception:
-            pass
-        created_events.append(event)
+            record_audit_event(
+                event_type="alert.triggered",
+                entity_type="alert_rule",
+                entity_id=rule.id,
+                severity=rule.severity,
+                summary=summary,
+                metadata={"metric": rule.metric, "observed_value": observed_value, "threshold": rule.threshold, "tenant_id": getattr(tenant, "id", None)},
+            )
+            try:
+                from apps.notifications.services import NotificationService
+
+                NotificationService().notify_operations(
+                    event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                    title=f"Operational alert: {rule.name}",
+                    message=summary,
+                    severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                    metadata={"alert_rule_id": rule.id, "alert_event_id": event.id},
+                    tenant=event.tenant,
+                )
+                if rule.metric == AlertRule.Metric.OVERDUE_INVOICES:
+                    for role in ("admin", "finance"):
+                        NotificationService().create_internal_notification(
+                            recipient_role=role,
+                            event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                            title=f"Billing risk alert: {rule.name}",
+                            message=summary,
+                            severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                            metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                            tenant=event.tenant,
+                        )
+                if rule.metric == AlertRule.Metric.CAMPAIGNS_AT_RISK:
+                    for role in ("admin", "operations"):
+                        NotificationService().create_internal_notification(
+                            recipient_role=role,
+                            event_type=EmailNotificationLog.NotificationType.ALERT_TRIGGERED,
+                            title=f"Campaign risk alert: {rule.name}",
+                            message=summary,
+                            severity="critical" if rule.severity == AlertRule.Severity.CRITICAL else "warning",
+                            metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                            tenant=event.tenant,
+                        )
+                if rule.metric == AlertRule.Metric.SYSTEM_HEALTH_DEGRADED:
+                    for role in ("admin", "operations"):
+                        NotificationService().create_internal_notification(
+                            recipient_role=role,
+                            event_type=EmailNotificationLog.NotificationType.SYSTEM_DIAGNOSTIC_ALERT,
+                            title=f"System health alert: {rule.name}",
+                            message=summary,
+                            severity="critical",
+                            metadata={"alert_rule_id": rule.id, "alert_event_id": event.id, "metric": rule.metric},
+                            tenant=event.tenant,
+                        )
+            except Exception:
+                pass
+            created_events.append(event)
     return created_events
 
 
@@ -1244,6 +1340,8 @@ def build_poe_sla_intelligence(filters: dict[str, Any] | None = None, *, now=Non
         filters.get("_user"),
         "booking__campaign__tenant",
     )
+    if filters.get("_tenant") is not None:
+        queryset = queryset.filter(booking__campaign__tenant=filters["_tenant"])
     if filters.get("date_from"):
         queryset = queryset.filter(captured_at__date__gte=filters["date_from"])
     if filters.get("date_to"):
@@ -1374,8 +1472,10 @@ def build_operational_heatmap_intelligence(filters: dict[str, Any] | None = None
     booking_queryset = Booking.objects.select_related("campaign", "media_unit__site").exclude(status=Booking.Status.CANCELLED)
     poe_queryset = scope_queryset_to_tenant_path(poe_queryset, filters.get("_user"), "booking__campaign__tenant")
     booking_queryset = scope_queryset_to_tenant_path(booking_queryset, filters.get("_user"), "campaign__tenant")
-    job_queryset = _company_filter(ImportExportJob.objects.all(), filters)
-    alert_queryset = AlertEvent.objects.select_related("rule").all()
+    user = filters.get("_user")
+    tenant = get_user_tenant(user)
+    job_queryset = ImportExportJob.objects.all() if is_platform_super_admin(user) or user is None else ImportExportJob.objects.filter(tenant=tenant)
+    alert_queryset = AlertEvent.objects.select_related("rule").all() if is_platform_super_admin(user) or user is None else AlertEvent.objects.select_related("rule").filter(tenant=tenant)
 
     if filters.get("date_from"):
         poe_queryset = poe_queryset.filter(captured_at__date__gte=filters["date_from"])
@@ -2008,12 +2108,13 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     poe_sla = build_poe_sla_intelligence(filters)
     operational_heatmap = build_operational_heatmap_intelligence(filters)
     campaign_performance = build_campaign_performance_analytics(user=user)
-    request_queryset = _company_filter(ApiRequestLog.objects.all(), filters)
-    audit_queryset = _company_filter(AuditEvent.objects.all(), filters)
-    notification_queryset = EmailNotificationLog.objects.all()
-    inbox_queryset = _company_filter(Notification.objects.all(), filters)
-    job_queryset = _company_filter(ImportExportJob.objects.all(), filters)
-    alert_queryset = AlertEvent.objects.select_related("rule")
+    request_queryset = ApiRequestLogRepository().get_queryset(user=user)
+    audit_queryset = AuditEventRepository().get_queryset(user=user)
+    tenant = get_user_tenant(user)
+    notification_queryset = EmailNotificationLog.objects.all() if is_platform_super_admin(user) or user is None else EmailNotificationLog.objects.filter(tenant=tenant)
+    inbox_queryset = Notification.objects.all() if is_platform_super_admin(user) or user is None else Notification.objects.filter(tenant=tenant)
+    job_queryset = ImportExportJobRepository().get_queryset(user=user)
+    alert_queryset = AlertEventRepository().get_queryset(user=user).select_related("rule")
     request_queryset = _apply_created_range(request_queryset, filters)
     audit_queryset = _apply_created_range(audit_queryset, filters)
     notification_queryset = _apply_created_range(notification_queryset, filters)
@@ -2499,6 +2600,7 @@ def _validate_inventory_row(
     seen_unit_codes: set[str],
     seen_site_codes: set[str],
     seen_row_fingerprints: set[str],
+    tenant=None,
 ) -> dict[str, Any]:
     errors: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
@@ -2541,7 +2643,10 @@ def _validate_inventory_row(
             errors.append({"row": row_number, "error": f"Repeated media unit code in file: {unit_code}"})
         if unit_code:
             seen_unit_codes.add(unit_code.lower())
-        if unit_code and MediaUnit.objects.filter(unit_code__iexact=unit_code).exists():
+        unit_queryset = MediaUnit.objects.filter(unit_code__iexact=unit_code)
+        if unit_code and tenant is not None and unit_queryset.exclude(site__tenant=tenant).exists():
+            errors.append({"row": row_number, "error": f"Media unit code exists in another tenant and cannot be imported until unit-code uniqueness is tenant-scoped: {unit_code}"})
+        elif unit_code and unit_queryset.filter(site__tenant=tenant).exists():
             warnings.append({"row": row_number, "warning": f"Media unit already exists and will be skipped: {unit_code}"})
         _parse_int(row.get("face_count", ""), field="face_count", row_number=row_number, errors=errors)
         width = _parse_decimal(row.get("width", ""), field="width", row_number=row_number, errors=errors, required=True)
@@ -2558,7 +2663,10 @@ def _validate_inventory_row(
         if unit_site_type and unit_site_type not in {choice[0] for choice in MediaUnit.SiteType.choices}:
             errors.append({"row": row_number, "error": f"Invalid unit_site_type: {unit_site_type}"})
 
-    duplicate_site = bool(site_code and MediaSite.objects.filter(code__iexact=site_code).exists())
+    site_queryset = MediaSite.objects.filter(code__iexact=site_code)
+    if site_code and tenant is not None and site_queryset.exclude(tenant=tenant).exists():
+        errors.append({"row": row_number, "error": f"Site code exists in another tenant and cannot be imported until site-code uniqueness is tenant-scoped: {site_code}"})
+    duplicate_site = bool(site_code and site_queryset.filter(tenant=tenant).exists())
     if duplicate_site:
         warnings.append({"row": row_number, "warning": f"Site already exists and will be updated safely: {site_code}"})
 
@@ -2601,6 +2709,7 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
     seen_unit_codes: set[str] = set()
     seen_site_codes: set[str] = set()
     seen_row_fingerprints: set[str] = set()
+    tenant = resolve_write_tenant(actor)
     preview_rows = [
         _validate_inventory_row(
             row,
@@ -2608,6 +2717,7 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
             seen_unit_codes=seen_unit_codes,
             seen_site_codes=seen_site_codes,
             seen_row_fingerprints=seen_row_fingerprints,
+            tenant=tenant,
         )
         for index, row in enumerate(rows, start=2)
     ]
@@ -2618,6 +2728,7 @@ def validate_inventory_sites_import(file_obj, *, actor=None) -> ImportExportJob:
     status = ImportExportJob.Status.PREVIEWED
     job = ImportExportJob.objects.create(
         created_by=actor if getattr(actor, "is_authenticated", False) else None,
+        tenant=resolve_write_tenant(actor),
         company_name=get_company_name(),
         job_type=ImportExportJob.JobType.IMPORT,
         resource_type=ImportExportJob.ResourceType.INVENTORY_SITES,
@@ -2696,7 +2807,8 @@ def _import_ready_inventory_row(row: dict[str, Any], *, actor=None) -> tuple[str
     data = row.get("data") or {}
     site_code = data.get("site_code", "")
     unit_code = data.get("unit_code", "")
-    site = MediaSite.objects.filter(code__iexact=site_code).first()
+    tenant = resolve_write_tenant(actor)
+    site = MediaSite.objects.filter(code__iexact=site_code, tenant=tenant).first()
     action = row.get("action") or "create_site"
 
     if site and action != "update_site":
@@ -2726,7 +2838,7 @@ def _import_ready_inventory_row(row: dict[str, Any], *, actor=None) -> tuple[str
         site.save()
         site_result = "updated"
     else:
-        site = MediaSite.objects.create(code=site_code, **site_defaults)
+        site = MediaSite.objects.create(code=site_code, tenant=tenant, **site_defaults)
         site_result = "imported"
 
     if unit_code:
@@ -2751,6 +2863,8 @@ def _import_ready_inventory_row(row: dict[str, Any], *, actor=None) -> tuple[str
 def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> ImportExportJob:
     if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
         raise ValueError("Only inventory site import jobs can be processed here.")
+    if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
+        raise ValueError("Import job does not belong to the actor tenant.")
     if job.company_name != get_company_name():
         raise ValueError("Import job does not belong to the active company.")
     if job.status == ImportExportJob.Status.COMPLETED:
@@ -2841,6 +2955,7 @@ def process_inventory_sites_import(job: ImportExportJob, *, actor=None) -> Impor
             message=f"{imported_count} imported, {updated_count} updated, {skipped_count} skipped, {len(failed_rows)} failed.",
             severity="critical" if job.status == ImportExportJob.Status.FAILED else "warning" if job.rows_failed or job.rows_skipped else "info",
             metadata={"import_job_id": job.id, "rows_total": job.rows_total, "summary": job.filters.get("summary", {})},
+            tenant=job.tenant,
         )
     except Exception:
         pass
@@ -2865,6 +2980,8 @@ def _dispatch_inventory_import_job(job: ImportExportJob, *, actor=None) -> Impor
 def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirmed: bool = False) -> ImportExportJob:
     if not confirmed:
         raise ValueError("Explicit confirmation is required to start the import.")
+    if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
+        raise ValueError("Import job does not belong to the actor tenant.")
     if job.company_name != get_company_name():
         raise ValueError("Import job does not belong to the active company.")
     if job.job_type != ImportExportJob.JobType.IMPORT or job.resource_type != ImportExportJob.ResourceType.INVENTORY_SITES:
@@ -2899,6 +3016,8 @@ def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirme
 
 
 def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
+        raise ValueError("Job does not belong to the actor tenant.")
     if job.company_name != get_company_name():
         raise ValueError("Job does not belong to the active company.")
     if job.status != ImportExportJob.Status.FAILED:
@@ -2913,6 +3032,7 @@ def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExport
         retry_rows = [_reset_preview_row_for_retry(row) for row in source_rows]
         retry_job = ImportExportJob.objects.create(
             created_by=actor if getattr(actor, "is_authenticated", False) else job.created_by,
+            tenant=job.tenant or resolve_write_tenant(actor),
             company_name=job.company_name,
             job_type=job.job_type,
             resource_type=job.resource_type,
@@ -2936,6 +3056,7 @@ def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExport
     elif job.job_type == ImportExportJob.JobType.EXPORT:
         retry_job = ImportExportJob.objects.create(
             created_by=actor if getattr(actor, "is_authenticated", False) else job.created_by,
+            tenant=job.tenant or resolve_write_tenant(actor),
             company_name=job.company_name,
             job_type=job.job_type,
             resource_type=job.resource_type,
@@ -3109,6 +3230,8 @@ EXPORT_PAYLOAD_BUILDERS = {
 def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
     if job.job_type != ImportExportJob.JobType.EXPORT:
         raise ValueError("Only export jobs can be processed here.")
+    if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
+        raise ValueError("Export job does not belong to the actor tenant.")
     if job.company_name != get_company_name():
         raise ValueError("Export job does not belong to the active company.")
     if job.status == ImportExportJob.Status.COMPLETED:
@@ -3166,6 +3289,7 @@ def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
                 message=f"{job.resource_type.replace('_', ' ')} export completed with {job.rows_success} row(s).",
                 severity="info",
                 metadata={"export_job_id": job.id, "resource_type": job.resource_type, "rows_success": job.rows_success},
+                tenant=job.tenant,
             )
         except Exception:
             pass
@@ -3202,6 +3326,7 @@ def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
                 message=f"{job.resource_type.replace('_', ' ')} export could not be generated safely.",
                 severity="critical",
                 metadata={"export_job_id": job.id, "resource_type": job.resource_type},
+                tenant=job.tenant,
             )
         except Exception:
             pass
@@ -3229,6 +3354,7 @@ def _start_csv_export_job(*, actor=None, resource_type: str, filters=None) -> Im
         raise ValueError("Unsupported export type.")
     job = ImportExportJob.objects.create(
         created_by=actor if getattr(actor, "is_authenticated", False) else None,
+        tenant=resolve_write_tenant(actor),
         company_name=get_company_name(),
         job_type=ImportExportJob.JobType.EXPORT,
         resource_type=resource_type,

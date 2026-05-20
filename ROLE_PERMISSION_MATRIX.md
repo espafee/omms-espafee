@@ -81,3 +81,20 @@ Dependent operational workflows now inherit tenant boundaries from the Phase 1C 
 - platform superadmins retain cross-tenant visibility for support and diagnostics
 
 Finance and billing are partially tenant-filtered where they appear in operations/mobile summaries, but full billing API and invoice-number enforcement remain a Phase 1E responsibility.
+
+## Phase 1E Enforcement Update
+
+Finance, jobs, alerts, search, and dashboard preferences now combine role checks with explicit tenant filters:
+
+- finance users can list and manage only invoices, payments, credit notes, statements, suppliers, and estimates tied to their tenant
+- company admins can see tenant billing only where their role permissions allow it
+- import/export jobs are owned by tenant and cannot be retried, confirmed, downloaded, or listed across tenants
+- alert events, alert notifications, notification logs, saved views, and dashboard widget preferences are tenant-owned
+- operational search and operations dashboard aggregations are tenant-scoped before result rendering
+- platform superadmins retain global visibility for support and SaaS operations
+
+Still deferred:
+
+- company admins cannot create platform-level permissions
+- tenant-scoped invoice/estimate sequences and custom tenant roles remain future work
+- field staff and client users remain restricted from internal operations intelligence and finance analytics unless a specific client-safe surface already exists

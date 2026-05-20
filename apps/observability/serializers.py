@@ -1,4 +1,5 @@
 from django.utils import timezone
+from django.db.models import Q
 from rest_framework import serializers
 
 from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
@@ -70,6 +71,7 @@ class ImportExportJobSerializer(serializers.ModelSerializer):
         read_only_fields = [
             "id",
             "created_by",
+            "tenant",
             "company_name",
             "status",
             "output_file",
@@ -223,6 +225,7 @@ class AlertRuleSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "name",
+            "tenant",
             "metric",
             "threshold",
             "window_minutes",
@@ -240,15 +243,34 @@ class AlertRuleSerializer(serializers.ModelSerializer):
 
     def get_current_value(self, obj):
         from .services import get_alert_metric_value
+        from apps.tenants.services import is_platform_super_admin
 
-        return get_alert_metric_value(obj)
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        tenant = None if is_platform_super_admin(user) else getattr(user, "tenant", None)
+        return get_alert_metric_value(obj, tenant=tenant)
 
     def get_last_triggered_at(self, obj):
-        latest_event = obj.events.order_by("-created_at").first()
+        from apps.tenants.services import is_platform_super_admin
+
+        request = self.context.get("request")
+        events = obj.events.all()
+        user = getattr(request, "user", None)
+        if request and not is_platform_super_admin(user):
+            events = events.filter(Q(tenant=getattr(user, "tenant", None)) | Q(tenant__isnull=True))
+        latest_event = events.order_by("-created_at").first()
         return latest_event.created_at if latest_event else None
 
     def get_cooldown_until(self, obj):
-        latest_event = obj.events.order_by("-created_at").first()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        events = obj.events.all()
+        if request:
+            from apps.tenants.services import is_platform_super_admin
+
+            if not is_platform_super_admin(user):
+                events = events.filter(Q(tenant=getattr(user, "tenant", None)) | Q(tenant__isnull=True))
+        latest_event = events.order_by("-created_at").first()
         if not latest_event:
             return None
         return latest_event.created_at + timezone.timedelta(minutes=obj.cooldown_minutes)
@@ -272,6 +294,7 @@ class AlertEventSerializer(serializers.ModelSerializer):
             "id",
             "rule",
             "rule_name",
+            "tenant",
             "metric",
             "observed_value",
             "threshold",
