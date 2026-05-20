@@ -52,3 +52,27 @@ Backend CORS currently allows `https://omms.vercel.app`. It does not currently a
 ## Current Beta Recommendation
 
 Use `https://omms.vercel.app` for the first controlled beta unless/until the VistaAi `/omms` routing is corrected.
+
+## Milestone 2: VistaAi OMMS Login Launch Path Stabilized
+
+Status: **implemented / pending production deploy verification**
+
+### Chosen Launch Path
+
+`https://www.vistaaitech.com/omms/login` is now treated as a lightweight VistaAi launch page that redirects users to `https://omms.vercel.app/login`.
+
+This is the safer controlled-beta approach because:
+
+- `https://omms.vercel.app` is already built with the correct API root: `https://omms-backend.onrender.com/api/v1`.
+- Redirecting keeps the browser origin on the OMMS app, so existing backend CORS/CSRF rules for `https://omms.vercel.app` remain valid.
+- The VistaAi site no longer embeds the OMMS app in an iframe where API root and cross-origin behavior can drift.
+
+### CORS Decision
+
+No backend CORS/CSRF expansion is required for this fix because VistaAi is not making authenticated OMMS API calls. Users are redirected to the canonical OMMS beta app before login and API traffic.
+
+### Remaining Verification
+
+- Deploy the `trustdial-website` change.
+- Confirm `https://www.vistaaitech.com/omms/login` redirects to `https://omms.vercel.app/login`.
+- Confirm the VistaAi launch page does not call `https://omms.vercel.app/api/v1`.

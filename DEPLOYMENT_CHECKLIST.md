@@ -8,9 +8,9 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 ## Controlled Beta Surface Decision
 
 - [x] Verify `https://omms.vercel.app` API routing. The app bundle points to `https://omms-backend.onrender.com/api/v1`.
-- [!] Fix or avoid `https://www.vistaaitech.com/omms/login` for beta launch. That path is currently served by the separate `trustdial-website` project and appears to call `https://omms.vercel.app` as an API root.
-- [ ] If VistaAi remains the official URL, add `https://www.vistaaitech.com` to backend CORS/CSRF and rebuild the VistaAi `/omms` path with a correct backend API root or a proper proxy.
-- [ ] If `omms.vercel.app` is accepted as the beta URL, communicate that as the official controlled beta entrypoint.
+- [x] Fix or avoid `https://www.vistaaitech.com/omms/login` for beta launch. The VistaAi path is now a redirect/launch page to `https://omms.vercel.app/login`.
+- [x] If VistaAi remains the marketing URL, avoid API calls from `www.vistaaitech.com` for beta by redirecting into the canonical OMMS app.
+- [x] Communicate `https://omms.vercel.app` as the current controlled beta application entrypoint.
 
 ## Pre-Deployment
 
@@ -22,9 +22,9 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [ ] Confirm production `DJANGO_SECRET_KEY` is strong and not the default placeholder. Public checks cannot expose this; confirm in Render/env dashboard.
 - [ ] Confirm `DJANGO_DEBUG=false`. Public behavior suggests production mode, but confirm in Render/env dashboard.
 - [ ] Confirm `DJANGO_ALLOWED_HOSTS` includes the backend domain. Public backend responds on `https://omms-backend.onrender.com`; confirm exact env value in Render.
-- [!] Confirm `DJANGO_CORS_ALLOWED_ORIGINS` includes only trusted frontend/mobile origins. `https://omms.vercel.app` is allowed; `https://www.vistaaitech.com` is not currently allowed.
+- [x] Confirm `DJANGO_CORS_ALLOWED_ORIGINS` includes the required trusted beta frontend origin. `https://omms.vercel.app` is allowed; `https://www.vistaaitech.com` is not required for OMMS API traffic after the redirect fix.
 - [ ] Confirm `DJANGO_CSRF_TRUSTED_ORIGINS` includes trusted backend/admin origins. Requires Render/env dashboard access.
-- [!] Confirm `NEXT_PUBLIC_API_ROOT` points to the production backend `/api/v1`. `https://omms.vercel.app` is correctly wired to `https://omms-backend.onrender.com/api/v1`; `https://www.vistaaitech.com/omms/login` appears wired to `https://omms.vercel.app`, which is not the backend API.
+- [x] Confirm `NEXT_PUBLIC_API_ROOT` points to the production backend `/api/v1`. `https://omms.vercel.app` is correctly wired to `https://omms-backend.onrender.com/api/v1`; the VistaAi `/omms/login` path redirects to the canonical app instead of making API calls.
 - [ ] Confirm `FRONTEND_PUBLIC_BASE_URL` points to the production frontend. Requires backend env/diagnostics access.
 - [ ] Confirm `OMMS_BACKEND_PUBLIC_BASE_URL` points to the production backend. Requires backend env/diagnostics access.
 - [ ] Confirm `OMMS_ENVIRONMENT_NAME`, `OMMS_APP_VERSION`, and `OMMS_GIT_COMMIT` are populated. Requires authenticated diagnostics or Render env access.

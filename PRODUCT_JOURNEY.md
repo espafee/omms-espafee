@@ -189,3 +189,9 @@ One launch-path issue remains: the `https://www.vistaaitech.com/omms/login` shel
 OMMS has entered controlled beta stabilization. The recommended beta entrypoint is currently `https://omms.vercel.app` because it is deployed with the correct Render backend API root.
 
 The product direction for this phase is deliberate: stabilize production, observe real workflows, keep the UI simple for operators, and avoid expanding predictive features until the deployment surface, worker health, storage, and role-based smoke checks are proven in production.
+
+## VistaAi OMMS Launch Path Stabilized
+
+The VistaAi marketing site now hands users into the canonical OMMS beta app instead of trying to embed it as a separate iframe experience. `/omms/login` shows a simple “Opening OMMS secure portal…” launch state and redirects to `https://omms.vercel.app/login`.
+
+This keeps the beta launch clear and reliable: OMMS runs from the Vercel app already wired to the Render backend API, while VistaAi remains the marketing and discovery surface.

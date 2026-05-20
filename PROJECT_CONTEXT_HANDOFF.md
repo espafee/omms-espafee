@@ -992,3 +992,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - `BETA_STABILIZATION_LOG.md` tracks beta launch findings, blockers, and safe launch options.
 - Current recommendation: use `https://omms.vercel.app` for controlled beta unless the VistaAi `/omms` route is corrected.
 - The separate `trustdial-website` repo owns `https://www.vistaaitech.com`; it has unrelated local changes, so it was not modified from the OMMS stabilization pass.
+
+## VistaAi OMMS Login Launch Path
+
+- The VistaAi `/omms/login` route in the separate `trustdial-website` project has been converted from an iframe wrapper into a lightweight launch page that redirects to `https://omms.vercel.app/login`.
+- This keeps all OMMS login/API traffic on the canonical beta app origin, whose frontend bundle uses `https://omms-backend.onrender.com/api/v1`.
+- No OMMS backend CORS/CSRF change is required for this controlled-beta launch path because `www.vistaaitech.com` is not making authenticated OMMS API requests.
+- Production verification should confirm the deployed VistaAi page redirects and no longer attempts `https://omms.vercel.app/api/v1` calls.
