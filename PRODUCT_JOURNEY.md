@@ -183,3 +183,9 @@ The pass confirmed the application is ready for controlled production launch onc
 The production smoke pass verified that the Render backend is alive and that `https://omms.vercel.app` is deployed with the correct backend API root. Protected operational endpoints correctly reject anonymous requests, which confirms the public surface is not accidentally exposing training, import/export, or maintenance controls.
 
 One launch-path issue remains: the `https://www.vistaaitech.com/omms/login` shell loads, but appears wired to the frontend `https://omms.vercel.app` URL instead of the backend API. If VistaAi is the official customer entrypoint, that deployment must be corrected before public launch.
+
+## Controlled Beta Stabilization
+
+OMMS has entered controlled beta stabilization. The recommended beta entrypoint is currently `https://omms.vercel.app` because it is deployed with the correct Render backend API root.
+
+The product direction for this phase is deliberate: stabilize production, observe real workflows, keep the UI simple for operators, and avoid expanding predictive features until the deployment surface, worker health, storage, and role-based smoke checks are proven in production.

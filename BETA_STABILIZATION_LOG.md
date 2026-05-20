@@ -1,0 +1,54 @@
+# OMMS Controlled Beta Stabilization Log
+
+Started: 2026-05-20
+
+## Milestone 1: Production Surface And API Routing Verification
+
+Status: **Conditional / blocker identified**
+
+### Verified Surfaces
+
+- Backend API health: `https://omms-backend.onrender.com/health/`
+  - Result: healthy JSON response.
+- OMMS Vercel app: `https://omms.vercel.app`
+  - Result: Vercel production deployment is Ready.
+  - API root embedded in frontend bundle: `https://omms-backend.onrender.com/api/v1`.
+- VistaAi website: `https://www.vistaaitech.com`
+  - Owner project: `trustdial-website`, not the OMMS Vercel project.
+  - Result: website deployment is Ready but separate from OMMS.
+
+### Blocker
+
+`https://www.vistaaitech.com/omms/login` loads a shell, but the built JavaScript points API calls at `https://omms.vercel.app`, not at the Render backend API. Since `https://omms.vercel.app/api/v1/...` is a frontend route and returns `404`, the VistaAi `/omms` path is not launch-ready.
+
+Backend CORS currently allows `https://omms.vercel.app`. It does not currently allow `https://www.vistaaitech.com`.
+
+### Safe Launch Options
+
+1. **Launch controlled beta at `https://omms.vercel.app`**
+   - Lowest risk.
+   - Backend API routing is already correct.
+   - Still requires production migrations, Redis/Celery, storage, and authenticated role smoke.
+
+2. **Redirect `https://www.vistaaitech.com/omms/*` to `https://omms.vercel.app/*`**
+   - Fast operational fix.
+   - Does not preserve the VistaAi URL in the browser.
+   - Avoids complex cross-project Next.js asset proxying.
+
+3. **Create a proper VistaAi `/omms` hosted app path**
+   - Requires a deliberate architecture decision.
+   - Options include deploying OMMS with a compatible `basePath`/asset strategy or implementing path-based proxying at an infrastructure layer that can also handle Next.js static assets.
+   - Must add `https://www.vistaaitech.com` to backend CORS/CSRF if the browser origin remains VistaAi.
+
+### Deferred / Requires Access
+
+- Production migration proof for `observability.0012_operationalmode`.
+- Render worker/beat verification.
+- Redis/Celery queue health verification.
+- Durable media/private document storage verification.
+- Authenticated role-based smoke.
+- Production credential rotation proof.
+
+## Current Beta Recommendation
+
+Use `https://omms.vercel.app` for the first controlled beta unless/until the VistaAi `/omms` routing is corrected.

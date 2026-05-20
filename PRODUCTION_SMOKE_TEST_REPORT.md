@@ -148,3 +148,7 @@ Recommended status: **CONDITIONAL GO for `https://omms.vercel.app` after product
 5. Complete authenticated role-based smoke with real production accounts.
 6. Rotate or document rotation of admin/demo credentials.
 7. Plan mobile Expo SDK upgrade for moderate transitive audit findings.
+
+## Controlled Beta Update
+
+The safest beta entrypoint is currently `https://omms.vercel.app`. The VistaAi `/omms` route should be treated as blocked until routing is corrected in the `trustdial-website` project or by an infrastructure-level path proxy that supports Next.js static assets correctly.

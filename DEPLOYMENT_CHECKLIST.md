@@ -5,6 +5,13 @@ Last smoke update: 2026-05-20
 
 Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
+## Controlled Beta Surface Decision
+
+- [x] Verify `https://omms.vercel.app` API routing. The app bundle points to `https://omms-backend.onrender.com/api/v1`.
+- [!] Fix or avoid `https://www.vistaaitech.com/omms/login` for beta launch. That path is currently served by the separate `trustdial-website` project and appears to call `https://omms.vercel.app` as an API root.
+- [ ] If VistaAi remains the official URL, add `https://www.vistaaitech.com` to backend CORS/CSRF and rebuild the VistaAi `/omms` path with a correct backend API root or a proper proxy.
+- [ ] If `omms.vercel.app` is accepted as the beta URL, communicate that as the official controlled beta entrypoint.
+
 ## Pre-Deployment
 
 - [x] Confirm launch branch is `main` and clean.

@@ -985,3 +985,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Verified protected production endpoints reject anonymous access as expected: Training PDF download, inventory import template download, operational mode, and import/export jobs.
 - Important blocker: `https://www.vistaaitech.com/omms/login` loads, but its built API root appears to be `https://omms.vercel.app`; that URL is a frontend deployment and returns `404` for `/api/v1/...`. If VistaAi is the official launch URL, rebuild/configure that deployment to use `https://omms-backend.onrender.com/api/v1` and allow `https://www.vistaaitech.com` in backend CORS/CSRF settings.
 - Authenticated production role smoke, production migration verification, Redis/Celery worker/beat verification, storage verification, and credential rotation remain pending because production admin/Render credentials were not available in this session.
+
+## Controlled Beta Stabilization Phase
+
+- Controlled beta stabilization has started. Production stability, workflow correctness, field reliability, and deployment discipline now take priority over new feature expansion.
+- `BETA_STABILIZATION_LOG.md` tracks beta launch findings, blockers, and safe launch options.
+- Current recommendation: use `https://omms.vercel.app` for controlled beta unless the VistaAi `/omms` route is corrected.
+- The separate `trustdial-website` repo owns `https://www.vistaaitech.com`; it has unrelated local changes, so it was not modified from the OMMS stabilization pass.
