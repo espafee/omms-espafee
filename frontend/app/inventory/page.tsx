@@ -1,6 +1,6 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -160,7 +160,7 @@ export default function InventoryPage() {
     }, 3000);
   }
 
-  async function loadInventory(profileHint?: StoredUser | null) {
+  const loadInventory = useCallback(async (profileHint?: StoredUser | null) => {
     setIsLoading(true);
     setError("");
 
@@ -185,7 +185,7 @@ export default function InventoryPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -200,7 +200,7 @@ export default function InventoryPage() {
     }
 
     void loadInventory(storedUser);
-  }, [router]);
+  }, [loadInventory, router]);
 
   function handleLogout() {
     clearAuthSession();

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { PoeCreatePanel, type PoeFormState } from "@/components/poe-create-panel";
@@ -76,7 +76,7 @@ export default function PoePage() {
 
   const canManagePoe = WRITE_ROLES.has(user?.role ?? "");
 
-  function hydratePoeForm(payload: PoePayload, profile?: StoredUser | null) {
+  const hydratePoeForm = useCallback((payload: PoePayload, profile?: StoredUser | null) => {
     const firstBooking = payload.bookings[0];
 
     setForm((current) => ({
@@ -89,9 +89,9 @@ export default function PoePage() {
     if (profile) {
       setUser(profile);
     }
-  }
+  }, []);
 
-  async function loadPoe(profileHint?: StoredUser | null) {
+  const loadPoe = useCallback(async (profileHint?: StoredUser | null) => {
     setIsLoading(true);
     setError("");
 
@@ -113,7 +113,7 @@ export default function PoePage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [hydratePoeForm, router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -127,7 +127,7 @@ export default function PoePage() {
       setUser(storedUser);
     }
     void loadPoe(storedUser);
-  }, [router]);
+  }, [loadPoe, router]);
 
   function handleLogout() {
     clearAuthSession();

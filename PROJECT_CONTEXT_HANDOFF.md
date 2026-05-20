@@ -959,3 +959,10 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The Operations dashboard now has a `Predictive operations` command section with plain-language recommended action, campaign risk, reviewer load, short forecast, and explainability details behind `Why these predictions?`.
 - Guardrails are explicit in the payload/UI: no automatic POE approval, financial modification, campaign closure, or destructive action.
 - Mobile sync: mobile admin receives only a compact `Predictive focus` KPI. Field staff mobile remains excluded from predictive operational intelligence.
+
+## Frontend Stability Warning Cleanup
+
+- The latest enterprise-readiness pass removed the lingering React hook dependency warnings from the frontend validation baseline without changing product workflows or API contracts.
+- Bookings, Campaigns, Inventory, POE review, and POE capture pages now use stable loader callbacks for authenticated data loading and form hydration.
+- Campaign selection now derives from a memoized campaign list so selected-campaign rendering is stable across preference/layout refreshes.
+- Result: `npm run lint` now completes cleanly with no warnings, making future warnings easier to spot during production hardening.

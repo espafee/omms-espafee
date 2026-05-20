@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -81,7 +81,7 @@ export default function CampaignsPage() {
     });
   }
 
-  async function loadCampaigns(profileHint?: StoredUser | null) {
+  const loadCampaigns = useCallback(async (profileHint?: StoredUser | null) => {
     setIsLoading(true);
     setError("");
     setIsShareLoading(true);
@@ -158,7 +158,7 @@ export default function CampaignsPage() {
       setIsLoading(false);
       setIsShareLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -172,7 +172,7 @@ export default function CampaignsPage() {
       setUser(storedUser);
     }
     void loadCampaigns(storedUser);
-  }, [router]);
+  }, [loadCampaigns, router]);
 
   function handleLogout() {
     clearAuthSession();
@@ -218,7 +218,7 @@ export default function CampaignsPage() {
     }
     return grouped;
   }, [accessLinks]);
-  const campaigns = campaignData?.campaigns ?? [];
+  const campaigns = useMemo(() => campaignData?.campaigns ?? [], [campaignData?.campaigns]);
   const selectedCampaign = useMemo(() => {
     if (campaigns.length === 0) {
       return null;

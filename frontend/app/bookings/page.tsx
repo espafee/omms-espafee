@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -73,7 +73,7 @@ export default function BookingsPage() {
     return (bookingData?.units ?? []).filter((unit) => unit.site === siteId);
   }
 
-  function hydrateBookingForm(payload: BookingPayload, profile?: StoredUser | null) {
+  const hydrateBookingForm = useCallback((payload: BookingPayload, profile?: StoredUser | null) => {
     const firstCampaign = payload.campaigns[0];
     const firstSite = payload.sites[0];
     const firstUnit = firstSite ? payload.units.find((unit) => unit.site === firstSite.id) : undefined;
@@ -91,9 +91,9 @@ export default function BookingsPage() {
     if (profile) {
       setUser(profile);
     }
-  }
+  }, []);
 
-  async function loadBookings(profileHint?: StoredUser | null) {
+  const loadBookings = useCallback(async (profileHint?: StoredUser | null) => {
     setIsLoading(true);
     setError("");
 
@@ -115,7 +115,7 @@ export default function BookingsPage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [hydrateBookingForm, router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -129,7 +129,7 @@ export default function BookingsPage() {
       setUser(storedUser);
     }
     void loadBookings(storedUser);
-  }, [router]);
+  }, [loadBookings, router]);
 
   function handleLogout() {
     clearAuthSession();

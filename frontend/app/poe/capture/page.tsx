@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { PoeFieldCaptureForm, type PoeCaptureFormState } from "@/components/poe-field-capture-form";
@@ -38,7 +38,7 @@ export default function PoeCapturePage() {
 
   const canManagePoe = WRITE_ROLES.has(user?.role ?? "");
 
-  async function loadCaptureData(profileHint?: StoredUser | null) {
+  const loadCaptureData = useCallback(async (profileHint?: StoredUser | null) => {
     setIsLoading(true);
     setError("");
 
@@ -71,7 +71,7 @@ export default function PoeCapturePage() {
     } finally {
       setIsLoading(false);
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     const token = getAccessToken();
@@ -86,7 +86,7 @@ export default function PoeCapturePage() {
     }
 
     void loadCaptureData(storedUser);
-  }, [router]);
+  }, [loadCaptureData, router]);
 
   function updateForm<K extends keyof PoeCaptureFormState>(field: K, value: PoeCaptureFormState[K]) {
     setFormError("");
