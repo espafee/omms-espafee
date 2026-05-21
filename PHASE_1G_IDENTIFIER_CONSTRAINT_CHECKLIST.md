@@ -6,9 +6,9 @@ Use this checklist before changing any tenant-scoped uniqueness constraint or se
 
 | Item | Status |
 | --- | --- |
-| Production `audit_tenant_identifiers --format json` captured | Pending |
-| Production duplicate groups reviewed | Pending |
-| Production null-tenant counts reviewed | Pending |
+| Production `audit_tenant_identifiers --format json` captured | Blocked - Render shell/access required |
+| Production duplicate groups reviewed | Blocked - production audit not captured |
+| Production null-tenant counts reviewed | Blocked - production audit not captured |
 | Existing issued invoice numbers will remain unchanged | Required |
 | Existing estimate numbers will remain unchanged | Required |
 | Existing POE `client_upload_id` behavior preserved until DB constraint migration | Required |
@@ -146,3 +146,7 @@ Final decision:
 
 - `GO`: all targeted checks pass and migration is narrowly scoped
 - `NO-GO`: any duplicate/null-tenant/sequence ownership issue remains unresolved
+
+Current decision as of 2026-05-21:
+
+- `NO-GO`: production audit has not yet been executed because authenticated Render shell/job access is unavailable in the current Codex environment.

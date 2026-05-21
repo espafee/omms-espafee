@@ -16,6 +16,17 @@ Expected working directory:
 
 If the Render shell opens elsewhere, first locate the Django project root containing `manage.py`.
 
+## Current Access Status
+
+As of 2026-05-21, production audit execution is still pending because this Codex environment does not have:
+
+- Render CLI access
+- Render dashboard shell access
+- a production `DATABASE_URL`
+- a safe authenticated job-runner path for Django management commands
+
+Phase 1G remains blocked until an authorized operator runs the commands below in Render and saves the sanitized output.
+
 ## Commands
 
 Human-readable output:
@@ -113,6 +124,7 @@ If a future Phase 1G migration fails during deployment:
 Before running:
 
 - confirm backend service is on the intended Git SHA
+- confirm the shell is attached to the backend web service, not a local/dev database
 - confirm `python manage.py migrate --check` is clean
 - confirm production database target is correct
 - confirm no constraint-changing migration is queued in the same release
@@ -123,3 +135,15 @@ After running:
 - preserve JSON output securely
 - mark Phase 1G as blocked or ready per `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`
 
+## Manual Render Dashboard Steps
+
+1. Open the Render dashboard.
+2. Select the `omms-backend` web service.
+3. Confirm the latest deployed Git SHA is the intended `main` commit.
+4. Open Shell for the backend service.
+5. Run `pwd` and confirm the shell is in or can reach the Django project root containing `manage.py`.
+6. Run `python manage.py migrate --check`.
+7. Run `python manage.py audit_tenant_identifiers`.
+8. Run `python manage.py audit_tenant_identifiers --format json`.
+9. Copy the sanitized counts into `TENANT_IDENTIFIER_AUDIT_PRODUCTION_RESULT.md`.
+10. Do not run any uniqueness migration in the same session.

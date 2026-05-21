@@ -2,7 +2,7 @@
 
 Phase 1F identifies sequence and numbering risks only. It does not change production numbering.
 
-Before Phase 1G, attach production output from `python manage.py audit_tenant_identifiers --format json` to the deployment notes and complete `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`.
+Before Phase 1G, attach production output from `python manage.py audit_tenant_identifiers --format json` to the deployment notes and complete `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`. As of 2026-05-21, this remains blocked because authenticated Render shell/job access is not available in the current Codex environment.
 
 ## Principles
 

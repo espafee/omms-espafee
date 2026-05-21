@@ -50,13 +50,14 @@ Current Phase 1F deliverables:
 
 - `TENANT_IDENTIFIER_AUDIT.md`
 - `TENANT_IDENTIFIER_AUDIT_LOCAL_RESULT.md`
+- `TENANT_IDENTIFIER_AUDIT_PRODUCTION_RESULT.md`
 - `TENANT_IDENTIFIER_PRODUCTION_RUNBOOK.md`
 - `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`
 - `TENANT_SEQUENCE_STRATEGY.md`
 - `apps.tenants.identifier_audit`
 - `python manage.py audit_tenant_identifiers`
 
-Local audit output shows zero duplicate groups and zero null-tenant records in the local database. Do not start tenant-scoped uniqueness migrations until the production audit command has been run against the live database and reviewed against the Phase 1G checklist.
+Local audit output shows zero duplicate groups and zero null-tenant records in the local database. Production audit is not yet executed because Render shell/job access is unavailable in the current Codex environment. Do not start tenant-scoped uniqueness migrations until the production audit command has been run against the live database and reviewed against the Phase 1G checklist.
 
 ## Recently Completed / In Progress
 
