@@ -159,3 +159,23 @@ Deferred uniqueness strategy:
 The Phase 1E regression pass is complete. Backend validation passes with 309 tests, frontend lint/build/Playwright passes, and mobile lint/doctor/TypeScript validation passes.
 
 During stabilization, OMMS added transition-safe handling for legacy null-tenant records in supplier profiles, jobs, notifications, alert events, audit events, request logs, and operations dashboard aggregation. These fallbacks preserve existing beta/test behavior while still preventing cross-tenant leakage for tenant-owned records.
+
+## Phase 1F Identifier And Sequence Audit
+
+Phase 1F prepares OMMS for tenant-scoped identifiers without changing production constraints.
+
+Implemented:
+
+- read-only identifier audit service
+- `audit_tenant_identifiers` management command
+- documentation for global uniqueness blockers
+- tenant sequence strategy for invoice, estimate, POE idempotency, alert-rule override, saved-view, and dashboard-preference migrations
+
+Important architecture decision:
+
+- business natural identifiers can move toward tenant scope only after production duplicate/null-tenant audits
+- security tokens remain globally unique
+- billing sequences need tenant ownership before invoice/estimate uniqueness can safely change
+- `company_name` should become display-only for saved views/preferences after tenant uniqueness is introduced
+
+Phase 1G should be a migration-readiness phase with production audit output attached, not a broad rewrite.

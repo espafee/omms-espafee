@@ -98,3 +98,15 @@ Still deferred:
 - company admins cannot create platform-level permissions
 - tenant-scoped invoice/estimate sequences and custom tenant roles remain future work
 - field staff and client users remain restricted from internal operations intelligence and finance analytics unless a specific client-safe surface already exists
+
+## Phase 1F Identifier/Sequence Role Notes
+
+Phase 1F does not introduce new user-facing permissions. It clarifies who should be allowed to act on future identifier and sequence migrations:
+
+- platform super admins may run tenant identifier audits and review cross-tenant duplicate risk
+- company admins should not be able to change numbering or uniqueness strategy
+- finance users may view tenant invoice/estimate numbers through existing finance permissions, but cannot manage sequence ownership
+- operations users may continue importing inventory, but cross-tenant duplicate-code blockers remain enforced until tenant-scoped uniqueness is migrated
+- field staff and client users have no access to identifier audit, sequence strategy, or platform-level duplicate findings
+
+Future Phase 1G/Phase 2 role work should add explicit platform-only capabilities for tenant migration audits, sequence configuration, and SaaS plan/tenant administration.

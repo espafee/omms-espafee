@@ -1,6 +1,6 @@
 # OMMS Project Context Handoff
 
-Last updated: 2026-05-11
+Last updated: 2026-05-21
 
 ## Project Identity
 
@@ -33,7 +33,7 @@ Frontend:
 
 ## Important Product Rules
 
-- Do not implement multi-tenancy or organization tenancy unless explicitly requested.
+- Multi-tenant SaaS migration is now explicitly in progress. Continue only in safe audited phases; do not perform broad destructive tenant FK or uniqueness migrations without a dedicated phase request and production audit output.
 - Do not hardcode ESPA FEE, VistaAi, or any client/company data in invoice templates or business logic.
 - Keep invoice PDFs private; never store invoices in public media.
 - Public campaign links can display campaign/client-facing POE data, but token management stays admin-only.
@@ -42,17 +42,18 @@ Frontend:
 - Field staff mobile users must never see admin dashboard.
 - Booking assignment controls which field staff sees assigned work in mobile.
 
-## Current Git State Warning
+## Current Git State
 
-As of this handoff, the main repo has uncommitted changes.
+The latest SaaS migration milestone is Phase 1F: Tenant-Scoped Identifier & Sequence Audit. Phase 1F is intentionally read-only: it adds audit tooling and documentation but does not alter uniqueness constraints, invoice/estimate numbering, import behavior, export behavior, or POE upload-id behavior.
 
-These include two groups:
-- Earlier cleanup: removed developer/debug/internal UI details from frontend dashboard/page copy.
-- Latest invoice work: campaign-level invoice preview/generation from confirmed bookings.
+Current Phase 1F deliverables:
 
-`git status --short` currently shows modified frontend dashboard/setup/campaign/inventory/POE files plus invoice/booking backend files and two new migrations.
+- `TENANT_IDENTIFIER_AUDIT.md`
+- `TENANT_SEQUENCE_STRATEGY.md`
+- `apps.tenants.identifier_audit`
+- `python manage.py audit_tenant_identifiers`
 
-If committing only invoice work, stage carefully. If committing all current work, `git add .` will include both the dashboard cleanup and invoice work.
+Do not start tenant-scoped uniqueness migrations until the audit command has been run against production and reviewed.
 
 ## Recently Completed / In Progress
 

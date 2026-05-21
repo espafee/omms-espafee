@@ -245,3 +245,9 @@ For company users, billing data, import/export jobs, notification inboxes, alert
 This milestone deliberately avoids changing invoice numbers, estimate numbers, supplier GST uniqueness, and alert metric uniqueness. Those identifiers still need a production duplicate/sequence audit before OMMS moves from visibility isolation to fully tenant-scoped numbering.
 
 The Phase 1E stabilization pass completed the full regression gate after the initial commit. Backend, frontend, Playwright, and mobile checks now pass, and compatibility was tightened for legacy records that may still have null tenant values during the transition.
+
+## SaaS Tenant Identifier And Sequence Audit
+
+OMMS now has a safe audit foundation for the next hard part of SaaS tenancy: natural identifiers and numbering. The platform can report which codes and sequences are still globally constrained, where null-tenant legacy records may exist, and which invoice/estimate/POE numbering paths need tenant ownership before constraints change.
+
+This phase deliberately avoids changing production behavior. Site codes, unit codes, campaign codes, invoice numbers, estimate numbers, POE upload ids, alert metrics, saved views, and dashboard preferences continue working exactly as before. The value is launch safety: Phase 1G can now be planned from audit evidence rather than guesswork.

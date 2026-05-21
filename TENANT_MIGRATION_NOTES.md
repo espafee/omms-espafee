@@ -159,3 +159,22 @@ Full regression validation after Phase 1E found and fixed runtime compatibility 
 - operations summary notification/request aggregations
 
 The compatibility rule is intentionally narrow: tenant-null legacy records are visible only where they were historically global/system records or where `company_name` is blank/current company. Tenant-owned records remain isolated by tenant. Backend regression now passes with 309 app tests.
+
+## Phase 1F Tenant Identifier And Sequence Audit
+
+Phase 1F is complete as an audit/planning layer only. No uniqueness constraints, invoice/estimate numbering behavior, import behavior, export behavior, or POE upload-id behavior changed.
+
+New audit tooling:
+
+- `apps.tenants.identifier_audit.build_tenant_identifier_audit()`
+- `python manage.py audit_tenant_identifiers`
+- `python manage.py audit_tenant_identifiers --format json`
+
+The audit reports:
+
+- global uniqueness blockers for site codes, unit codes, campaign codes, invoice numbers, estimate numbers, POE client upload ids, supplier GSTINs, alert metrics, saved views, and dashboard widget preferences
+- normalized duplicate-risk groups
+- null-tenant legacy counts for direct and derived tenant ownership paths
+- sequence ownership gaps for invoice sequences, estimate numbers, POE idempotency, and import/export file naming
+
+Phase 1G should not change constraints until the command has been run against production and any duplicate/case-collision or null-tenant findings have been resolved.
