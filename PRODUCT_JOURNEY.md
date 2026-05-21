@@ -243,3 +243,5 @@ OMMS has now closed the highest-risk remaining tenant visibility gaps around fin
 For company users, billing data, import/export jobs, notification inboxes, alert events, saved views, dashboard preferences, operational search results, and operations dashboard counts now stay inside their own company tenant. Platform owners keep intentional cross-tenant visibility for support and SaaS operations.
 
 This milestone deliberately avoids changing invoice numbers, estimate numbers, supplier GST uniqueness, and alert metric uniqueness. Those identifiers still need a production duplicate/sequence audit before OMMS moves from visibility isolation to fully tenant-scoped numbering.
+
+The Phase 1E stabilization pass completed the full regression gate after the initial commit. Backend, frontend, Playwright, and mobile checks now pass, and compatibility was tightened for legacy records that may still have null tenant values during the transition.

@@ -146,3 +146,16 @@ Still deferred:
 - Do not change `SupplierProfile.gstin` uniqueness until legal/business ownership rules are approved.
 - Do not change `AlertRule.metric` uniqueness until a platform-default plus tenant-override model is designed.
 - Do not change saved-view/dashboard preference unique constraints until legacy `company_name` snapshots are migrated or retired.
+
+## Phase 1E Stabilization Result
+
+Full regression validation after Phase 1E found and fixed runtime compatibility gaps for legacy rows that may temporarily have `tenant = NULL`:
+
+- supplier profiles created before tenant backfill
+- import/export jobs created before `ImportExportJob.tenant`
+- notification logs and inbox notifications created before notification tenant ownership
+- alert events and cooldown visibility created before alert-event tenant ownership
+- actorless audit events and request logs used as system timeline/health telemetry
+- operations summary notification/request aggregations
+
+The compatibility rule is intentionally narrow: tenant-null legacy records are visible only where they were historically global/system records or where `company_name` is blank/current company. Tenant-owned records remain isolated by tenant. Backend regression now passes with 309 app tests.

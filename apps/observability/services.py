@@ -318,7 +318,7 @@ class ApiRequestLogRepository(BaseRepository):
     def scope_queryset(self, queryset, user=None):
         if is_platform_super_admin(user):
             return queryset
-        return queryset.filter(user__tenant=get_user_tenant(user))
+        return queryset.filter(Q(user__tenant=get_user_tenant(user)) | Q(user__isnull=True))
 
 
 class AuditEventRepository(BaseRepository):
@@ -345,7 +345,10 @@ class ImportExportJobRepository(BaseRepository):
         tenant = get_user_tenant(user)
         if tenant is None:
             return queryset.none()
-        return queryset.filter(tenant=tenant)
+        return queryset.filter(
+            Q(tenant=tenant)
+            | Q(tenant__isnull=True, company_name__in=["", get_company_name()])
+        )
 
 
 class ApiRequestLogService(BaseService):
@@ -535,7 +538,7 @@ class AlertEventRepository(BaseRepository):
     def scope_queryset(self, queryset, user=None):
         if is_platform_super_admin(user):
             return queryset
-        return queryset.filter(tenant=get_user_tenant(user))
+        return queryset.filter(Q(tenant=get_user_tenant(user)) | Q(tenant__isnull=True))
 
 
 class AlertRuleService(BaseService):
@@ -1121,6 +1124,15 @@ def _alert_evaluation_tenants(rule: AlertRule):
     return [None]
 
 
+def _filter_tenant_or_legacy_null(queryset, tenant, tenant_path: str = "tenant"):
+    if tenant is None:
+        return queryset
+    default_tenant = get_default_client_tenant()
+    if default_tenant and tenant.id == default_tenant.id:
+        return queryset.filter(Q(**{tenant_path: tenant}) | Q(**{f"{tenant_path}__isnull": True}))
+    return queryset.filter(**{tenant_path: tenant})
+
+
 def get_alert_metric_value(rule: AlertRule, *, now=None, tenant=None) -> int:
     now = now or timezone.now()
     since = now - timedelta(minutes=rule.window_minutes)
@@ -1130,13 +1142,11 @@ def get_alert_metric_value(rule: AlertRule, *, now=None, tenant=None) -> int:
         return ApiRequestLog.objects.filter(status_code__gte=500, created_at__gte=since).count()
     if rule.metric == AlertRule.Metric.FAILED_NOTIFICATIONS:
         queryset = EmailNotificationLog.objects.filter(status=EmailNotificationLog.Status.FAILED, updated_at__gte=since)
-        if tenant is not None:
-            queryset = queryset.filter(tenant=tenant)
+        queryset = _filter_tenant_or_legacy_null(queryset, tenant)
         return queryset.count()
     if rule.metric == AlertRule.Metric.FAILED_IMPORT_EXPORT_JOBS:
         queryset = ImportExportJob.objects.filter(status=ImportExportJob.Status.FAILED, updated_at__gte=since)
-        if tenant is not None:
-            queryset = queryset.filter(tenant=tenant)
+        queryset = _filter_tenant_or_legacy_null(queryset, tenant)
         return queryset.count()
     if rule.metric == AlertRule.Metric.SUSPICIOUS_POES:
         queryset = ProofOfExecution.objects.filter(
@@ -2111,8 +2121,8 @@ def build_operations_summary(filters: dict[str, Any] | None = None) -> dict[str,
     request_queryset = ApiRequestLogRepository().get_queryset(user=user)
     audit_queryset = AuditEventRepository().get_queryset(user=user)
     tenant = get_user_tenant(user)
-    notification_queryset = EmailNotificationLog.objects.all() if is_platform_super_admin(user) or user is None else EmailNotificationLog.objects.filter(tenant=tenant)
-    inbox_queryset = Notification.objects.all() if is_platform_super_admin(user) or user is None else Notification.objects.filter(tenant=tenant)
+    notification_queryset = EmailNotificationLog.objects.all() if is_platform_super_admin(user) or user is None else EmailNotificationLog.objects.filter(Q(tenant=tenant) | Q(tenant__isnull=True))
+    inbox_queryset = Notification.objects.all() if is_platform_super_admin(user) or user is None else Notification.objects.filter(Q(tenant=tenant) | Q(tenant__isnull=True))
     job_queryset = ImportExportJobRepository().get_queryset(user=user)
     alert_queryset = AlertEventRepository().get_queryset(user=user).select_related("rule")
     request_queryset = _apply_created_range(request_queryset, filters)
@@ -3016,9 +3026,12 @@ def confirm_inventory_sites_import(job: ImportExportJob, *, actor=None, confirme
 
 
 def retry_import_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
+    if actor and not is_platform_super_admin(actor) and job.tenant_id is None and getattr(actor, "tenant_id", None):
+        ImportExportJob.objects.filter(pk=job.pk, tenant__isnull=True).update(tenant_id=actor.tenant_id)
+        job.tenant_id = actor.tenant_id
     if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
         raise ValueError("Job does not belong to the actor tenant.")
-    if job.company_name != get_company_name():
+    if job.company_name and job.company_name != get_company_name():
         raise ValueError("Job does not belong to the active company.")
     if job.status != ImportExportJob.Status.FAILED:
         raise ValueError("Only failed import/export jobs can be retried.")
@@ -3230,9 +3243,12 @@ EXPORT_PAYLOAD_BUILDERS = {
 def process_export_job(job: ImportExportJob, *, actor=None) -> ImportExportJob:
     if job.job_type != ImportExportJob.JobType.EXPORT:
         raise ValueError("Only export jobs can be processed here.")
+    if actor and not is_platform_super_admin(actor) and job.tenant_id is None and getattr(actor, "tenant_id", None):
+        ImportExportJob.objects.filter(pk=job.pk, tenant__isnull=True).update(tenant_id=actor.tenant_id)
+        job.tenant_id = actor.tenant_id
     if actor and not is_platform_super_admin(actor) and job.tenant_id != getattr(actor, "tenant_id", None):
         raise ValueError("Export job does not belong to the actor tenant.")
-    if job.company_name != get_company_name():
+    if job.company_name and job.company_name != get_company_name():
         raise ValueError("Export job does not belong to the active company.")
     if job.status == ImportExportJob.Status.COMPLETED:
         return job

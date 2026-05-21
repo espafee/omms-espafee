@@ -1,6 +1,8 @@
+from django.db.models import Q
+
 from core.repositories import BaseRepository
 from core.roles import CLIENT
-from apps.tenants.services import is_platform_super_admin, scope_queryset_to_tenant_path
+from apps.tenants.services import get_user_tenant, is_platform_super_admin, scope_queryset_to_tenant_path
 
 from .models import CampaignEstimate, CampaignEstimateLine, CreditNote, Invoice, InvoiceEvent, InvoiceLine, Payment, SupplierProfile
 
@@ -9,7 +11,8 @@ class SupplierProfileRepository(BaseRepository):
     model = SupplierProfile
 
     def scope_queryset(self, queryset, user=None):
-        queryset = scope_queryset_to_tenant_path(queryset, user)
+        if not is_platform_super_admin(user):
+            queryset = queryset.filter(Q(tenant=get_user_tenant(user)) | Q(tenant__isnull=True))
         return queryset.order_by("legal_name")
 
 

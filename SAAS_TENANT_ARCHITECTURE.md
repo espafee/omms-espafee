@@ -153,3 +153,9 @@ Deferred uniqueness strategy:
 
 - `Invoice.invoice_number`, `CampaignEstimate.estimate_number`, `InvoiceSequence.document_type + financial_year`, `SupplierProfile.gstin`, `AlertRule.metric`, `SavedOperationalView.user + company_name + name`, and `DashboardWidgetPreference.user + company_name + widget_key` remain globally or legacy-scoped.
 - The next phase should audit production duplicates and design tenant-aware sequence/override constraints before changing these unique indexes.
+
+### Phase 1E Stabilization Gate
+
+The Phase 1E regression pass is complete. Backend validation passes with 309 tests, frontend lint/build/Playwright passes, and mobile lint/doctor/TypeScript validation passes.
+
+During stabilization, OMMS added transition-safe handling for legacy null-tenant records in supplier profiles, jobs, notifications, alert events, audit events, request logs, and operations dashboard aggregation. These fallbacks preserve existing beta/test behavior while still preventing cross-tenant leakage for tenant-owned records.
