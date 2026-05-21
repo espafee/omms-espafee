@@ -2,6 +2,8 @@
 
 Phase 1F identifies sequence and numbering risks only. It does not change production numbering.
 
+Before Phase 1G, attach production output from `python manage.py audit_tenant_identifiers --format json` to the deployment notes and complete `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`.
+
 ## Principles
 
 - Existing issued invoice and estimate numbers are immutable historical business identifiers.

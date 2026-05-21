@@ -251,3 +251,5 @@ The Phase 1E stabilization pass completed the full regression gate after the ini
 OMMS now has a safe audit foundation for the next hard part of SaaS tenancy: natural identifiers and numbering. The platform can report which codes and sequences are still globally constrained, where null-tenant legacy records may exist, and which invoice/estimate/POE numbering paths need tenant ownership before constraints change.
 
 This phase deliberately avoids changing production behavior. Site codes, unit codes, campaign codes, invoice numbers, estimate numbers, POE upload ids, alert metrics, saved views, and dashboard preferences continue working exactly as before. The value is launch safety: Phase 1G can now be planned from audit evidence rather than guesswork.
+
+The local readiness pass has been captured, and OMMS now has a production runbook plus a Phase 1G go/no-go checklist. The next constraint migration is blocked until the same audit is run against production data and reviewed by platform, finance, operations, and deployment owners.

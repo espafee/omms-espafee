@@ -49,11 +49,14 @@ The latest SaaS migration milestone is Phase 1F: Tenant-Scoped Identifier & Sequ
 Current Phase 1F deliverables:
 
 - `TENANT_IDENTIFIER_AUDIT.md`
+- `TENANT_IDENTIFIER_AUDIT_LOCAL_RESULT.md`
+- `TENANT_IDENTIFIER_PRODUCTION_RUNBOOK.md`
+- `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`
 - `TENANT_SEQUENCE_STRATEGY.md`
 - `apps.tenants.identifier_audit`
 - `python manage.py audit_tenant_identifiers`
 
-Do not start tenant-scoped uniqueness migrations until the audit command has been run against production and reviewed.
+Local audit output shows zero duplicate groups and zero null-tenant records in the local database. Do not start tenant-scoped uniqueness migrations until the production audit command has been run against the live database and reviewed against the Phase 1G checklist.
 
 ## Recently Completed / In Progress
 

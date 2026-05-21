@@ -21,6 +21,12 @@ The command reports:
 
 The command is safe for production because it performs read-only counts and grouped queries.
 
+## Related Readiness Artifacts
+
+- `TENANT_IDENTIFIER_AUDIT_LOCAL_RESULT.md`: local audit output captured on 2026-05-21.
+- `TENANT_IDENTIFIER_PRODUCTION_RUNBOOK.md`: exact production/Render runbook for capturing audit output safely.
+- `PHASE_1G_IDENTIFIER_CONSTRAINT_CHECKLIST.md`: go/no-go checklist before any uniqueness or sequence migration.
+
 ## Identifier Targets
 
 | Identifier | Current constraint | Tenant target | Phase 1G risk |
@@ -93,3 +99,5 @@ Do not start constraint migrations until:
 - duplicate/case-collision groups are resolved
 - invoice and estimate sequence ownership is designed
 - rollback notes exist for each constraint migration
+
+Local audit output is not enough for Phase 1G approval. Production output must be captured from the live database because local development may have no operational records.
