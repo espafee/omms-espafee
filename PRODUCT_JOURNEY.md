@@ -255,3 +255,9 @@ This phase deliberately avoids changing production behavior. Site codes, unit co
 The local readiness pass has been captured, and OMMS now has a production runbook plus a Phase 1G go/no-go checklist. The next constraint migration is blocked until the same audit is run against production data and reviewed by platform, finance, operations, and deployment owners.
 
 Production audit execution remains pending because authenticated Render shell/job access was not available from the current Codex environment. This keeps Phase 1G correctly in a no-go state until live data is reviewed.
+
+## Executive Dashboard Experience
+
+OMMS now gives owners and administrators a clearer first answer to the question that matters most: what is healthy, what is moving, and what needs attention now. The dashboard begins with a calm executive command center covering campaign health, live booking execution, POE coverage, collection performance, and priority risks.
+
+The upgrade uses the platform's existing tenant-scoped summaries and role permissions, so the stronger international presentation does not weaken data isolation or create a second analytics contract. User-selected modules remain dynamic and persistent, while dashboard customization has moved into a compact secondary control. The result is a more credible leadership view without making the day-to-day product harder to understand.

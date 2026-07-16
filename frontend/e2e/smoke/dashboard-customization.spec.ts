@@ -172,6 +172,8 @@ test("dashboard customization hides, shows, and restores visible sections", asyn
 
   await page.goto("/dashboard");
 
+  await expect(page.getByTestId("admin-executive-dashboard")).toBeVisible();
+  await expect(page.getByTestId("admin-executive-dashboard")).not.toContainText("NaN");
   await expect(page.getByTestId("dashboard-widget-billing_risk")).toBeVisible();
   await expect(page.getByTestId("dashboard-widget-campaign_performance")).toBeVisible();
   await expect(page.getByTestId("dashboard-widget-assigned_work")).toBeVisible();
@@ -188,6 +190,7 @@ test("dashboard customization hides, shows, and restores visible sections", asyn
     "dashboard-widget-slot-assigned_work",
   ]);
 
+  await page.getByText("Customize dashboard", { exact: true }).click();
   await page.getByLabel(/Billing risk/).uncheck();
   await expect(page.getByText("Dashboard preference saved.")).toBeVisible();
   await expect(page.getByTestId("dashboard-widget-billing_risk")).toBeHidden();

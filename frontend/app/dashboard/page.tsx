@@ -72,11 +72,38 @@ function metricValue(value: string | number | null | undefined) {
   return value === undefined || value === null ? "..." : String(value);
 }
 
-function DashboardMetric({ label, value, href }: { label: string; value: ReactNode; href?: string }) {
+function clampPercentage(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function ratioPercentage(value: number, total: number) {
+  return Number.isFinite(value) && Number.isFinite(total) && total > 0
+    ? clampPercentage((value / total) * 100)
+    : 0;
+}
+
+function DashboardMetric({
+  label,
+  value,
+  href,
+  hint,
+}: {
+  label: string;
+  value: ReactNode;
+  href?: string;
+  hint?: string;
+}) {
   const content = (
     <>
-      <p className="stat-label">{label}</p>
-      <p className="stat-value">{value}</p>
+      <span className="dashboard-metric-copy">
+        <span className="stat-label">{label}</span>
+        {hint ? <span className="dashboard-metric-hint">{hint}</span> : null}
+      </span>
+      <span className="stat-value">{value}</span>
+      {href ? <span className="dashboard-metric-arrow" aria-hidden="true">→</span> : null}
     </>
   );
   if (href) {
@@ -88,12 +115,14 @@ function DashboardMetric({ label, value, href }: { label: string; value: ReactNo
 function WidgetCard({
   title,
   category,
+  description,
   children,
   testId,
   highlight = false,
 }: {
   title: string;
   category: string;
+  description?: string;
   children: ReactNode;
   testId: string;
   highlight?: boolean;
@@ -101,11 +130,213 @@ function WidgetCard({
   return (
     <article className={`module-card${highlight ? " module-card-highlight" : ""}`} data-testid={testId}>
       <div className="module-head">
-        <h2>{title}</h2>
-        <span>{category}</span>
+        <div>
+          <span className="dashboard-widget-category">{category}</span>
+          <h2>{title}</h2>
+          {description ? <p className="dashboard-widget-description">{description}</p> : null}
+        </div>
+        <span className="dashboard-widget-status" aria-hidden="true" />
       </div>
       <div className="module-stats">{children}</div>
     </article>
+  );
+}
+
+function ExecutiveMetric({
+  label,
+  value,
+  context,
+  percentage,
+  tone = "green",
+  href,
+}: {
+  label: string;
+  value: ReactNode;
+  context: string;
+  percentage: number;
+  tone?: "green" | "blue" | "amber" | "red";
+  href: string;
+}) {
+  return (
+    <Link className={`executive-metric executive-metric-${tone}`} href={href}>
+      <span className="executive-metric-topline">
+        <span className="executive-metric-label">{label}</span>
+        <span className="executive-metric-link" aria-hidden="true">↗</span>
+      </span>
+      <strong>{value}</strong>
+      <span className="executive-metric-context">{context}</span>
+      <span className="executive-progress" aria-hidden="true">
+        <span style={{ width: `${clampPercentage(percentage)}%` }} />
+      </span>
+    </Link>
+  );
+}
+
+function ExecutiveDashboard({
+  dashboard,
+  isLoading,
+  operationalMode,
+  canViewFinance,
+}: {
+  dashboard: DashboardPayload | null;
+  isLoading: boolean;
+  operationalMode: OperationalMode | null;
+  canViewFinance: boolean;
+}) {
+  const campaigns = dashboard?.campaigns;
+  const bookings = dashboard?.bookings;
+  const billing = dashboard?.billing;
+  const campaignHealth = campaigns
+    ? clampPercentage(100 - ratioPercentage(campaigns.campaigns_at_risk, campaigns.active_campaigns))
+    : 0;
+  const deliveryCoverage = bookings
+    ? ratioPercentage(campaigns?.approved_assets ?? 0, bookings.total_bookings)
+    : 0;
+  const bookingMomentum = bookings ? ratioPercentage(bookings.live_bookings, bookings.total_bookings) : 0;
+  const collectionEfficiency = clampPercentage(billing?.collection_efficiency_percentage ?? 0);
+  const attentionItems = [
+    {
+      label: "Critical campaigns",
+      value: campaigns?.critical_campaigns ?? 0,
+      detail: "Require leadership attention",
+      href: "/campaigns",
+      tone: "critical",
+    },
+    {
+      label: "Campaigns at risk",
+      value: campaigns?.campaigns_at_risk ?? 0,
+      detail: "POE or billing pressure",
+      href: "/campaigns",
+      tone: "warning",
+    },
+    {
+      label: "Pending bookings",
+      value: bookings?.pending_bookings ?? 0,
+      detail: "Awaiting confirmation",
+      href: "/bookings",
+      tone: "neutral",
+    },
+    ...(canViewFinance
+      ? [{
+          label: "Overdue invoices",
+          value: billing?.overdue_invoices ?? 0,
+          detail: formatCurrency(billing?.overdue_amount ?? "0.00"),
+          href: "/billing?invoiceStatus=overdue",
+          tone: "critical",
+        }]
+      : []),
+  ];
+
+  return (
+    <section className="executive-dashboard" data-testid="admin-executive-dashboard">
+      <div className="executive-hero">
+        <div className="executive-hero-copy">
+          <span className="executive-kicker">Executive command center</span>
+          <h2>Your business, in one decisive view.</h2>
+          <p>Portfolio health, delivery momentum, financial control, and immediate priorities across OMMS.</p>
+        </div>
+        <div className="executive-hero-status">
+          <span className="live-indicator"><span aria-hidden="true" /> Live portfolio</span>
+          <strong>{operationalMode?.label ?? "Normal operations"}</strong>
+          <small>Current environment mode</small>
+        </div>
+      </div>
+
+      <div className="executive-metric-grid" aria-label="Executive performance indicators">
+        <ExecutiveMetric
+          label="Campaign health"
+          value={isLoading ? "..." : `${campaignHealth}%`}
+          context={`${campaigns?.active_campaigns ?? 0} active · ${campaigns?.campaigns_at_risk ?? 0} at risk`}
+          percentage={campaignHealth}
+          href="/campaigns"
+        />
+        <ExecutiveMetric
+          label="Live execution"
+          value={isLoading ? "..." : bookings?.live_bookings ?? 0}
+          context={`${bookings?.total_bookings ?? 0} total bookings`}
+          percentage={bookingMomentum}
+          tone="blue"
+          href="/bookings"
+        />
+        <ExecutiveMetric
+          label="POE coverage"
+          value={isLoading ? "..." : `${deliveryCoverage}%`}
+          context={`${campaigns?.approved_assets ?? 0} approved proof assets`}
+          percentage={deliveryCoverage}
+          tone="amber"
+          href="/poe"
+        />
+        {canViewFinance ? (
+          <ExecutiveMetric
+            label="Collection efficiency"
+            value={isLoading ? "..." : `${collectionEfficiency}%`}
+            context={`${formatCurrency(billing?.outstanding_balance ?? "0.00")} outstanding`}
+            percentage={collectionEfficiency}
+            tone={collectionEfficiency < 60 ? "red" : "green"}
+            href="/billing"
+          />
+        ) : (
+          <ExecutiveMetric
+            label="Active portfolio"
+            value={isLoading ? "..." : formatCurrency(campaigns?.active_budget ?? "0.00")}
+            context={`${campaigns?.active_campaigns ?? 0} campaigns in market`}
+            percentage={ratioPercentage(campaigns?.active_campaigns ?? 0, campaigns?.total_campaigns ?? 0)}
+            href="/campaigns"
+          />
+        )}
+      </div>
+
+      <div className="executive-insight-grid">
+        <article className="executive-insight-panel">
+          <div className="executive-panel-heading">
+            <div>
+              <span>Portfolio momentum</span>
+              <h3>Performance at a glance</h3>
+            </div>
+            <Link href="/operations">View intelligence</Link>
+          </div>
+          <div className="executive-performance-list">
+            <div>
+              <span><strong>Campaign health</strong><em>{campaignHealth}%</em></span>
+              <span className="executive-bar"><span style={{ width: `${campaignHealth}%` }} /></span>
+            </div>
+            <div>
+              <span><strong>Live booking share</strong><em>{bookingMomentum}%</em></span>
+              <span className="executive-bar executive-bar-blue"><span style={{ width: `${bookingMomentum}%` }} /></span>
+            </div>
+            <div>
+              <span><strong>Proof coverage</strong><em>{deliveryCoverage}%</em></span>
+              <span className="executive-bar executive-bar-amber"><span style={{ width: `${deliveryCoverage}%` }} /></span>
+            </div>
+            {canViewFinance ? (
+              <div>
+                <span><strong>Collections</strong><em>{collectionEfficiency}%</em></span>
+                <span className="executive-bar"><span style={{ width: `${collectionEfficiency}%` }} /></span>
+              </div>
+            ) : null}
+          </div>
+        </article>
+
+        <article className="executive-insight-panel executive-attention-panel">
+          <div className="executive-panel-heading">
+            <div>
+              <span>Command priorities</span>
+              <h3>What needs attention</h3>
+            </div>
+            <span className="executive-priority-count">{attentionItems.reduce((total, item) => total + item.value, 0)}</span>
+          </div>
+          <div className="executive-priority-list">
+            {attentionItems.map((item) => (
+              <Link href={item.href} key={item.label}>
+                <span className={`priority-dot priority-dot-${item.tone}`} aria-hidden="true" />
+                <span><strong>{item.label}</strong><small>{item.detail}</small></span>
+                <b>{isLoading ? "..." : item.value}</b>
+              </Link>
+            ))}
+          </div>
+        </article>
+      </div>
+    </section>
   );
 }
 
@@ -390,6 +621,10 @@ export default function DashboardPage() {
   }, [profile, user]);
 
   const renderableWidgets = useMemo(() => getRenderableWidgets(profile), [profile]);
+  const isExecutiveAdmin = useMemo(() => {
+    const role = (profile?.role ?? user?.role ?? "").toLowerCase();
+    return ["admin", "owner", "super_admin", "platform_admin", "company_admin"].includes(role);
+  }, [profile?.role, user?.role]);
 
   async function handleWidgetToggle(widgetKey: string, isVisible: boolean) {
     if (!profile?.can_customize) {
@@ -442,46 +677,35 @@ export default function DashboardPage() {
       active="dashboard"
       roleLabel={user?.role ?? "Team member"}
       userEmail={user?.email ?? "Loading user..."}
-      title="Dashboard overview"
+      eyebrow="OMMS intelligence"
+      title={isExecutiveAdmin ? "Executive overview" : "Dashboard overview"}
       description={headline}
       onLogout={handleLogout}
     >
       {error ? <p className="error dashboard-error">{error}</p> : null}
       {message ? <p className="success">{message}</p> : null}
 
-      {profile?.can_customize ? (
-        <section className="module-card dashboard-customize">
-          <div className="module-head">
-            <div>
-              <h2>Customize dashboard</h2>
-              <p className="site-copy">Role defaults are applied first. Hide safe optional widgets you do not need.</p>
-            </div>
-            <button className="ghost" type="button" onClick={handleRestoreDefaults} disabled={isSavingProfile}>
-              Restore defaults
-            </button>
-          </div>
-          <div className="dashboard-widget-toggles">
-            {profile.available_widgets.map((widget) => (
-              <label className="dashboard-widget-toggle" key={widget.key}>
-                <input
-                  type="checkbox"
-                  checked={widget.is_visible}
-                  disabled={widget.is_required || isSavingProfile}
-                  onChange={(event) => handleWidgetToggle(widget.key, event.target.checked)}
-                />
-                <span>
-                  <strong>{widget.label}</strong>
-                  <small>{widget.category} · {widget.description}{widget.is_required ? " · Required" : ""}</small>
-                </span>
-              </label>
-            ))}
-          </div>
-        </section>
+      {isExecutiveAdmin && profile ? (
+        <ExecutiveDashboard
+          dashboard={dashboard}
+          isLoading={isLoading}
+          operationalMode={operationalMode}
+          canViewFinance={profile.can_view_finance && profileHasVisibleFinanceWidgets(profile)}
+        />
       ) : null}
+
+      <div className="dashboard-section-heading">
+        <div>
+          <span>Role workspace</span>
+          <h2>Your operational modules</h2>
+          <p>Focused views arranged around your responsibilities and saved dashboard preferences.</p>
+        </div>
+        <span className="dashboard-section-count">{renderableWidgets.length} active</span>
+      </div>
 
       <section className="module-grid" data-testid="dashboard-widget-grid">
         {renderableWidgets.map((widget) => (
-          <div key={widget.key} data-testid={`dashboard-widget-slot-${widget.key}`}>
+          <div className="dashboard-widget-slot" key={widget.key} data-testid={`dashboard-widget-slot-${widget.key}`}>
             {profile ? renderDashboardWidget(widget, { dashboard, isLoading, profile, operationalMode }) : null}
           </div>
         ))}
@@ -489,6 +713,45 @@ export default function DashboardPage() {
 
       {!isLoading && profile && !renderableWidgets.length ? (
         <p className="empty-state">No dashboard widgets are currently visible. Restore defaults or enable a widget to rebuild this view.</p>
+      ) : null}
+
+      {profile?.can_customize ? (
+        <details className="module-card dashboard-customize">
+          <summary>
+            <span>
+              <strong>Customize dashboard</strong>
+              <small>Choose the operational modules that matter to you</small>
+            </span>
+            <span className="dashboard-customize-action">Manage widgets</span>
+          </summary>
+          <div className="dashboard-customize-content">
+            <div className="module-head">
+              <div>
+                <h2>Dashboard modules</h2>
+                <p className="site-copy">Role defaults protect required views. Optional modules can be hidden at any time.</p>
+              </div>
+              <button className="ghost" type="button" onClick={handleRestoreDefaults} disabled={isSavingProfile}>
+                Restore defaults
+              </button>
+            </div>
+            <div className="dashboard-widget-toggles">
+              {profile.available_widgets.map((widget) => (
+                <label className="dashboard-widget-toggle" key={widget.key}>
+                  <input
+                    type="checkbox"
+                    checked={widget.is_visible}
+                    disabled={widget.is_required || isSavingProfile}
+                    onChange={(event) => handleWidgetToggle(widget.key, event.target.checked)}
+                  />
+                  <span>
+                    <strong>{widget.label}</strong>
+                    <small>{widget.category} · {widget.description}{widget.is_required ? " · Required" : ""}</small>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </details>
       ) : null}
     </AppShell>
   );

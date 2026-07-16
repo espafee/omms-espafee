@@ -1077,3 +1077,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Global invoice numbers, estimate numbers, invoice sequences, supplier GST uniqueness, alert metric uniqueness, saved-view uniqueness, and dashboard preference uniqueness remain unchanged pending a dedicated duplicate-code/sequence audit.
 - Stabilization follow-up completed after commit `0590b1f`: full backend regression now passes with 309 tests. Legacy/null-tenant compatibility was hardened for supplier profiles, import/export retry/processing, notification logs, alert events/cooldowns, audit timeline, request logs, and operations summary counts.
 - Frontend validation passed: `npm run lint`, `npm run build`, and 9 Playwright smoke tests. Mobile validation passed: `npm install`, `npm run lint || true`, `npx expo-doctor || true`, and `npx tsc --noEmit`.
+
+## Admin Executive Dashboard Refinement
+
+- The admin dashboard now opens with an executive command layer built from the existing tenant-scoped campaign, booking, POE, billing, and environment summaries.
+- The first view presents campaign health, live execution, POE coverage, collection efficiency, portfolio momentum, and a concise attention queue for critical campaigns, campaign risk, pending bookings, and overdue invoices.
+- Role and finance permissions remain authoritative. The executive layer is limited to owner/admin roles, finance data is included only when the active profile may view it, and non-admin dashboards retain their focused role experience.
+- Existing dashboard widget registry behavior, saved visibility, required widgets, ordering, restore-default behavior, and API contracts are preserved.
+- Dashboard customization is now a compact expandable control below the operational modules so it does not compete with decision-critical information.
+- Frontend validation passed: ESLint, Next.js production build, and all 9 Playwright smoke tests. The dashboard test now verifies the executive layer, safe percentage fallbacks, widget visibility, and preference restoration.
