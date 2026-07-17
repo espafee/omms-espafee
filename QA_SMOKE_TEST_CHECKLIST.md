@@ -19,6 +19,18 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: site is created with location status `unverified`.
 - Expected: UI explains coordinates will be captured during first verified POE.
 
+## 3A. Inventory Site Photo Upload
+- Open Inventory and go to a site card with 0 images.
+- Expected: Upload image is disabled before a file is selected and does not show a loading/wait cursor.
+- Choose a JPG, PNG, or WebP file.
+- Expected: Upload image becomes clickable for that site card.
+- Click Upload image.
+- Expected: only that site card shows Uploading, then the image count increases and a thumbnail appears.
+- Repeat file selection on another site while the first upload is in progress.
+- Expected: the other site card is not blocked by the first card's upload state.
+- Try an invalid upload.
+- Expected: readable error appears, the button recovers, and the selected file remains available for retry.
+
 ## 4. Campaign Creation
 - Open Campaigns.
 - Create a campaign for a client with start/end dates and budget.

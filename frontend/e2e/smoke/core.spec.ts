@@ -87,6 +87,147 @@ test.describe("OMMS web smoke", () => {
     }
   });
 
+  test("inventory site photo upload buttons enable per card and recover after failure", async ({ page }) => {
+    await seedAdminSession(page);
+    const adminUser = { id: 1, email: "admin@example.com", username: "admin", role: "admin" };
+    const sites = [
+      {
+        id: 1,
+        name: "Airport Road Billboard",
+        code: "SITE-001",
+        site_type: "billboard",
+        address: "Airport Road",
+        city: "Jammu",
+        state: "Jammu and Kashmir",
+        latitude: null,
+        longitude: null,
+        owner: 1,
+        primary_image: null,
+        image_gallery: [],
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      },
+      {
+        id: 2,
+        name: "Railway Gantry",
+        code: "SITE-002",
+        site_type: "digital",
+        address: "Station Road",
+        city: "Jammu",
+        state: "Jammu and Kashmir",
+        latitude: null,
+        longitude: null,
+        owner: 1,
+        primary_image: null,
+        image_gallery: [],
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    let uploadCount = 0;
+    let failNextUpload = false;
+    let releaseFirstUpload: (() => void) | null = null;
+    const imageFile = {
+      name: "site-photo.png",
+      mimeType: "image/png",
+      buffer: Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+        "base64",
+      ),
+    };
+
+    await page.route("**/api/v1/**", async (route) => {
+      const url = new URL(route.request().url());
+      const path = url.pathname.replace("/api/v1/", "");
+      const paginated = (results: unknown[]) => ({ count: results.length, next: null, previous: null, results });
+
+      if (path === "users/auth/me/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(adminUser) });
+        return;
+      }
+      if (path === "inventory/sites/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(paginated(sites)) });
+        return;
+      }
+      if (path === "inventory/units/") {
+        await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(paginated([])) });
+        return;
+      }
+      if (path === "inventory/site-images/" && route.request().method() === "POST") {
+        uploadCount += 1;
+        if (uploadCount === 1) {
+          await new Promise<void>((resolve) => {
+            releaseFirstUpload = resolve;
+          });
+        }
+        if (failNextUpload) {
+          await route.fulfill({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({ image: ["Upload a valid image file."] }),
+          });
+          return;
+        }
+
+        const uploadedImage = {
+          id: 101,
+          site: 1,
+          image: "/media/inventory/sites/1/site-photo.png",
+          image_url: "/media/inventory/sites/1/site-photo.png",
+          caption: "Front angle",
+          is_primary: true,
+          uploaded_by: 1,
+          uploaded_at: "2026-05-02T00:00:00Z",
+          created_at: "2026-05-02T00:00:00Z",
+          updated_at: "2026-05-02T00:00:00Z",
+        };
+        sites[0] = {
+          ...sites[0],
+          primary_image: uploadedImage,
+          image_gallery: [uploadedImage],
+        };
+        await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify(uploadedImage) });
+        return;
+      }
+
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(paginated([])) });
+    });
+
+    await page.goto("/inventory");
+
+    const firstCard = page.locator(".image-manager-card").filter({ hasText: "Airport Road Billboard" });
+    const secondCard = page.locator(".image-manager-card").filter({ hasText: "Railway Gantry" });
+    await firstCard.scrollIntoViewIfNeeded();
+
+    const firstUploadButton = firstCard.getByRole("button", { name: "Upload image" });
+    const secondUploadButton = secondCard.getByRole("button", { name: "Upload image" });
+    await expect(firstUploadButton).toBeDisabled();
+    await expect(secondUploadButton).toBeDisabled();
+
+    await firstCard.locator('input[type="file"]').setInputFiles(imageFile);
+    await expect(firstUploadButton).toBeEnabled();
+
+    await firstUploadButton.click();
+    await expect(firstCard.getByRole("button", { name: "Uploading..." })).toBeDisabled();
+
+    await secondCard.locator('input[type="file"]').setInputFiles({ ...imageFile, name: "second-site-photo.png" });
+    await expect(secondUploadButton).toBeEnabled();
+    await expect(secondUploadButton).toHaveAttribute("data-uploading", "false");
+    expect(uploadCount).toBe(1);
+
+    releaseFirstUpload?.();
+    await expect(firstCard.getByText("Image uploaded successfully.")).toBeVisible();
+    await expect(firstCard.getByText("1 image(s)")).toBeVisible();
+    await expect(firstCard.locator(".image-thumb-card")).toHaveCount(1);
+
+    failNextUpload = true;
+    await secondUploadButton.click();
+    await expect(secondCard.getByText("image: Upload a valid image file.")).toBeVisible();
+    await expect(secondUploadButton).toBeEnabled();
+    await expect(secondCard.getByText(/second-site-photo\.png selected/)).toBeVisible();
+    expect(uploadCount).toBe(2);
+  });
+
   test("admin can open Training module and request PDF guides", async ({ page }) => {
     await seedAdminSession(page);
     let downloadRequested = false;
