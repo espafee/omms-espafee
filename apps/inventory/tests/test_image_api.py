@@ -493,3 +493,93 @@ class InventoryImageAPITests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["count"], 1)
         self.assertEqual(response.data["results"][0]["id"], self.unit.id)
+
+    def test_all_sites_list_exposes_structured_unit_and_site_fields(self):
+        unit_image = MediaUnitImage.objects.create(
+            media_unit=self.unit,
+            image=generate_test_image("unit-list-primary.png"),
+            caption="List thumbnail",
+            is_primary=True,
+            uploaded_by=self.operations,
+        )
+        empty_site = MediaSite.objects.create(
+            name="New Site Awaiting Units",
+            code="SITE-EMPTY-001",
+            site_type=MediaSite.SiteType.TRANSIT,
+            address="Depot Road",
+            city="Pune",
+            state="Maharashtra",
+            owner=self.operations,
+        )
+
+        self.client.force_authenticate(user=self.sales)
+        response = self.client.get(reverse("inventory-sites-all-sites"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 2)
+        row = next(item for item in response.data["results"] if item["site_id"] == self.site.id)
+        self.assertEqual(row["id"], self.site.id)
+        self.assertEqual(row["site_id"], self.site.id)
+        self.assertEqual(row["site_code"], self.site.code)
+        self.assertEqual(row["unit_ids"], [self.unit.id])
+        self.assertEqual(row["unit_codes"], [self.unit.unit_code])
+        self.assertEqual(row["title"], self.site.name)
+        self.assertEqual(row["address"], self.site.address)
+        self.assertEqual(row["city"], self.site.city)
+        self.assertEqual(row["state"], self.site.state)
+        self.assertEqual(row["media_type"], self.site.site_type)
+        self.assertEqual(row["dimensions"], "20.00 x 10.00")
+        self.assertEqual(row["facing_direction"], "Toward Jammu City")
+        self.assertEqual(row["unit_site_type"], MediaUnit.SiteType.SINGLE_SIDE)
+        self.assertEqual(row["status"], MediaUnit.Status.AVAILABLE)
+        self.assertIn("/media/inventory/units/", row["thumbnail_url"])
+        self.assertNotIn("documents/", row["thumbnail_url"])
+        self.assertEqual(unit_image.id, self.unit.primary_image_object.id)
+        empty_row = next(item for item in response.data["results"] if item["site_id"] == empty_site.id)
+        self.assertEqual(empty_row["status"], "no_units")
+        self.assertEqual(empty_row["unit_ids"], [])
+        self.assertEqual(empty_row["unit_codes"], [])
+
+    def test_all_sites_list_supports_filters_search_and_pagination(self):
+        other_site = MediaSite.objects.create(
+            name="SIDCO Corner",
+            code="SITE-IMG-002",
+            site_type=MediaSite.SiteType.DIGITAL,
+            address="SIDCO Chowk",
+            city="Jammu",
+            state="Jammu and Kashmir",
+            owner=self.operations,
+        )
+        other_unit = MediaUnit.objects.create(
+            site=other_site,
+            unit_code="UNIT-IMG-099",
+            face_count=2,
+            width=Decimal("18.00"),
+            height=Decimal("9.00"),
+            status=MediaUnit.Status.RESERVED,
+            is_illuminated=False,
+            monthly_rate=Decimal("42000.00"),
+            facing_direction="Toward Lakhanpur",
+            site_type=MediaUnit.SiteType.BOTH_SIDE,
+        )
+
+        self.client.force_authenticate(user=self.sales)
+        response = self.client.get(
+            reverse("inventory-sites-all-sites"),
+            {
+                "city": "Jammu",
+                "status": MediaUnit.Status.RESERVED,
+                "media_type": MediaSite.SiteType.DIGITAL,
+                "facing_direction": "Toward Lakhanpur",
+                "site_type": MediaUnit.SiteType.BOTH_SIDE,
+                "search": "SIDCO",
+                "page_size": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(len(response.data["results"]), 1)
+        self.assertEqual(response.data["results"][0]["site_id"], other_site.id)
+        self.assertEqual(response.data["results"][0]["unit_ids"], [other_unit.id])
+        self.assertEqual(response.data["results"][0]["city"], "Jammu")

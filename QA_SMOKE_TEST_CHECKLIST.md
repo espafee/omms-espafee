@@ -19,6 +19,19 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: site is created with location status `unverified`.
 - Expected: UI explains coordinates will be captured during first verified POE.
 
+## 3A. All Sites / Inventory List
+- Open Inventory.
+- Confirm the new site appears in the All Sites table even before media units are added.
+- Add or edit a media unit for the site with dimensions, facing direction, single/both-side site type, and status.
+- Expected: All Sites shows site id/code context, unit code, title, city/address, media type, dimensions, facing direction, unit site type, availability, and updated date.
+- Upload a site or media-unit image and mark it primary.
+- Expected: All Sites shows only the public thumbnail/image URL behavior used by inventory galleries; no private document URL is exposed.
+- Test search plus city, status, media type, facing direction, and site type filters.
+- Click View from the row.
+- Expected: the site gallery section opens.
+- Click Edit from a row with a media unit.
+- Expected: the existing media-unit editor opens with the selected unit loaded.
+
 ## 4. Campaign Creation
 - Open Campaigns.
 - Create a campaign for a client with start/end dates and budget.

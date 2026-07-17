@@ -57,6 +57,37 @@ export type InventoryUnit = {
   updated_at: string;
 };
 
+export type InventorySiteListItem = {
+  id: number;
+  site_id: number;
+  site_code: string;
+  unit_ids: number[];
+  unit_codes: string[];
+  title: string;
+  address: string;
+  city: string;
+  state: string;
+  media_type: string;
+  dimensions: string;
+  facing_direction: string;
+  unit_site_type: string;
+  status: string;
+  thumbnail_url: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InventorySiteListFilters = {
+  search?: string;
+  city?: string;
+  status?: string;
+  media_type?: string;
+  facing_direction?: string;
+  site_type?: string;
+  page?: number;
+  page_size?: number;
+};
+
 export type InventoryPayload = {
   sites: InventorySite[];
   units: InventoryUnit[];
@@ -155,6 +186,13 @@ function normalizeUnit(unit: InventoryUnit): InventoryUnit {
   };
 }
 
+function normalizeSiteListItem(item: InventorySiteListItem): InventorySiteListItem {
+  return {
+    ...item,
+    thumbnail_url: normalizeMediaUrl(item.thumbnail_url),
+  };
+}
+
 export async function fetchInventoryData(): Promise<InventoryPayload> {
   const [sites, units] = await Promise.all([
     list<InventorySite>("inventory/sites/"),
@@ -163,6 +201,26 @@ export async function fetchInventoryData(): Promise<InventoryPayload> {
   return {
     sites: sites.map(normalizeSite),
     units: units.map(normalizeUnit),
+  };
+}
+
+export async function fetchInventorySiteList(filters: InventorySiteListFilters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+
+  const query = params.toString();
+  const payload = await apiFetch<Paginated<InventorySiteListItem>>(
+    `inventory/sites/all-sites/${query ? `?${query}` : ""}`,
+  );
+
+  return {
+    ...payload,
+    results: payload.results.map(normalizeSiteListItem),
   };
 }
 

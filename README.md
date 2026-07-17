@@ -176,6 +176,9 @@ Inventory supports:
 - Primary image selection
 - Image uploads
 - Client-scoped inventory visibility
+- All Sites inventory list at `GET /api/v1/inventory/sites/all-sites/`
+
+The All Sites endpoint is paginated and powers the Inventory page list view. It returns one row per `MediaSite`, including newly created sites that do not have media units yet. Rows include site id, site code, unit ids/codes, title, address, city, state, media type, dimensions, facing direction, single/both-side unit type, availability status, public thumbnail URL, and created/updated timestamps. Filters include `search`, `city`, `status`, `media_type`, `facing_direction`, `site_type`, `page`, and `page_size`.
 
 ### Campaigns
 
