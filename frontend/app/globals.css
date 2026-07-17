@@ -2325,6 +2325,65 @@ textarea::placeholder {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.inventory-list-filter-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.all-sites-table-wrap {
+  margin-top: 16px;
+}
+
+.all-sites-table {
+  min-width: 980px;
+}
+
+.all-sites-thumb {
+  width: 72px;
+  height: 54px;
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.all-sites-thumb-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.all-sites-unit-codes {
+  max-width: 260px;
+}
+
+.all-sites-actions,
+.pagination-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pagination-row {
+  justify-content: flex-end;
+  margin-top: 14px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.status-no_units {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
+}
+
 .unit-upload-preview-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -4425,7 +4484,8 @@ textarea::placeholder {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .inventory-filter-grid {
+  .inventory-filter-grid,
+  .inventory-list-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -4634,6 +4694,7 @@ textarea::placeholder {
   .site-form-grid,
   .client-form-grid,
   .inventory-filter-grid,
+  .inventory-list-filter-grid,
   .poe-capture-grid,
   .public-meta-grid,
   .public-evidence-grid,

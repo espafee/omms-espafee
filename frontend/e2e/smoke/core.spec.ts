@@ -228,6 +228,101 @@ test.describe("OMMS web smoke", () => {
     expect(uploadCount).toBe(2);
   });
 
+  test("inventory All Sites list renders filters and row actions", async ({ page }) => {
+    await seedAdminSession(page);
+    const adminUser = { id: 1, email: "admin@example.com", username: "admin", role: "admin" };
+    const sites = [
+      {
+        id: 1,
+        name: "Airport Road Billboard",
+        code: "SITE-001",
+        site_type: "billboard",
+        address: "Airport Road",
+        city: "Jammu",
+        state: "Jammu and Kashmir",
+        latitude: null,
+        longitude: null,
+        owner: 1,
+        primary_image: null,
+        image_gallery: [],
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    const units = [
+      {
+        id: 1,
+        site: 1,
+        unit_code: "UNIT-001",
+        face_count: 1,
+        width: "20.00",
+        height: "10.00",
+        status: "available",
+        is_illuminated: true,
+        monthly_rate: "50000.00",
+        facing_direction: "North",
+        site_type: "single_side",
+        primary_image: null,
+        image_gallery: [],
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      },
+    ];
+    const allSites = [
+      {
+        id: 1,
+        site_id: 1,
+        site_code: "SITE-001",
+        unit_ids: [1],
+        unit_codes: ["UNIT-001"],
+        title: "Airport Road Billboard",
+        address: "Airport Road",
+        city: "Jammu",
+        state: "Jammu and Kashmir",
+        media_type: "billboard",
+        dimensions: "20.00 x 10.00",
+        facing_direction: "North",
+        unit_site_type: "single_side",
+        status: "available",
+        thumbnail_url: null,
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-02T00:00:00Z",
+      },
+    ];
+
+    await page.route("**/api/v1/**", async (route) => {
+      const url = new URL(route.request().url());
+      const path = url.pathname.replace("/api/v1/", "");
+      const paginated = (results: unknown[]) => ({ count: results.length, next: null, previous: null, results });
+      const payloadByPath: Record<string, unknown> = {
+        "users/auth/me/": adminUser,
+        "inventory/sites/": paginated(sites),
+        "inventory/units/": paginated(units),
+        "inventory/sites/all-sites/": paginated(allSites),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payloadByPath[path] ?? paginated([])),
+      });
+    });
+
+    await page.goto("/inventory");
+
+    await expect(page.getByRole("heading", { name: "All Sites" })).toBeVisible();
+    const allSitesTable = page.locator(".all-sites-table");
+    await expect(allSitesTable.getByText("SITE-001")).toBeVisible();
+    await expect(allSitesTable.getByText("UNIT-001")).toBeVisible();
+    await expect(allSitesTable).toContainText("Airport Road");
+    await page.locator("#site-list-search").fill("Airport");
+    await page.locator("#site-list-city").selectOption("Jammu");
+    await page.locator("#site-list-status").selectOption("available");
+    await page.locator("#site-list-media-type").selectOption("billboard");
+    await page.locator("#site-list-unit-site-type").selectOption("single_side");
+    await allSitesTable.getByRole("button", { name: "Edit" }).click();
+    await expect(page.getByRole("heading", { name: "Editing Media Unit: UNIT-001" })).toBeVisible();
+  });
+
   test("admin can open Training module and request PDF guides", async ({ page }) => {
     await seedAdminSession(page);
     let downloadRequested = false;
