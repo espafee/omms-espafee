@@ -73,6 +73,33 @@ export type InventorySiteListItem = {
   unit_site_type: string;
   status: string;
   thumbnail_url: string | null;
+  unit_count: number;
+  available_unit_count: number;
+  image_count: number;
+  has_coordinates: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type InventoryUnitListItem = {
+  id: number;
+  unit_code: string;
+  location_id: number;
+  location_name: string;
+  location_code: string;
+  city: string;
+  address: string;
+  location_type: string;
+  face_count: number;
+  width: string;
+  height: string;
+  status: string;
+  is_illuminated: boolean;
+  monthly_rate: string;
+  facing_direction: string;
+  site_type: string;
+  thumbnail_url: string | null;
+  image_count: number;
   created_at: string;
   updated_at: string;
 };
@@ -84,6 +111,20 @@ export type InventorySiteListFilters = {
   media_type?: string;
   facing_direction?: string;
   site_type?: string;
+  photo_status?: "with_photos" | "missing_photos";
+  coordinate_status?: "coordinates_set" | "coordinates_missing";
+  page?: number;
+  page_size?: number;
+};
+
+export type InventoryUnitListFilters = {
+  search?: string;
+  city?: string;
+  status?: string;
+  site_type?: string;
+  facing_direction?: string;
+  is_illuminated?: boolean;
+  size?: string;
   page?: number;
   page_size?: number;
 };
@@ -193,6 +234,13 @@ function normalizeSiteListItem(item: InventorySiteListItem): InventorySiteListIt
   };
 }
 
+function normalizeUnitListItem(item: InventoryUnitListItem): InventoryUnitListItem {
+  return {
+    ...item,
+    thumbnail_url: normalizeMediaUrl(item.thumbnail_url),
+  };
+}
+
 export async function fetchInventoryData(): Promise<InventoryPayload> {
   const [sites, units] = await Promise.all([
     list<InventorySite>("inventory/sites/"),
@@ -224,9 +272,46 @@ export async function fetchInventorySiteList(filters: InventorySiteListFilters =
   };
 }
 
+export async function fetchInventorySite(siteId: number) {
+  const site = await apiFetch<InventorySite>(`inventory/sites/${siteId}/`);
+  return normalizeSite(site);
+}
+
+export async function fetchInventoryUnit(unitId: number) {
+  const unit = await apiFetch<InventoryUnit>(`inventory/units/${unitId}/`);
+  return normalizeUnit(unit);
+}
+
+export async function fetchInventoryUnitList(filters: InventoryUnitListFilters = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+
+  const query = params.toString();
+  const payload = await apiFetch<Paginated<InventoryUnitListItem>>(
+    `inventory/units/all-units/${query ? `?${query}` : ""}`,
+  );
+
+  return {
+    ...payload,
+    results: payload.results.map(normalizeUnitListItem),
+  };
+}
+
 export async function createSite(payload: InventorySiteCreateInput) {
   return apiFetch<InventorySite>("inventory/sites/", {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateSite(siteId: number, payload: InventorySiteCreateInput) {
+  return apiFetch<InventorySite>(`inventory/sites/${siteId}/`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 }

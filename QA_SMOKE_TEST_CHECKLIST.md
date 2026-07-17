@@ -12,37 +12,27 @@ Use this checklist after every production deployment or major workflow change.
 - Confirm company name, GSTIN, bank details, invoice prefix, and branding.
 - Expected: saved setup data appears consistently in invoice PDF header, supplier card, bank details, and signature.
 
-## 3. Inventory Site Creation
-- Open Inventory.
-- Create a site with name, code, type, address, city, and state only.
-- Leave latitude and longitude blank.
-- Expected: site is created with location status `unverified`.
-- Expected: UI explains coordinates will be captured during first verified POE.
+## 3. Inventory Workspace
+- Open Inventory. Expected: Advertising Units is the default tab and the URL is `/inventory?view=units`.
+- Switch between Overview, Locations, and Advertising Units. Expected: each tab preserves the hierarchy and the selected view is reflected in the URL.
+- Search for a known code such as `ESPA-002`. Expected: the Location appears in Locations and its sellable faces appear in Advertising Units.
+- In Locations, test search, city, and structure category. Confirm rows show physical-location data only: location code/name, address, unit availability count, photo completeness, and coordinates.
+- In Advertising Units, test city, availability, display format, facing direction, and illumination. Confirm every unit shows its parent Location beside the unit identity.
+- Open a Location. Expected: address, city/state, coordinates, category, photos, and Location actions are visible; destructive action is inside More and active booking safeguards are still enforced.
+- Open an Advertising Unit. Expected: dimensions, face count, format, illumination, rate, status, photos, and a link to its parent Location are visible.
 
-## 3A. Inventory Site Photo Upload
-- Open Inventory and go to a site card with 0 images.
-- Expected: Upload image is disabled before a file is selected and does not show a loading/wait cursor.
-- Choose a JPG, PNG, or WebP file.
-- Expected: Upload image becomes clickable for that site card.
-- Click Upload image.
-- Expected: only that site card shows Uploading, then the image count increases and a thumbnail appears.
-- Repeat file selection on another site while the first upload is in progress.
-- Expected: the other site card is not blocked by the first card's upload state.
-- Try an invalid upload.
-- Expected: readable error appears, the button recovers, and the selected file remains available for retry.
+## 3A. Add Inventory
+- Select `+ Add Inventory` and choose `Create a new location`.
+- Create a location with name, code, category, address, city/state, optional coordinates, and optional photo.
+- Expected: the workflow advances to an Advertising Unit form associated with the newly created Location; duplicate submit is prevented.
+- Create an Advertising Unit under an existing Location. Expected: existing API permissions apply and the unit appears in the default list.
 
-## 3B. All Sites / Inventory List
-- Open Inventory.
-- Confirm the new site appears in the All Sites table even before media units are added.
-- Add or edit a media unit for the site with dimensions, facing direction, single/both-side site type, and status.
-- Expected: All Sites shows site id/code context, unit code, title, city/address, media type, dimensions, facing direction, unit site type, availability, and updated date.
-- Upload a site or media-unit image and mark it primary.
-- Expected: All Sites shows only the public thumbnail/image URL behavior used by inventory galleries; no private document URL is exposed.
-- Test search plus city, status, media type, facing direction, and site type filters.
-- Click View from the row.
-- Expected: the site gallery section opens.
-- Click Edit from a row with a media unit.
-- Expected: the existing media-unit editor opens with the selected unit loaded.
+## 3B. Location And Unit Photos
+- From a Location or Advertising Unit, choose `Manage Photos`.
+- Expected: Upload image is disabled before a JPG, PNG, or WebP file is selected and does not show a loading/wait cursor.
+- Select a file. Expected: Upload image becomes enabled only in that focused photo manager.
+- Upload the image, set it primary, and return to the list. Expected: only that manager shows upload progress, image count and thumbnail refresh, and no private document URL is exposed.
+- Try an invalid upload. Expected: readable error appears, the selected file remains for retry, and the button recovers.
 
 ## 4. Campaign Creation
 - Open Campaigns.
