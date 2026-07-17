@@ -250,6 +250,99 @@ class MediaUnitSerializer(serializers.ModelSerializer):
         return value
 
 
+class InventorySiteListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerializer):
+    site_id = serializers.IntegerField(source="id", read_only=True)
+    site_code = serializers.CharField(source="code", read_only=True)
+    title = serializers.CharField(source="name", read_only=True)
+    media_type = serializers.CharField(source="site_type", read_only=True)
+    unit_ids = serializers.SerializerMethodField()
+    unit_codes = serializers.SerializerMethodField()
+    dimensions = serializers.SerializerMethodField()
+    facing_direction = serializers.SerializerMethodField()
+    unit_site_type = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    thumbnail_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MediaSite
+        fields = [
+            "id",
+            "site_id",
+            "site_code",
+            "unit_ids",
+            "unit_codes",
+            "title",
+            "address",
+            "city",
+            "state",
+            "media_type",
+            "dimensions",
+            "facing_direction",
+            "unit_site_type",
+            "status",
+            "thumbnail_url",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def _units(self, obj):
+        return list(obj.units.all())
+
+    def _distinct_values(self, obj, attribute):
+        values = []
+        for unit in self._units(obj):
+            value = getattr(unit, attribute, "")
+            if value and value not in values:
+                values.append(value)
+        return values
+
+    def get_unit_ids(self, obj):
+        return [unit.id for unit in self._units(obj)]
+
+    def get_unit_codes(self, obj):
+        return self._distinct_values(obj, "unit_code")
+
+    def get_dimensions(self, obj):
+        values = []
+        for unit in self._units(obj):
+            value = f"{unit.width} x {unit.height}"
+            if value not in values:
+                values.append(value)
+        return ", ".join(values) if values else ""
+
+    def get_facing_direction(self, obj):
+        return ", ".join(self._distinct_values(obj, "facing_direction"))
+
+    def get_unit_site_type(self, obj):
+        return ", ".join(self._distinct_values(obj, "site_type"))
+
+    def get_status(self, obj):
+        statuses = self._distinct_values(obj, "status")
+        if not statuses:
+            return "no_units"
+        for status_value in [
+            MediaUnit.Status.AVAILABLE,
+            MediaUnit.Status.RESERVED,
+            MediaUnit.Status.MAINTENANCE,
+            MediaUnit.Status.RETIRED,
+        ]:
+            if status_value in statuses:
+                return status_value
+        return statuses[0]
+
+    def get_thumbnail_url(self, obj):
+        image = obj.primary_image_object
+        if not image:
+            for unit in self._units(obj):
+                image = unit.primary_image_object
+                if image:
+                    break
+        if not image:
+            return None
+        return self.build_absolute_media_url(image.image)
+
+
 class RateCardSerializer(serializers.ModelSerializer):
     class Meta:
         model = RateCard

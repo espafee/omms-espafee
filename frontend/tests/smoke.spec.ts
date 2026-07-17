@@ -102,6 +102,28 @@ const units = [
   },
 ];
 
+const allSites = [
+  {
+    id: 1,
+    site_id: 1,
+    site_code: "SITE-001",
+    unit_ids: [1],
+    unit_codes: ["UNIT-001"],
+    title: "Airport Road Billboard",
+    address: "Airport Road",
+    city: "Jammu",
+    state: "Jammu and Kashmir",
+    media_type: "billboard",
+    dimensions: "20.00 x 10.00",
+    facing_direction: "North",
+    unit_site_type: "single_side",
+    status: "available",
+    thumbnail_url: null,
+    created_at: "2026-05-01T00:00:00Z",
+    updated_at: "2026-05-02T00:00:00Z",
+  },
+];
+
 function paginated<T>(results: T[]) {
   return {
     count: results.length,
@@ -125,6 +147,7 @@ async function mockApi(page: Page) {
       "campaigns/access-links/": paginated([]),
       "users/clients/": paginated([]),
       "inventory/sites/": paginated(sites),
+      "inventory/sites/all-sites/": paginated(allSites),
       "inventory/units/": paginated(units),
       "billing/invoices/": paginated([]),
     };
@@ -191,4 +214,22 @@ test.describe("authenticated shell smoke tests", () => {
       await expect(page.getByRole("navigation", { name: "Primary" })).toBeVisible();
     });
   }
+
+  test("inventory all sites list renders filters and row actions", async ({ page }) => {
+    await page.goto("/inventory");
+
+    await expect(page.getByRole("heading", { name: "All Sites" })).toBeVisible();
+    const allSitesTable = page.locator(".all-sites-table");
+    await expect(allSitesTable.getByText("SITE-001")).toBeVisible();
+    await expect(allSitesTable.getByText("UNIT-001")).toBeVisible();
+    await expect(allSitesTable).toContainText("Airport Road");
+    await expect(page.locator("#site-list-search")).toBeVisible();
+    await page.locator("#site-list-search").fill("Airport");
+    await page.locator("#site-list-city").selectOption("Jammu");
+    await page.locator("#site-list-status").selectOption("available");
+    await page.locator("#site-list-media-type").selectOption("billboard");
+    await page.locator("#site-list-unit-site-type").selectOption("single_side");
+    await allSitesTable.getByRole("button", { name: "Edit" }).click();
+    await expect(page.getByRole("heading", { name: "Editing Media Unit: UNIT-001" })).toBeVisible();
+  });
 });

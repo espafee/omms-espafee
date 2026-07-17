@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { ImageManagerCard } from "@/components/image-manager-card";
+import { SafeImage } from "@/components/safe-image";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import { deleteMediaUnitImage, getMediaUnitImageMutationError, updateMediaUnitImage, uploadMediaUnitImage } from "@/lib/media-unit-images";
 import {
@@ -12,9 +13,11 @@ import {
   createSite,
   deleteSite,
   fetchInventoryData,
+  fetchInventorySiteList,
   formatMediaUnitSiteType,
   getInventorySiteMutationError,
   getInventoryUnitMutationError,
+  type InventorySiteListFilters,
   MEDIA_UNIT_SITE_TYPE_OPTIONS,
   type InventoryPayload,
   type InventorySiteCreateInput,
@@ -30,6 +33,7 @@ type StoredUser = {
 
 const WRITE_ROLES = new Set(["admin", "operations"]);
 const ADMIN_ROLES = new Set(["admin"]);
+const SITE_LIST_PAGE_SIZE = 10;
 
 const INITIAL_SITE_FORM: InventorySiteCreateInput = {
   name: "",
@@ -76,6 +80,45 @@ const INITIAL_UNIT_FILTERS: UnitFilters = {
   site_type: "",
 };
 
+const INITIAL_SITE_LIST_FILTERS: InventorySiteListFilters = {
+  search: "",
+  city: "",
+  status: "",
+  media_type: "",
+  facing_direction: "",
+  site_type: "",
+  page: 1,
+  page_size: SITE_LIST_PAGE_SIZE,
+};
+
+const SITE_LIST_STATUS_OPTIONS = ["available", "reserved", "maintenance", "retired", "no_units"];
+
+function formatChoice(value: string | null | undefined) {
+  if (!value) {
+    return "Pending";
+  }
+  return value.replaceAll("_", " ");
+}
+
+function formatSiteListStatus(value: string) {
+  return value === "no_units" ? "No units" : formatChoice(value);
+}
+
+function formatUnitSiteTypes(value: string) {
+  if (!value) {
+    return "Type pending";
+  }
+  return value.split(", ").map(formatMediaUnitSiteType).join(", ");
+}
+
+function formatDate(value: string) {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Date unavailable";
+  }
+  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 export default function InventoryPage() {
   const router = useRouter();
   const unitFormSectionRef = useRef<HTMLElement | null>(null);
@@ -99,8 +142,12 @@ export default function InventoryPage() {
   const [primaryPendingUnitImageId, setPrimaryPendingUnitImageId] = useState<string | null>(null);
   const [unitImageUploadProgress, setUnitImageUploadProgress] = useState(0);
   const [unitFilters, setUnitFilters] = useState<UnitFilters>(INITIAL_UNIT_FILTERS);
+  const [siteListFilters, setSiteListFilters] = useState<InventorySiteListFilters>(INITIAL_SITE_LIST_FILTERS);
+  const [siteList, setSiteList] = useState<Awaited<ReturnType<typeof fetchInventorySiteList>> | null>(null);
+  const [siteListError, setSiteListError] = useState("");
   const [isUnitFormHighlighted, setIsUnitFormHighlighted] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSiteListLoading, setIsSiteListLoading] = useState(true);
   const [isSiteSubmitting, setIsSiteSubmitting] = useState(false);
   const [isUnitSubmitting, setIsUnitSubmitting] = useState(false);
   const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
@@ -264,6 +311,42 @@ export default function InventoryPage() {
     () => Array.from(new Set((inventory?.units ?? []).map((unit) => unit.status).filter(Boolean))).sort(),
     [inventory?.units],
   );
+  const filterMediaTypes = useMemo(
+    () => Array.from(new Set((inventory?.sites ?? []).map((site) => site.site_type).filter(Boolean))).sort(),
+    [inventory?.sites],
+  );
+  const filterFacingDirections = useMemo(
+    () => Array.from(new Set((inventory?.units ?? []).map((unit) => unit.facing_direction).filter(Boolean))).sort(),
+    [inventory?.units],
+  );
+  const siteListTotalPages = Math.max(1, Math.ceil((siteList?.count ?? 0) / SITE_LIST_PAGE_SIZE));
+
+  const loadSiteList = useCallback(async (filters: InventorySiteListFilters) => {
+    setIsSiteListLoading(true);
+    setSiteListError("");
+
+    try {
+      const payload = await fetchInventorySiteList(filters);
+      setSiteList(payload);
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : "Unable to load all sites.";
+      setSiteListError(message);
+      if (message.includes("sign in again")) {
+        router.replace("/login");
+      }
+    } finally {
+      setIsSiteListLoading(false);
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const token = getAccessToken();
+    if (!token) {
+      return;
+    }
+
+    void loadSiteList(siteListFilters);
+  }, [loadSiteList, siteListFilters]);
 
   async function handleSiteImageUpload(
     siteId: number,
@@ -278,6 +361,7 @@ export default function InventoryPage() {
         onProgress: payload.onProgress,
       });
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getSiteImageMutationError(error).message);
     }
@@ -287,6 +371,7 @@ export default function InventoryPage() {
     try {
       await updateSiteImage(imageId, { is_primary: true });
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getSiteImageMutationError(error).message);
     }
@@ -296,6 +381,7 @@ export default function InventoryPage() {
     try {
       await deleteSiteImage(imageId);
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getSiteImageMutationError(error).message);
     }
@@ -314,6 +400,7 @@ export default function InventoryPage() {
         onProgress: payload.onProgress,
       });
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getMediaUnitImageMutationError(error).message);
     }
@@ -323,6 +410,7 @@ export default function InventoryPage() {
     try {
       await updateMediaUnitImage(imageId, { is_primary: true });
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getMediaUnitImageMutationError(error).message);
     }
@@ -332,6 +420,7 @@ export default function InventoryPage() {
     try {
       await deleteMediaUnitImage(imageId);
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (error) {
       throw new Error(getMediaUnitImageMutationError(error).message);
     }
@@ -401,6 +490,7 @@ export default function InventoryPage() {
       setSiteMutationSuccess("Site created successfully.");
       setSiteForm(INITIAL_SITE_FORM);
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (siteError) {
       const normalized = getInventorySiteMutationError(siteError);
       setSiteMutationError(normalized.message);
@@ -431,6 +521,7 @@ export default function InventoryPage() {
       await deleteSite(siteId);
       setSiteMutationSuccess("Site deleted successfully.");
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
     } catch (siteError) {
       const normalized = getInventorySiteMutationError(siteError);
       setSiteMutationError(normalized.message);
@@ -512,6 +603,7 @@ export default function InventoryPage() {
             : "Media unit created successfully.",
       );
       await loadInventory(user);
+      await loadSiteList(siteListFilters);
       resetUnitForm(savedUnit.site || unitForm.site || inventory?.sites?.[0]?.id);
     } catch (unitError) {
       const normalized = getInventoryUnitMutationError(unitError);
@@ -526,6 +618,15 @@ export default function InventoryPage() {
     setUnitFilters((current) => ({
       ...current,
       [field]: value,
+    }));
+  }
+
+  function updateSiteListFilter<K extends keyof InventorySiteListFilters>(field: K, value: InventorySiteListFilters[K]) {
+    setSiteListFilters((current) => ({
+      ...current,
+      [field]: value,
+      page: 1,
+      page_size: SITE_LIST_PAGE_SIZE,
     }));
   }
 
@@ -780,6 +881,222 @@ export default function InventoryPage() {
             </div>
           </div>
         </article>
+      </section>
+
+      <section className="inventory-section" aria-labelledby="all-sites-heading">
+        <div className="module-head">
+          <div>
+            <h2 id="all-sites-heading">All Sites</h2>
+            <p className="site-copy">Inventory list</p>
+          </div>
+          <span>{isSiteListLoading ? "Loading" : `${siteList?.count ?? 0} sites`}</span>
+        </div>
+
+        <section className="module-card inventory-filter-panel">
+          <div className="inventory-filter-grid inventory-list-filter-grid">
+            <div className="field">
+              <label htmlFor="site-list-search">Search</label>
+              <input
+                id="site-list-search"
+                value={siteListFilters.search ?? ""}
+                onChange={(event) => updateSiteListFilter("search", event.target.value)}
+                placeholder="Site, unit, city, address"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="site-list-city">City</label>
+              <select
+                id="site-list-city"
+                value={siteListFilters.city ?? ""}
+                onChange={(event) => updateSiteListFilter("city", event.target.value)}
+              >
+                <option value="">All cities</option>
+                {filterCities.map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="site-list-status">Status</label>
+              <select
+                id="site-list-status"
+                value={siteListFilters.status ?? ""}
+                onChange={(event) => updateSiteListFilter("status", event.target.value)}
+              >
+                <option value="">All statuses</option>
+                {SITE_LIST_STATUS_OPTIONS.map((status) => (
+                  <option key={status} value={status}>
+                    {formatSiteListStatus(status)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="site-list-media-type">Media type</label>
+              <select
+                id="site-list-media-type"
+                value={siteListFilters.media_type ?? ""}
+                onChange={(event) => updateSiteListFilter("media_type", event.target.value)}
+              >
+                <option value="">All media</option>
+                {filterMediaTypes.map((mediaType) => (
+                  <option key={mediaType} value={mediaType}>
+                    {formatChoice(mediaType)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="site-list-facing-direction">Facing direction</label>
+              <input
+                id="site-list-facing-direction"
+                list="site-list-facing-options"
+                value={siteListFilters.facing_direction ?? ""}
+                onChange={(event) => updateSiteListFilter("facing_direction", event.target.value)}
+                placeholder="Toward Jammu City"
+              />
+              <datalist id="site-list-facing-options">
+                {filterFacingDirections.map((direction) => (
+                  <option key={direction} value={direction} />
+                ))}
+              </datalist>
+            </div>
+            <div className="field">
+              <label htmlFor="site-list-unit-site-type">Site type</label>
+              <select
+                id="site-list-unit-site-type"
+                value={siteListFilters.site_type ?? ""}
+                onChange={(event) => updateSiteListFilter("site_type", event.target.value)}
+              >
+                <option value="">All types</option>
+                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-actions field-full">
+              <button className="ghost" type="button" onClick={() => setSiteListFilters(INITIAL_SITE_LIST_FILTERS)}>
+                Clear filters
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {siteListError ? <p className="error">{siteListError}</p> : null}
+        {isSiteListLoading ? <p className="empty-state">Loading inventory list...</p> : null}
+        {!isSiteListLoading && !siteListError && (siteList?.results?.length ?? 0) === 0 ? (
+          <p className="empty-state">No sites match the current filters.</p>
+        ) : null}
+
+        {!isSiteListLoading && !siteListError && (siteList?.results?.length ?? 0) > 0 ? (
+          <>
+            <div className="inventory-table-wrap all-sites-table-wrap">
+              <table className="inventory-table all-sites-table">
+                <thead>
+                  <tr>
+                    <th>Image</th>
+                    <th>Site</th>
+                    <th>Location</th>
+                    <th>Media</th>
+                    <th>Status</th>
+                    <th>Updated</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {siteList?.results.map((site) => {
+                    const primaryUnitId = site.unit_ids[0] ?? null;
+                    return (
+                      <tr key={site.site_id}>
+                        <td>
+                          <SafeImage
+                            src={site.thumbnail_url}
+                            alt={`${site.title} thumbnail`}
+                            className="all-sites-thumb"
+                            fallback={<div className="all-sites-thumb all-sites-thumb-empty">No image</div>}
+                          />
+                        </td>
+                        <td>
+                          <div className="table-primary">
+                            <strong>{site.title}</strong>
+                            <span>{site.site_code}</span>
+                          </div>
+                          <p className="site-copy all-sites-unit-codes">
+                            {site.unit_codes.length > 0 ? site.unit_codes.join(", ") : "No units yet"}
+                          </p>
+                        </td>
+                        <td>
+                          <strong>{site.city || "City pending"}</strong>
+                          <p className="site-copy">{[site.address, site.state].filter(Boolean).join(", ")}</p>
+                        </td>
+                        <td>
+                          <p>{formatChoice(site.media_type)}</p>
+                          <p className="site-copy">{site.dimensions || "Size pending"}</p>
+                          <p className="site-copy">{site.facing_direction || "Direction pending"}</p>
+                          <p className="site-copy">{formatUnitSiteTypes(site.unit_site_type)}</p>
+                        </td>
+                        <td>
+                          <span className={`status-pill status-${site.status}`}>{formatSiteListStatus(site.status)}</span>
+                        </td>
+                        <td>{formatDate(site.updated_at)}</td>
+                        <td>
+                          <div className="all-sites-actions">
+                            <a className="ghost table-action" href={`#site-image-${site.site_id}-file`}>
+                              View
+                            </a>
+                            {canManageUnits && primaryUnitId ? (
+                              <button className="ghost table-action" type="button" onClick={() => handleEditUnit(primaryUnitId)}>
+                                Edit
+                              </button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="pagination-row">
+              <button
+                className="ghost"
+                type="button"
+                disabled={(siteListFilters.page ?? 1) <= 1 || isSiteListLoading}
+                onClick={() =>
+                  setSiteListFilters((current) => ({
+                    ...current,
+                    page: Math.max(1, (current.page ?? 1) - 1),
+                    page_size: SITE_LIST_PAGE_SIZE,
+                  }))
+                }
+              >
+                Previous
+              </button>
+              <span>
+                Page {siteListFilters.page ?? 1} of {siteListTotalPages}
+              </span>
+              <button
+                className="ghost"
+                type="button"
+                disabled={(siteListFilters.page ?? 1) >= siteListTotalPages || isSiteListLoading}
+                onClick={() =>
+                  setSiteListFilters((current) => ({
+                    ...current,
+                    page: Math.min(siteListTotalPages, (current.page ?? 1) + 1),
+                    page_size: SITE_LIST_PAGE_SIZE,
+                  }))
+                }
+              >
+                Next
+              </button>
+            </div>
+          </>
+        ) : null}
       </section>
 
       {canManageUnits ? (

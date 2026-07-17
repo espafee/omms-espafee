@@ -1,5 +1,11 @@
 # Product Journey
 
+## All Sites Inventory List
+
+Inventory now has a complete All Sites list view backed by `GET /api/v1/inventory/sites/all-sites/`. The endpoint uses `MediaSite` as the source of truth so newly created sites appear even before sellable media units are added, while related `MediaUnit` data supplies unit codes, dimensions, facing direction, single/both-side type, and availability where present.
+
+The Inventory page now shows the list as a paginated table with search plus city, status, media type, facing direction, and site type filters. Rows use the same public inventory image behavior as existing site/unit galleries and link back into the existing gallery and media-unit edit flows, preserving the current create/edit/detail/gallery/public campaign workflows.
+
 ## Operational SaaS Infrastructure Phase - Celery and Beat Wiring
 
 OMMS now has production-oriented Celery configuration for background jobs while preserving current Django, DRF, frontend, observability, notification, POE, billing, and training workflows.
