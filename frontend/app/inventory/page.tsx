@@ -1,7 +1,7 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, type ChangeEvent, type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
 import { ImageManagerCard } from "@/components/image-manager-card";
@@ -13,1472 +13,424 @@ import {
   createSite,
   deleteSite,
   fetchInventoryData,
+  fetchInventorySite,
   fetchInventorySiteList,
+  fetchInventoryUnit,
+  fetchInventoryUnitList,
   formatMediaUnitSiteType,
   getInventorySiteMutationError,
   getInventoryUnitMutationError,
-  type InventorySiteListFilters,
-  MEDIA_UNIT_SITE_TYPE_OPTIONS,
   type InventoryPayload,
+  type InventorySite,
   type InventorySiteCreateInput,
+  type InventorySiteListFilters,
+  type InventoryUnit,
+  type InventoryUnitListFilters,
   type InventoryUnitMutationInput,
+  MEDIA_UNIT_SITE_TYPE_OPTIONS,
   updateMediaUnit,
+  updateSite,
 } from "@/lib/inventory";
 import { deleteSiteImage, getSiteImageMutationError, updateSiteImage, uploadSiteImage } from "@/lib/site-images";
 
-type StoredUser = {
-  email?: string;
-  role?: string;
-};
+type StoredUser = { email?: string; role?: string };
+type InventoryView = "overview" | "locations" | "units";
+type AddMode = "choose" | "new-location" | "existing-location";
+type DetailTarget = { kind: "location"; item: InventorySite } | { kind: "unit"; item: InventoryUnit };
+type PendingUnitImage = { id: string; file: File; previewUrl: string; caption: string };
 
 const WRITE_ROLES = new Set(["admin", "operations"]);
 const ADMIN_ROLES = new Set(["admin"]);
-const SITE_LIST_PAGE_SIZE = 10;
+const PAGE_SIZE = 12;
 
 const INITIAL_SITE_FORM: InventorySiteCreateInput = {
-  name: "",
-  code: "",
-  site_type: "billboard",
-  address: "",
-  city: "",
-  state: "",
-  latitude: "",
-  longitude: "",
+  name: "", code: "", site_type: "billboard", address: "", city: "", state: "", latitude: "", longitude: "",
 };
-
 const INITIAL_UNIT_FORM: InventoryUnitMutationInput = {
-  site: 0,
-  unit_code: "",
-  face_count: 1,
-  width: "",
-  height: "",
-  status: "available",
-  is_illuminated: false,
-  monthly_rate: "",
-  facing_direction: "",
-  site_type: "single_side",
+  site: 0, unit_code: "", face_count: 1, width: "", height: "", status: "available", is_illuminated: false,
+  monthly_rate: "", facing_direction: "", site_type: "single_side",
 };
-
-type UnitFilters = {
-  city: string;
-  status: string;
-  facing_direction: string;
-  site_type: string;
+const INITIAL_LOCATION_FILTERS: InventorySiteListFilters = { search: "", city: "", media_type: "", photo_status: undefined, coordinate_status: undefined, page: 1, page_size: PAGE_SIZE };
+const INITIAL_UNIT_FILTERS: InventoryUnitListFilters = {
+  search: "", city: "", status: "", site_type: "", facing_direction: "", size: "", page: 1, page_size: PAGE_SIZE,
 };
-
-type PendingUnitImage = {
-  id: string;
-  file: File;
-  previewUrl: string;
-  caption: string;
-};
-
-const INITIAL_UNIT_FILTERS: UnitFilters = {
-  city: "",
-  status: "",
-  facing_direction: "",
-  site_type: "",
-};
-
-const INITIAL_SITE_LIST_FILTERS: InventorySiteListFilters = {
-  search: "",
-  city: "",
-  status: "",
-  media_type: "",
-  facing_direction: "",
-  site_type: "",
-  page: 1,
-  page_size: SITE_LIST_PAGE_SIZE,
-};
-
-const SITE_LIST_STATUS_OPTIONS = ["available", "reserved", "maintenance", "retired", "no_units"];
 
 function formatChoice(value: string | null | undefined) {
-  if (!value) {
-    return "Pending";
-  }
-  return value.replaceAll("_", " ");
+  return value ? value.replaceAll("_", " ") : "Pending";
 }
 
-function formatSiteListStatus(value: string) {
-  return value === "no_units" ? "No units" : formatChoice(value);
-}
-
-function formatUnitSiteTypes(value: string) {
-  if (!value) {
-    return "Type pending";
-  }
-  return value.split(", ").map(formatMediaUnitSiteType).join(", ");
+function formatMoney(value: string) {
+  return `INR ${Number(value || 0).toLocaleString("en-IN")}`;
 }
 
 function formatDate(value: string) {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return "Date unavailable";
-  }
-  return parsed.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Date unavailable" : date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function getInitialView(value: string | null): InventoryView {
+  return value === "overview" || value === "locations" || value === "units" ? value : "units";
+}
+
+function isInventoryView(value: string | null): value is InventoryView {
+  return value === "overview" || value === "locations" || value === "units";
 }
 
 export default function InventoryPage() {
+  return <Suspense fallback={<main className="page-shell"><p className="empty-state">Loading inventory workspace...</p></main>}><InventoryWorkspace /></Suspense>;
+}
+
+function InventoryWorkspace() {
   const router = useRouter();
-  const unitFormSectionRef = useRef<HTMLElement | null>(null);
-  const unitCodeInputRef = useRef<HTMLInputElement | null>(null);
-  const unitFormHighlightTimeoutRef = useRef<number | null>(null);
+  const searchParams = useSearchParams();
   const [user, setUser] = useState<StoredUser | null>(null);
-  const [inventory, setInventory] = useState<InventoryPayload | null>(null);
-  const [error, setError] = useState("");
-  const [siteForm, setSiteForm] = useState<InventorySiteCreateInput>(INITIAL_SITE_FORM);
-  const [siteFieldErrors, setSiteFieldErrors] = useState<Record<string, string[]>>({});
-  const [siteMutationError, setSiteMutationError] = useState("");
-  const [siteMutationSuccess, setSiteMutationSuccess] = useState("");
-  const [unitForm, setUnitForm] = useState<InventoryUnitMutationInput>(INITIAL_UNIT_FORM);
-  const [editingUnitId, setEditingUnitId] = useState<number | null>(null);
-  const [unitFieldErrors, setUnitFieldErrors] = useState<Record<string, string[]>>({});
-  const [unitMutationError, setUnitMutationError] = useState("");
-  const [unitMutationSuccess, setUnitMutationSuccess] = useState("");
-  const [unitEditHint, setUnitEditHint] = useState("");
-  const [unitLibraryNotice, setUnitLibraryNotice] = useState("");
-  const [pendingUnitImages, setPendingUnitImages] = useState<PendingUnitImage[]>([]);
-  const [primaryPendingUnitImageId, setPrimaryPendingUnitImageId] = useState<string | null>(null);
-  const [unitImageUploadProgress, setUnitImageUploadProgress] = useState(0);
-  const [unitFilters, setUnitFilters] = useState<UnitFilters>(INITIAL_UNIT_FILTERS);
-  const [siteListFilters, setSiteListFilters] = useState<InventorySiteListFilters>(INITIAL_SITE_LIST_FILTERS);
-  const [siteList, setSiteList] = useState<Awaited<ReturnType<typeof fetchInventorySiteList>> | null>(null);
-  const [siteListError, setSiteListError] = useState("");
-  const [isUnitFormHighlighted, setIsUnitFormHighlighted] = useState(false);
+  const [view, setView] = useState<InventoryView>(() => getInitialView(searchParams.get("view")));
+  const [locations, setLocations] = useState<Awaited<ReturnType<typeof fetchInventorySiteList>> | null>(null);
+  const [units, setUnits] = useState<Awaited<ReturnType<typeof fetchInventoryUnitList>> | null>(null);
+  const [directory, setDirectory] = useState<InventoryPayload | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSiteListLoading, setIsSiteListLoading] = useState(true);
+  const [isLocationLoading, setIsLocationLoading] = useState(true);
+  const [isUnitLoading, setIsUnitLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [locationFilters, setLocationFilters] = useState<InventorySiteListFilters>(INITIAL_LOCATION_FILTERS);
+  const [unitFilters, setUnitFilters] = useState<InventoryUnitListFilters>(INITIAL_UNIT_FILTERS);
+  const [addMode, setAddMode] = useState<AddMode>("choose");
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [siteForm, setSiteForm] = useState<InventorySiteCreateInput>(INITIAL_SITE_FORM);
+  const [unitForm, setUnitForm] = useState<InventoryUnitMutationInput>(INITIAL_UNIT_FORM);
+  const [editingSiteId, setEditingSiteId] = useState<number | null>(null);
+  const [editingUnitId, setEditingUnitId] = useState<number | null>(null);
+  const [siteFieldErrors, setSiteFieldErrors] = useState<Record<string, string[]>>({});
+  const [unitFieldErrors, setUnitFieldErrors] = useState<Record<string, string[]>>({});
+  const [siteError, setSiteError] = useState("");
+  const [unitError, setUnitError] = useState("");
+  const [siteSuccess, setSiteSuccess] = useState("");
+  const [unitSuccess, setUnitSuccess] = useState("");
   const [isSiteSubmitting, setIsSiteSubmitting] = useState(false);
   const [isUnitSubmitting, setIsUnitSubmitting] = useState(false);
+  const [pendingLocationPhoto, setPendingLocationPhoto] = useState<File | null>(null);
+  const [pendingUnitImages, setPendingUnitImages] = useState<PendingUnitImage[]>([]);
+  const [primaryPendingUnitImageId, setPrimaryPendingUnitImageId] = useState<string | null>(null);
+  const [detailTarget, setDetailTarget] = useState<DetailTarget | null>(null);
+  const [photoTarget, setPhotoTarget] = useState<DetailTarget | null>(null);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
 
   const canManageImages = WRITE_ROLES.has(user?.role ?? "");
   const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
   const canManageUnits = WRITE_ROLES.has(user?.role ?? "");
 
-  useEffect(() => {
-    return () => {
-      for (const image of pendingUnitImages) {
-        URL.revokeObjectURL(image.previewUrl);
-      }
-    };
-  }, [pendingUnitImages]);
-
-  useEffect(() => {
-    return () => {
-      if (unitFormHighlightTimeoutRef.current) {
-        window.clearTimeout(unitFormHighlightTimeoutRef.current);
-      }
-    };
+  const loadLocations = useCallback(async (filters: InventorySiteListFilters) => {
+    setIsLocationLoading(true);
+    try {
+      setLocations(await fetchInventorySiteList(filters));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load locations.");
+    } finally {
+      setIsLocationLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    if (!editingUnitId) {
-      return;
-    }
-
-    const scrollToEditor = () => {
-      const editor = document.getElementById("media-unit-editor");
-      if (editor) {
-        editor.scrollIntoView({ behavior: "smooth", block: "start" });
-        unitCodeInputRef.current?.focus({ preventScroll: true });
-        triggerUnitFormHighlight();
-        return;
-      }
-
-      window.location.hash = "media-unit-editor";
-    };
-
-    const frameId = window.requestAnimationFrame(() => {
-      window.setTimeout(scrollToEditor, 0);
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [editingUnitId]);
-
-  function triggerUnitFormHighlight() {
-    setIsUnitFormHighlighted(true);
-    if (unitFormHighlightTimeoutRef.current) {
-      window.clearTimeout(unitFormHighlightTimeoutRef.current);
-    }
-    unitFormHighlightTimeoutRef.current = window.setTimeout(() => {
-      setIsUnitFormHighlighted(false);
-      unitFormHighlightTimeoutRef.current = null;
-    }, 3000);
-  }
-
-  const loadInventory = useCallback(async (profileHint?: StoredUser | null) => {
-    setIsLoading(true);
-    setError("");
-
+  const loadUnits = useCallback(async (filters: InventoryUnitListFilters) => {
+    setIsUnitLoading(true);
     try {
-      const profile = profileHint ?? (await fetchCurrentUser());
-      if (profile) {
-        setUser(profile);
-      }
-
-      const payload = await fetchInventoryData();
-      setInventory(payload);
-      setUnitForm((current) => ({
-        ...current,
-        site: current.site || payload.sites[0]?.id || 0,
-      }));
+      setUnits(await fetchInventoryUnitList(filters));
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Unable to load inventory.";
-      setError(message);
-      if (message.includes("sign in again")) {
-        router.replace("/login");
-      }
+      setError(loadError instanceof Error ? loadError.message : "Unable to load advertising units.");
     } finally {
-      setIsLoading(false);
+      setIsUnitLoading(false);
     }
-  }, [router]);
+  }, []);
+
+  const loadDirectory = useCallback(async () => {
+    if (directory) return directory;
+    const payload = await fetchInventoryData();
+    setDirectory(payload);
+    return payload;
+  }, [directory]);
+
+  const refreshWorkspace = useCallback(async () => {
+    await Promise.all([loadLocations(locationFilters), loadUnits(unitFilters)]);
+  }, [loadLocations, loadUnits, locationFilters, unitFilters]);
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
+    if (!getAccessToken()) {
       router.replace("/login");
       return;
     }
-
     const storedUser = getStoredUser();
-    if (storedUser) {
-      setUser(storedUser);
-    }
+    if (storedUser) setUser(storedUser);
+    void fetchCurrentUser().then(setUser).catch(() => undefined);
+    setIsLoading(false);
+  }, [router]);
 
-    void loadInventory(storedUser);
-  }, [loadInventory, router]);
+  useEffect(() => { void loadLocations(locationFilters); }, [loadLocations, locationFilters]);
+  useEffect(() => { void loadUnits(unitFilters); }, [loadUnits, unitFilters]);
+  useEffect(() => {
+    const requestedView = searchParams.get("view");
+    if (!isInventoryView(requestedView)) {
+      router.replace("/inventory?view=units");
+      return;
+    }
+    setView(requestedView);
+  }, [router, searchParams]);
+  useEffect(() => () => pendingUnitImages.forEach((image) => URL.revokeObjectURL(image.previewUrl)), [pendingUnitImages]);
+
+  const locationCities = useMemo(() => Array.from(new Set((locations?.results ?? []).map((item) => item.city).filter(Boolean))).sort(), [locations]);
+  const unitCities = useMemo(() => Array.from(new Set((units?.results ?? []).map((item) => item.city).filter(Boolean))).sort(), [units]);
+  const locationTypes = useMemo(() => Array.from(new Set((locations?.results ?? []).map((item) => item.media_type).filter(Boolean))).sort(), [locations]);
+  const facingDirections = useMemo(() => Array.from(new Set((units?.results ?? []).map((item) => item.facing_direction).filter(Boolean))).sort(), [units]);
+  const unitSizes = useMemo(() => Array.from(new Set((units?.results ?? []).map((item) => `${item.width}x${item.height}`))).sort(), [units]);
+  const overview = useMemo(() => {
+    const locationRows = locations?.results ?? [];
+    const unitRows = units?.results ?? [];
+    return {
+      locations: locations?.count ?? 0,
+      units: units?.count ?? 0,
+      available: unitRows.filter((item) => item.status === "available").length,
+      booked: unitRows.filter((item) => item.status === "reserved").length,
+      unavailable: unitRows.filter((item) => ["maintenance", "retired"].includes(item.status)).length,
+      missingLocationPhotos: locationRows.filter((item) => item.image_count === 0).length,
+      missingCoordinates: locationRows.filter((item) => !item.has_coordinates).length,
+    };
+  }, [locations, units]);
+
+  function selectView(next: InventoryView) {
+    setView(next);
+    router.replace(`/inventory?view=${next}`);
+  }
 
   function handleLogout() {
     clearAuthSession();
     router.replace("/login");
   }
 
-  const inventoryStats = useMemo(() => {
-    const units = inventory?.units ?? [];
-    const sites = inventory?.sites ?? [];
-
-    return {
-      totalSites: sites.length,
-      totalUnits: units.length,
-      availableUnits: units.filter((unit) => unit.status === "available").length,
-      imagedSites: sites.filter((site) => (site.image_gallery ?? []).length > 0).length,
-    };
-  }, [inventory]);
-
-  const siteMap = useMemo(() => {
-    const mapping = new Map<number, { label: string; city: string; name: string; code: string }>();
-    for (const site of inventory?.sites ?? []) {
-      mapping.set(site.id, {
-        label: `${site.code} • ${site.name}`,
-        city: site.city,
-        name: site.name,
-        code: site.code,
-      });
-    }
-    return mapping;
-  }, [inventory]);
-
-  const sortedSites = inventory?.sites ?? [];
-  const filteredUnits = useMemo(() => {
-    return (inventory?.units ?? []).filter((unit) => {
-      const site = siteMap.get(unit.site);
-      const direction = (unit.facing_direction ?? "").toLowerCase();
-      const directionFilter = unitFilters.facing_direction.trim().toLowerCase();
-
-      if (unitFilters.city && site?.city !== unitFilters.city) {
-        return false;
-      }
-      if (unitFilters.status && unit.status !== unitFilters.status) {
-        return false;
-      }
-      if (unitFilters.site_type && (unit.site_type ?? "") !== unitFilters.site_type) {
-        return false;
-      }
-      if (directionFilter && !direction.includes(directionFilter)) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [inventory?.units, siteMap, unitFilters]);
-
-  const filterCities = useMemo(
-    () => Array.from(new Set((inventory?.sites ?? []).map((site) => site.city).filter(Boolean))).sort(),
-    [inventory?.sites],
-  );
-  const filterStatuses = useMemo(
-    () => Array.from(new Set((inventory?.units ?? []).map((unit) => unit.status).filter(Boolean))).sort(),
-    [inventory?.units],
-  );
-  const filterMediaTypes = useMemo(
-    () => Array.from(new Set((inventory?.sites ?? []).map((site) => site.site_type).filter(Boolean))).sort(),
-    [inventory?.sites],
-  );
-  const filterFacingDirections = useMemo(
-    () => Array.from(new Set((inventory?.units ?? []).map((unit) => unit.facing_direction).filter(Boolean))).sort(),
-    [inventory?.units],
-  );
-  const siteListTotalPages = Math.max(1, Math.ceil((siteList?.count ?? 0) / SITE_LIST_PAGE_SIZE));
-
-  const loadSiteList = useCallback(async (filters: InventorySiteListFilters) => {
-    setIsSiteListLoading(true);
-    setSiteListError("");
-
-    try {
-      const payload = await fetchInventorySiteList(filters);
-      setSiteList(payload);
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "Unable to load all sites.";
-      setSiteListError(message);
-      if (message.includes("sign in again")) {
-        router.replace("/login");
-      }
-    } finally {
-      setIsSiteListLoading(false);
-    }
-  }, [router]);
-
-  useEffect(() => {
-    const token = getAccessToken();
-    if (!token) {
-      return;
-    }
-
-    void loadSiteList(siteListFilters);
-  }, [loadSiteList, siteListFilters]);
-
-  async function handleSiteImageUpload(
-    siteId: number,
-    payload: { file: File; caption: string; isPrimary: boolean; onProgress?: (progress: number) => void },
-  ) {
-    try {
-      await uploadSiteImage({
-        site: siteId,
-        image: payload.file,
-        caption: payload.caption,
-        is_primary: payload.isPrimary,
-        onProgress: payload.onProgress,
-      });
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getSiteImageMutationError(error).message);
-    }
+  function openAdd(mode: AddMode = "choose") {
+    setIsAddOpen(true);
+    setAddMode(mode);
+    setSiteError(""); setUnitError(""); setSiteSuccess(""); setUnitSuccess("");
+    void loadDirectory().catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to prepare inventory form."));
   }
 
-  async function handleSitePrimary(imageId: number) {
-    try {
-      await updateSiteImage(imageId, { is_primary: true });
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getSiteImageMutationError(error).message);
-    }
-  }
-
-  async function handleSiteDelete(imageId: number) {
-    try {
-      await deleteSiteImage(imageId);
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getSiteImageMutationError(error).message);
-    }
-  }
-
-  async function handleUnitImageUpload(
-    unitId: number,
-    payload: { file: File; caption: string; isPrimary: boolean; onProgress?: (progress: number) => void },
-  ) {
-    try {
-      await uploadMediaUnitImage({
-        media_unit: unitId,
-        image: payload.file,
-        caption: payload.caption,
-        is_primary: payload.isPrimary,
-        onProgress: payload.onProgress,
-      });
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getMediaUnitImageMutationError(error).message);
-    }
-  }
-
-  async function handleUnitPrimary(imageId: number) {
-    try {
-      await updateMediaUnitImage(imageId, { is_primary: true });
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getMediaUnitImageMutationError(error).message);
-    }
-  }
-
-  async function handleUnitDelete(imageId: number) {
-    try {
-      await deleteMediaUnitImage(imageId);
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (error) {
-      throw new Error(getMediaUnitImageMutationError(error).message);
-    }
+  function closeAdd() {
+    setIsAddOpen(false); setAddMode("choose"); setEditingSiteId(null); setEditingUnitId(null);
+    setSiteForm(INITIAL_SITE_FORM); setUnitForm(INITIAL_UNIT_FORM); setPendingLocationPhoto(null);
+    pendingUnitImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    setPendingUnitImages([]); setPrimaryPendingUnitImageId(null); setSiteFieldErrors({}); setUnitFieldErrors({});
   }
 
   function updateSiteForm<K extends keyof InventorySiteCreateInput>(field: K, value: InventorySiteCreateInput[K]) {
-    setSiteMutationError("");
-    setSiteMutationSuccess("");
-    setSiteFieldErrors({});
-    setSiteForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function resetUnitForm(nextSiteId?: number) {
-    setEditingUnitId(null);
-    setUnitFieldErrors({});
-    setUnitMutationError("");
-    setUnitMutationSuccess("");
-    setUnitEditHint("");
-    setUnitLibraryNotice("");
-    setIsUnitFormHighlighted(false);
-    setUnitImageUploadProgress(0);
-    if (unitFormHighlightTimeoutRef.current) {
-      window.clearTimeout(unitFormHighlightTimeoutRef.current);
-      unitFormHighlightTimeoutRef.current = null;
-    }
-    for (const image of pendingUnitImages) {
-      URL.revokeObjectURL(image.previewUrl);
-    }
-    setPendingUnitImages([]);
-    setPrimaryPendingUnitImageId(null);
-    setUnitForm({
-      ...INITIAL_UNIT_FORM,
-      site: nextSiteId ?? inventory?.sites?.[0]?.id ?? 0,
-    });
+    setSiteFieldErrors({}); setSiteError("");
+    setSiteForm((current) => ({ ...current, [field]: value }));
   }
 
   function updateUnitForm<K extends keyof InventoryUnitMutationInput>(field: K, value: InventoryUnitMutationInput[K]) {
-    setUnitMutationError("");
-    setUnitMutationSuccess("");
-    setUnitFieldErrors({});
-    setUnitForm((current) => ({
-      ...current,
-      [field]: value,
-    }));
+    setUnitFieldErrors({}); setUnitError("");
+    setUnitForm((current) => ({ ...current, [field]: value }));
   }
 
-  async function handleCreateSite(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmitSite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isSiteSubmitting) {
-      return;
-    }
-
-    setSiteMutationError("");
-    setSiteMutationSuccess("");
-    setSiteFieldErrors({});
-    setIsSiteSubmitting(true);
-
+    if (isSiteSubmitting) return;
+    setIsSiteSubmitting(true); setSiteError(""); setSiteSuccess(""); setSiteFieldErrors({});
     try {
-      await createSite({
-        ...siteForm,
-        latitude: siteForm.latitude || null,
-        longitude: siteForm.longitude || null,
-      });
-      setSiteMutationSuccess("Site created successfully.");
-      setSiteForm(INITIAL_SITE_FORM);
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (siteError) {
-      const normalized = getInventorySiteMutationError(siteError);
-      setSiteMutationError(normalized.message);
-      setSiteFieldErrors(normalized.fieldErrors);
-    } finally {
-      setIsSiteSubmitting(false);
-    }
+      const payload = { ...siteForm, latitude: siteForm.latitude || null, longitude: siteForm.longitude || null };
+      const saved = editingSiteId ? await updateSite(editingSiteId, payload) : await createSite(payload);
+      if (pendingLocationPhoto) {
+        await uploadSiteImage({ site: saved.id, image: pendingLocationPhoto, caption: "Location overview", is_primary: true });
+      }
+      setDirectory((current) => current ? { ...current, sites: [...current.sites.filter((site) => site.id !== saved.id), saved] } : current);
+      await loadLocations(locationFilters);
+      setSiteSuccess(editingSiteId ? "Location updated successfully." : "Location created. Continue with its advertising unit.");
+      if (!editingSiteId) {
+        setUnitForm((current) => ({ ...current, site: saved.id, unit_code: `${saved.code}-A` }));
+        setAddMode("existing-location");
+      }
+    } catch (mutationError) {
+      const normalized = getInventorySiteMutationError(mutationError);
+      setSiteError(normalized.message); setSiteFieldErrors(normalized.fieldErrors);
+    } finally { setIsSiteSubmitting(false); }
   }
 
-  async function handleDeleteSite(siteId: number, siteName: string) {
-    if (activeSiteId) {
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Delete ${siteName}? This will also remove its units, images, and related inventory data that is not protected by active bookings.`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    setSiteMutationError("");
-    setSiteMutationSuccess("");
-    setSiteFieldErrors({});
-    setActiveSiteId(siteId);
-
-    try {
-      await deleteSite(siteId);
-      setSiteMutationSuccess("Site deleted successfully.");
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-    } catch (siteError) {
-      const normalized = getInventorySiteMutationError(siteError);
-      setSiteMutationError(normalized.message);
-      setSiteFieldErrors(normalized.fieldErrors);
-    } finally {
-      setActiveSiteId(null);
-    }
+  function handlePendingUnitImagesChange(event: ChangeEvent<HTMLInputElement>) {
+    pendingUnitImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    const next = Array.from(event.target.files ?? []).map((file, index) => ({
+      id: `${file.name}-${file.size}-${index}`, file, previewUrl: URL.createObjectURL(file), caption: file.name.replace(/\.[^.]+$/, ""),
+    }));
+    setPendingUnitImages(next); setPrimaryPendingUnitImageId(next[0]?.id ?? null);
   }
 
-  function handleEditUnit(unitId: number) {
-    const unit = inventory?.units.find((entry) => entry.id === unitId);
-    if (!unit) {
-      return;
-    }
-
+  async function uploadPendingImagesForUnit(unitId: number) {
+    const primaryId = primaryPendingUnitImageId ?? pendingUnitImages[0]?.id;
     for (const image of pendingUnitImages) {
-      URL.revokeObjectURL(image.previewUrl);
+      await uploadMediaUnitImage({ media_unit: unitId, image: image.file, caption: image.caption.trim(), is_primary: image.id === primaryId });
     }
-    setEditingUnitId(unit.id);
-    setUnitFieldErrors({});
-    setUnitMutationError("");
-    setUnitMutationSuccess("");
-    setUnitEditHint("Unit details loaded. Update the fields and click Save Changes.");
-    setUnitLibraryNotice("Unit loaded for editing. Taking you to the edit form...");
-    setPendingUnitImages([]);
-    setPrimaryPendingUnitImageId(null);
-    setUnitImageUploadProgress(0);
-    setUnitForm({
-      site: unit.site,
-      unit_code: unit.unit_code,
-      face_count: unit.face_count,
-      width: unit.width,
-      height: unit.height,
-      status: unit.status,
-      is_illuminated: unit.is_illuminated,
-      monthly_rate: unit.monthly_rate,
-      facing_direction: unit.facing_direction ?? "",
-      site_type: unit.site_type ?? "",
-    });
+    return pendingUnitImages.length;
   }
 
   async function handleSubmitUnit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (isUnitSubmitting) {
-      return;
-    }
-
-    setUnitMutationError("");
-    setUnitMutationSuccess("");
-    setUnitFieldErrors({});
-    setIsUnitSubmitting(true);
-
+    if (isUnitSubmitting) return;
+    setIsUnitSubmitting(true); setUnitError(""); setUnitSuccess(""); setUnitFieldErrors({});
     try {
-      let savedUnit;
-      if (editingUnitId) {
-        savedUnit = await updateMediaUnit(editingUnitId, {
-          ...unitForm,
-          facing_direction: unitForm.facing_direction || "",
-          site_type: unitForm.site_type || "single_side",
-          monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
-        });
-      } else {
-        savedUnit = await createMediaUnit({
-          ...unitForm,
-          facing_direction: unitForm.facing_direction || "",
-          site_type: unitForm.site_type || "single_side",
-          monthly_rate: Number(unitForm.monthly_rate).toFixed(2),
-        });
+      const payload = { ...unitForm, facing_direction: unitForm.facing_direction || "", site_type: unitForm.site_type || "single_side", monthly_rate: Number(unitForm.monthly_rate).toFixed(2) };
+      const saved = editingUnitId ? await updateMediaUnit(editingUnitId, payload) : await createMediaUnit(payload);
+      const uploaded = await uploadPendingImagesForUnit(saved.id);
+      await loadUnits(unitFilters);
+      setDirectory(null);
+      setUnitSuccess(editingUnitId ? "Advertising unit updated successfully." : `Advertising unit created${uploaded ? ` with ${uploaded} photo(s)` : ""}.`);
+      if (!editingUnitId) {
+        setUnitForm((current) => ({ ...INITIAL_UNIT_FORM, site: current.site, unit_code: "" }));
+        setPendingUnitImages([]); setPrimaryPendingUnitImageId(null);
       }
+    } catch (mutationError) {
+      const normalized = getInventoryUnitMutationError(mutationError);
+      setUnitError(normalized.message); setUnitFieldErrors(normalized.fieldErrors);
+    } finally { setIsUnitSubmitting(false); }
+  }
 
-      const uploadedCount = await uploadPendingImagesForUnit(savedUnit.id);
-      setUnitMutationSuccess(
-        editingUnitId
-          ? uploadedCount > 0
-            ? `Media unit updated and ${uploadedCount} image(s) uploaded successfully.`
-            : "Media unit updated successfully."
-          : uploadedCount > 0
-            ? `Media unit created and ${uploadedCount} image(s) uploaded successfully.`
-            : "Media unit created successfully.",
-      );
-      await loadInventory(user);
-      await loadSiteList(siteListFilters);
-      resetUnitForm(savedUnit.site || unitForm.site || inventory?.sites?.[0]?.id);
-    } catch (unitError) {
-      const normalized = getInventoryUnitMutationError(unitError);
-      setUnitMutationError(normalized.message);
-      setUnitFieldErrors(normalized.fieldErrors);
-    } finally {
-      setIsUnitSubmitting(false);
+  async function openLocation(id: number, photos = false) {
+    setIsDetailLoading(true);
+    try {
+      const item = await fetchInventorySite(id);
+      const target: DetailTarget = { kind: "location", item };
+      if (photos) setPhotoTarget(target); else setDetailTarget(target);
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Unable to load location details."); }
+    finally { setIsDetailLoading(false); }
+  }
+
+  async function openUnit(id: number, photos = false) {
+    setIsDetailLoading(true);
+    try {
+      const item = await fetchInventoryUnit(id);
+      const target: DetailTarget = { kind: "unit", item };
+      if (photos) setPhotoTarget(target); else setDetailTarget(target);
+    } catch (loadError) { setError(loadError instanceof Error ? loadError.message : "Unable to load advertising unit details."); }
+    finally { setIsDetailLoading(false); }
+  }
+
+  async function openLocationEditor(id: number) {
+    try {
+      editLocation(await fetchInventorySite(id));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load location details.");
     }
   }
 
-  function updateUnitFilter<K extends keyof UnitFilters>(field: K, value: UnitFilters[K]) {
-    setUnitFilters((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function updateSiteListFilter<K extends keyof InventorySiteListFilters>(field: K, value: InventorySiteListFilters[K]) {
-    setSiteListFilters((current) => ({
-      ...current,
-      [field]: value,
-      page: 1,
-      page_size: SITE_LIST_PAGE_SIZE,
-    }));
-  }
-
-  function handlePendingUnitImagesChange(event: ChangeEvent<HTMLInputElement>) {
-    for (const image of pendingUnitImages) {
-      URL.revokeObjectURL(image.previewUrl);
+  async function openUnitEditor(id: number) {
+    try {
+      editUnit(await fetchInventoryUnit(id));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load advertising unit details.");
     }
-
-    const nextImages = Array.from(event.target.files ?? []).map((file, index) => ({
-      id: `${file.name}-${file.size}-${index}`,
-      file,
-      previewUrl: URL.createObjectURL(file),
-      caption: file.name.replace(/\.[^.]+$/, ""),
-    }));
-
-    setPendingUnitImages(nextImages);
-    setPrimaryPendingUnitImageId(nextImages[0]?.id ?? null);
-    setUnitImageUploadProgress(0);
   }
 
-  function updatePendingUnitImageCaption(imageId: string, caption: string) {
-    setPendingUnitImages((current) =>
-      current.map((image) => (image.id === imageId ? { ...image, caption } : image)),
-    );
+  function editLocation(site: InventorySite) {
+    setEditingSiteId(site.id); setSiteForm({ name: site.name, code: site.code, site_type: site.site_type, address: site.address, city: site.city, state: site.state, latitude: site.latitude, longitude: site.longitude });
+    setIsAddOpen(true); setAddMode("new-location"); setDetailTarget(null);
   }
 
-  async function uploadPendingImagesForUnit(unitId: number) {
-    if (pendingUnitImages.length === 0) {
-      return 0;
-    }
-
-    const primaryId = primaryPendingUnitImageId ?? pendingUnitImages[0]?.id ?? null;
-
-    for (let index = 0; index < pendingUnitImages.length; index += 1) {
-      const image = pendingUnitImages[index];
-      await uploadMediaUnitImage({
-        media_unit: unitId,
-        image: image.file,
-        caption: image.caption.trim(),
-        is_primary: image.id === primaryId,
-        onProgress: (progress) => {
-          const aggregate = Math.round(((index + progress / 100) / pendingUnitImages.length) * 100);
-          setUnitImageUploadProgress(aggregate);
-        },
-      });
-    }
-
-    setUnitImageUploadProgress(100);
-    return pendingUnitImages.length;
+  function editUnit(unit: InventoryUnit) {
+    setEditingUnitId(unit.id); setUnitForm({ site: unit.site, unit_code: unit.unit_code, face_count: unit.face_count, width: unit.width, height: unit.height, status: unit.status, is_illuminated: unit.is_illuminated, monthly_rate: unit.monthly_rate, facing_direction: unit.facing_direction, site_type: unit.site_type });
+    setIsAddOpen(true); setAddMode("existing-location"); setDetailTarget(null); void loadDirectory();
   }
+
+  async function handleDeleteLocation(site: InventorySite) {
+    if (activeSiteId || !window.confirm(`Delete ${site.name}? Active bookings remain protected.`)) return;
+    setActiveSiteId(site.id); setError("");
+    try { await deleteSite(site.id); await refreshWorkspace(); setDetailTarget(null); }
+    catch (deleteError) { setError(getInventorySiteMutationError(deleteError).message); }
+    finally { setActiveSiteId(null); }
+  }
+
+  async function handleSitePhotoUpload(siteId: number, payload: { file: File; caption: string; isPrimary: boolean }) {
+    try { await uploadSiteImage({ site: siteId, image: payload.file, caption: payload.caption, is_primary: payload.isPrimary }); await loadLocations(locationFilters); const item = await fetchInventorySite(siteId); setPhotoTarget({ kind: "location", item }); }
+    catch (uploadError) { throw new Error(getSiteImageMutationError(uploadError).message); }
+  }
+  async function handleUnitPhotoUpload(unitId: number, payload: { file: File; caption: string; isPrimary: boolean }) {
+    try { await uploadMediaUnitImage({ media_unit: unitId, image: payload.file, caption: payload.caption, is_primary: payload.isPrimary }); await loadUnits(unitFilters); const item = await fetchInventoryUnit(unitId); setPhotoTarget({ kind: "unit", item }); }
+    catch (uploadError) { throw new Error(getMediaUnitImageMutationError(uploadError).message); }
+  }
+  async function handleSitePrimary(imageId: number) { try { await updateSiteImage(imageId, { is_primary: true }); if (photoTarget?.kind === "location") setPhotoTarget({ kind: "location", item: await fetchInventorySite(photoTarget.item.id) }); await loadLocations(locationFilters); } catch (mutationError) { throw new Error(getSiteImageMutationError(mutationError).message); } }
+  async function handleUnitPrimary(imageId: number) { try { await updateMediaUnitImage(imageId, { is_primary: true }); if (photoTarget?.kind === "unit") setPhotoTarget({ kind: "unit", item: await fetchInventoryUnit(photoTarget.item.id) }); await loadUnits(unitFilters); } catch (mutationError) { throw new Error(getMediaUnitImageMutationError(mutationError).message); } }
+  async function handleSiteImageDelete(imageId: number) { try { await deleteSiteImage(imageId); if (photoTarget?.kind === "location") setPhotoTarget({ kind: "location", item: await fetchInventorySite(photoTarget.item.id) }); await loadLocations(locationFilters); } catch (mutationError) { throw new Error(getSiteImageMutationError(mutationError).message); } }
+  async function handleUnitImageDelete(imageId: number) { try { await deleteMediaUnitImage(imageId); if (photoTarget?.kind === "unit") setPhotoTarget({ kind: "unit", item: await fetchInventoryUnit(photoTarget.item.id) }); await loadUnits(unitFilters); } catch (mutationError) { throw new Error(getMediaUnitImageMutationError(mutationError).message); } }
+
+  const locationPageCount = Math.max(1, Math.ceil((locations?.count ?? 0) / PAGE_SIZE));
+  const unitPageCount = Math.max(1, Math.ceil((units?.count ?? 0) / PAGE_SIZE));
+  const locationRows = locations?.results ?? [];
+  const unitRows = units?.results ?? [];
 
   return (
-    <AppShell
-      active="inventory"
-      roleLabel={user?.role ?? "Team member"}
-      userEmail={user?.email ?? "Loading user..."}
-      title="Inventory command"
-      eyebrow="Inventory"
-      description="Manage live site and media-unit imagery alongside operational inventory details for planning and booking."
-      onLogout={handleLogout}
-    >
-      {error ? <p className="error dashboard-error">{error}</p> : null}
-
-      {canManageSites ? (
-        <section className="module-card creation-panel">
-          <div className="module-head">
-            <h2>Create site</h2>
-            <span>Admin only</span>
-          </div>
-          <p className="section-copy creation-copy">
-            Add a new inventory site without leaving the dashboard. Deletion stays protected if the site is tied to active bookings.
-            Location coordinates are optional and will be auto-captured during the first verified POE upload.
-          </p>
-          {siteMutationError ? <p className="error">{siteMutationError}</p> : null}
-          {siteMutationSuccess ? <p className="success">{siteMutationSuccess}</p> : null}
-          <form className="site-form-grid" onSubmit={handleCreateSite}>
-            <div className="field field-full">
-              <label htmlFor="site-name">Site name</label>
-              <input
-                id="site-name"
-                value={siteForm.name}
-                onChange={(event) => updateSiteForm("name", event.target.value)}
-                placeholder="Airport Arrival Billboard"
-                required
-              />
-              {siteFieldErrors.name?.length ? <p className="field-help field-help-error">{siteFieldErrors.name[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="site-code">Site code</label>
-              <input
-                id="site-code"
-                value={siteForm.code}
-                onChange={(event) => updateSiteForm("code", event.target.value.toUpperCase())}
-                placeholder="SITE-003"
-                required
-              />
-              {siteFieldErrors.code?.length ? <p className="field-help field-help-error">{siteFieldErrors.code[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="site-type">Site type</label>
-              <select
-                id="site-type"
-                value={siteForm.site_type}
-                onChange={(event) => updateSiteForm("site_type", event.target.value)}
-              >
-                <option value="billboard">Billboard</option>
-                <option value="transit">Transit</option>
-                <option value="street_furniture">Street furniture</option>
-                <option value="digital">Digital</option>
-              </select>
-              {siteFieldErrors.site_type?.length ? <p className="field-help field-help-error">{siteFieldErrors.site_type[0]}</p> : null}
-            </div>
-            <div className="field field-full">
-              <label htmlFor="site-address">Address</label>
-              <input
-                id="site-address"
-                value={siteForm.address}
-                onChange={(event) => updateSiteForm("address", event.target.value)}
-                placeholder="Airport Road, Terminal 2 approach"
-                required
-              />
-              {siteFieldErrors.address?.length ? <p className="field-help field-help-error">{siteFieldErrors.address[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="site-city">City</label>
-              <input
-                id="site-city"
-                value={siteForm.city}
-                onChange={(event) => updateSiteForm("city", event.target.value)}
-                placeholder="Pune"
-                required
-              />
-              {siteFieldErrors.city?.length ? <p className="field-help field-help-error">{siteFieldErrors.city[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="site-state">State</label>
-              <input
-                id="site-state"
-                value={siteForm.state}
-                onChange={(event) => updateSiteForm("state", event.target.value)}
-                placeholder="Maharashtra"
-                required
-              />
-              {siteFieldErrors.state?.length ? <p className="field-help field-help-error">{siteFieldErrors.state[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="site-latitude">Latitude</label>
-              <input
-                id="site-latitude"
-                value={siteForm.latitude ?? ""}
-                onChange={(event) => updateSiteForm("latitude", event.target.value)}
-                placeholder="18.520430"
-              />
-              {siteFieldErrors.latitude?.length ? (
-                <p className="field-help field-help-error">{siteFieldErrors.latitude[0]}</p>
-              ) : (
-                <p className="field-help">Auto-captured during first verified POE if left blank.</p>
-              )}
-            </div>
-            <div className="field">
-              <label htmlFor="site-longitude">Longitude</label>
-              <input
-                id="site-longitude"
-                value={siteForm.longitude ?? ""}
-                onChange={(event) => updateSiteForm("longitude", event.target.value)}
-                placeholder="73.856743"
-              />
-              {siteFieldErrors.longitude?.length ? (
-                <p className="field-help field-help-error">{siteFieldErrors.longitude[0]}</p>
-              ) : (
-                <p className="field-help">Coordinates lock after POE verification.</p>
-              )}
-            </div>
-            <div className="form-actions field-full">
-              <button className="submit" type="submit" disabled={isSiteSubmitting || isLoading}>
-                {isSiteSubmitting ? "Creating site..." : "Create site"}
-              </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-
-      <section className="summary-row" aria-label="Inventory stats">
-        <article className="summary-card">
-          <p className="stat-label">Sites</p>
-          <p className="summary-value">{isLoading ? "..." : inventoryStats.totalSites}</p>
-        </article>
-        <article className="summary-card">
-          <p className="stat-label">Units</p>
-          <p className="summary-value">{isLoading ? "..." : inventoryStats.totalUnits}</p>
-        </article>
-        <article className="summary-card">
-          <p className="stat-label">Available</p>
-          <p className="summary-value">{isLoading ? "..." : inventoryStats.availableUnits}</p>
-        </article>
-        <article className="summary-card">
-          <p className="stat-label">Sites with imagery</p>
-          <p className="summary-value">{isLoading ? "..." : inventoryStats.imagedSites}</p>
-        </article>
+    <AppShell active="inventory" roleLabel={user?.role ?? "Team member"} userEmail={user?.email ?? ""} onLogout={handleLogout} title="Inventory workspace" description="Organize physical locations and the sellable advertising units they contain.">
+      <section className="inventory-workspace-head">
+        <div><p className="site-code">LOCATION → ADVERTISING UNIT → BOOKINGS / CAMPAIGNS / POE</p><p className="section-copy">Locations describe the physical place. Advertising Units are the sellable faces, directions, screens, or displays at that location.</p></div>
+        {canManageUnits || canManageSites ? <button className="submit" type="button" onClick={() => openAdd()}>+ Add Inventory</button> : null}
       </section>
 
-      <section className="module-grid">
-        <article className="module-card">
-          <div className="module-head">
-            <h2>Image operations</h2>
-            <span>{canManageImages ? "Write access" : "View only"}</span>
-          </div>
-          <div className="module-stats">
-            <div className="module-stat">
-              <p className="stat-label">Site galleries</p>
-              <p className="stat-value">{isLoading ? "..." : inventory?.sites?.length ?? 0}</p>
-            </div>
-            <div className="module-stat">
-              <p className="stat-label">Unit galleries</p>
-              <p className="stat-value">{isLoading ? "..." : inventory?.units?.length ?? 0}</p>
-            </div>
-          </div>
-        </article>
+      <nav className="inventory-tabs" aria-label="Inventory views">
+        {(["overview", "locations", "units"] as InventoryView[]).map((tab) => <button key={tab} type="button" className={view === tab ? "inventory-tab-active" : ""} aria-current={view === tab ? "page" : undefined} onClick={() => selectView(tab)}>{tab === "units" ? "Advertising Units" : tab[0].toUpperCase() + tab.slice(1)}</button>)}
+      </nav>
+      {error ? <p className="error" role="alert">{error}</p> : null}
 
-        <article className="module-card">
-          <div className="module-head">
-            <h2>Primary image coverage</h2>
-            <span>Inventory</span>
-          </div>
-          <div className="module-stats">
-            <div className="module-stat">
-              <p className="stat-label">Sites with primary image</p>
-              <p className="stat-value">
-                {isLoading ? "..." : (inventory?.sites ?? []).filter((site) => Boolean(site.primary_image)).length}
-              </p>
-            </div>
-            <div className="module-stat">
-              <p className="stat-label">Units with primary image</p>
-              <p className="stat-value">
-                {isLoading ? "..." : (inventory?.units ?? []).filter((unit) => Boolean(unit.primary_image)).length}
-              </p>
-            </div>
-          </div>
-        </article>
-
-        <article className="module-card module-card-highlight">
-          <div className="module-head">
-            <h2>Workflow note</h2>
-            <span>Bookings + POE</span>
-          </div>
-          <div className="module-stats">
-            <div className="module-stat">
-              <p className="stat-label">Downstream usage</p>
-              <p className="table-wrap">
-                These images are reused in booking previews and field proof-of-execution capture so operations teams can verify the right location before installation.
-              </p>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section className="inventory-section" aria-labelledby="all-sites-heading">
-        <div className="module-head">
-          <div>
-            <h2 id="all-sites-heading">All Sites</h2>
-            <p className="site-copy">Inventory list</p>
-          </div>
-          <span>{isSiteListLoading ? "Loading" : `${siteList?.count ?? 0} sites`}</span>
+      {view === "overview" ? <section className="inventory-overview" aria-label="Inventory overview">
+        <div className="inventory-summary-grid">
+          {[ ["Total Locations", overview.locations], ["Advertising Units", overview.units], ["Available Units", overview.available], ["Booked Units", overview.booked], ["Maintenance / Retired", overview.unavailable], ["Locations without photos", overview.missingLocationPhotos], ["Locations without coordinates", overview.missingCoordinates] ].map(([label, value]) => <article className="summary-card" key={String(label)}><span>{label}</span><strong>{isLoading ? "..." : value}</strong></article>)}
         </div>
+        <section className="module-card inventory-attention"><div className="module-head"><h2>Units needing attention</h2><span>Operational follow-up</span></div>{unitRows.filter((item) => item.status !== "available").slice(0, 5).map((unit) => <button className="inventory-attention-row" type="button" key={unit.id} onClick={() => void openUnit(unit.id)}><span><strong>{unit.unit_code}</strong><small>{unit.location_code} · {unit.location_name}</small></span><span className={`status-pill status-${unit.status}`}>{formatChoice(unit.status)}</span></button>)}{unitRows.every((item) => item.status === "available") ? <p className="empty-state">No units on this page need an operational follow-up.</p> : null}</section>
+      </section> : null}
 
-        <section className="module-card inventory-filter-panel">
-          <div className="inventory-filter-grid inventory-list-filter-grid">
-            <div className="field">
-              <label htmlFor="site-list-search">Search</label>
-              <input
-                id="site-list-search"
-                value={siteListFilters.search ?? ""}
-                onChange={(event) => updateSiteListFilter("search", event.target.value)}
-                placeholder="Site, unit, city, address"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="site-list-city">City</label>
-              <select
-                id="site-list-city"
-                value={siteListFilters.city ?? ""}
-                onChange={(event) => updateSiteListFilter("city", event.target.value)}
-              >
-                <option value="">All cities</option>
-                {filterCities.map((city) => (
-                  <option key={city} value={city}>
-                    {city}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="site-list-status">Status</label>
-              <select
-                id="site-list-status"
-                value={siteListFilters.status ?? ""}
-                onChange={(event) => updateSiteListFilter("status", event.target.value)}
-              >
-                <option value="">All statuses</option>
-                {SITE_LIST_STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {formatSiteListStatus(status)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="site-list-media-type">Media type</label>
-              <select
-                id="site-list-media-type"
-                value={siteListFilters.media_type ?? ""}
-                onChange={(event) => updateSiteListFilter("media_type", event.target.value)}
-              >
-                <option value="">All media</option>
-                {filterMediaTypes.map((mediaType) => (
-                  <option key={mediaType} value={mediaType}>
-                    {formatChoice(mediaType)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="site-list-facing-direction">Facing direction</label>
-              <input
-                id="site-list-facing-direction"
-                list="site-list-facing-options"
-                value={siteListFilters.facing_direction ?? ""}
-                onChange={(event) => updateSiteListFilter("facing_direction", event.target.value)}
-                placeholder="Toward Jammu City"
-              />
-              <datalist id="site-list-facing-options">
-                {filterFacingDirections.map((direction) => (
-                  <option key={direction} value={direction} />
-                ))}
-              </datalist>
-            </div>
-            <div className="field">
-              <label htmlFor="site-list-unit-site-type">Site type</label>
-              <select
-                id="site-list-unit-site-type"
-                value={siteListFilters.site_type ?? ""}
-                onChange={(event) => updateSiteListFilter("site_type", event.target.value)}
-              >
-                <option value="">All types</option>
-                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-actions field-full">
-              <button className="ghost" type="button" onClick={() => setSiteListFilters(INITIAL_SITE_LIST_FILTERS)}>
-                Clear filters
-              </button>
-            </div>
-          </div>
-        </section>
+      {view === "locations" ? <section className="inventory-list-section" aria-labelledby="locations-heading">
+        <div className="module-head"><div><h2 id="locations-heading">Locations</h2><p className="section-copy">A physical advertising structure or geographic place that may contain one or more sellable advertising units.</p></div><span>{locations?.count ?? 0} locations</span></div>
+        <section className="module-card inventory-filter-panel"><div className="inventory-filter-grid inventory-location-filter-grid">
+          <label className="field"><span>Search</span><input value={locationFilters.search} onChange={(event) => setLocationFilters((current) => ({ ...current, search: event.target.value, page: 1 }))} placeholder="Name, code, city, or address" /></label>
+          <label className="field"><span>City</span><select value={locationFilters.city} onChange={(event) => setLocationFilters((current) => ({ ...current, city: event.target.value, page: 1 }))}><option value="">All cities</option>{locationCities.map((city) => <option key={city}>{city}</option>)}</select></label>
+          <label className="field"><span>Structure category</span><select value={locationFilters.media_type} onChange={(event) => setLocationFilters((current) => ({ ...current, media_type: event.target.value, page: 1 }))}><option value="">All categories</option>{locationTypes.map((type) => <option key={type} value={type}>{formatChoice(type)}</option>)}</select></label>
+          <label className="field"><span>Photo status</span><select value={locationFilters.photo_status ?? ""} onChange={(event) => setLocationFilters((current) => ({ ...current, photo_status: event.target.value as InventorySiteListFilters["photo_status"], page: 1 }))}><option value="">Any photo status</option><option value="with_photos">Has photos</option><option value="missing_photos">Missing photos</option></select></label>
+          <label className="field"><span>Coordinates</span><select value={locationFilters.coordinate_status ?? ""} onChange={(event) => setLocationFilters((current) => ({ ...current, coordinate_status: event.target.value as InventorySiteListFilters["coordinate_status"], page: 1 }))}><option value="">Any coordinate status</option><option value="coordinates_set">Coordinates set</option><option value="coordinates_missing">Coordinates missing</option></select></label>
+          <div className="form-actions"><button className="ghost" type="button" onClick={() => setLocationFilters(INITIAL_LOCATION_FILTERS)}>Clear</button></div>
+        </div></section>
+        {isLocationLoading ? <p className="empty-state">Loading locations...</p> : null}
+        {!isLocationLoading && locationRows.length === 0 ? <p className="empty-state">No locations match the selected filters.</p> : null}
+        {locationRows.length ? <div className="inventory-table-wrap all-sites-table-wrap"><table className="inventory-table all-sites-table inventory-workspace-table"><thead><tr><th>Photo</th><th>Location</th><th>City / Address</th><th>Category</th><th>Advertising units</th><th>Photos / Coordinates</th><th>Actions</th></tr></thead><tbody>{locationRows.map((location) => <tr key={location.id}><td><SafeImage src={location.thumbnail_url} alt={`${location.title} thumbnail`} className="all-sites-thumb" fallback={<div className="all-sites-thumb all-sites-thumb-empty">No photo</div>} /></td><td><div className="table-primary"><span>LOCATION</span><strong>{location.title}</strong><span>{location.site_code}</span></div></td><td><div className="table-primary"><strong>{location.city}</strong><span>{location.address}</span></div></td><td>{formatChoice(location.media_type)}</td><td>{location.available_unit_count} of {location.unit_count} available</td><td><span className="site-code">{location.image_count} photo(s) · {location.has_coordinates ? "Coordinates set" : "Coordinates missing"}</span></td><td><div className="all-sites-actions"><button className="ghost table-action" type="button" onClick={() => void openLocation(location.id)}>View</button>{canManageSites ? <button className="ghost table-action" type="button" onClick={() => void openLocationEditor(location.id)}>Edit</button> : null}<details className="inventory-more"><summary>More</summary><div>{canManageImages ? <button type="button" onClick={() => void openLocation(location.id, true)}>Manage photos</button> : null}{canManageSites ? <button className="ghost-danger" type="button" onClick={() => void handleDeleteLocation({ id: location.id, name: location.title } as InventorySite)}>Delete location</button> : null}</div></details></div></td></tr>)}</tbody></table></div> : null}
+        <Pagination page={locationFilters.page ?? 1} pageCount={locationPageCount} loading={isLocationLoading} onChange={(page) => setLocationFilters((current) => ({ ...current, page }))} />
+      </section> : null}
 
-        {siteListError ? <p className="error">{siteListError}</p> : null}
-        {isSiteListLoading ? <p className="empty-state">Loading inventory list...</p> : null}
-        {!isSiteListLoading && !siteListError && (siteList?.results?.length ?? 0) === 0 ? (
-          <p className="empty-state">No sites match the current filters.</p>
-        ) : null}
+      {view === "units" ? <section className="inventory-list-section" aria-labelledby="units-heading">
+        <div className="module-head"><div><h2 id="units-heading">Advertising Units</h2><p className="section-copy">A sellable advertising face, direction, screen, or display at a location.</p></div><span>{units?.count ?? 0} units</span></div>
+        <section className="module-card inventory-filter-panel"><div className="inventory-filter-grid inventory-unit-filter-grid">
+          <label className="field"><span>Search</span><input value={unitFilters.search} onChange={(event) => setUnitFilters((current) => ({ ...current, search: event.target.value, page: 1 }))} placeholder="Unit, location, address, city, direction" /></label>
+          <label className="field"><span>City</span><select value={unitFilters.city} onChange={(event) => setUnitFilters((current) => ({ ...current, city: event.target.value, page: 1 }))}><option value="">All cities</option>{unitCities.map((city) => <option key={city}>{city}</option>)}</select></label>
+          <label className="field"><span>Availability</span><select value={unitFilters.status} onChange={(event) => setUnitFilters((current) => ({ ...current, status: event.target.value, page: 1 }))}><option value="">All statuses</option>{["available", "reserved", "maintenance", "retired"].map((status) => <option key={status} value={status}>{formatChoice(status)}</option>)}</select></label>
+          <label className="field"><span>Display format</span><select value={unitFilters.site_type} onChange={(event) => setUnitFilters((current) => ({ ...current, site_type: event.target.value, page: 1 }))}><option value="">All formats</option>{MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+          <label className="field"><span>Facing direction</span><select value={unitFilters.facing_direction} onChange={(event) => setUnitFilters((current) => ({ ...current, facing_direction: event.target.value, page: 1 }))}><option value="">All directions</option>{facingDirections.map((direction) => <option key={direction}>{direction}</option>)}</select></label>
+          <label className="field"><span>Illumination</span><select value={unitFilters.is_illuminated === undefined ? "" : String(unitFilters.is_illuminated)} onChange={(event) => setUnitFilters((current) => ({ ...current, is_illuminated: event.target.value === "" ? undefined : event.target.value === "true", page: 1 }))}><option value="">Any illumination</option><option value="true">Illuminated</option><option value="false">Standard</option></select></label>
+          <label className="field"><span>Size</span><select value={unitFilters.size ?? ""} onChange={(event) => setUnitFilters((current) => ({ ...current, size: event.target.value, page: 1 }))}><option value="">All sizes</option>{unitSizes.map((size) => <option key={size} value={size}>{size.replace("x", " × ")}</option>)}</select></label>
+          <div className="form-actions"><button className="ghost" type="button" onClick={() => setUnitFilters(INITIAL_UNIT_FILTERS)}>Clear</button></div>
+        </div></section>
+        {isUnitLoading ? <p className="empty-state">Loading advertising units...</p> : null}
+        {!isUnitLoading && unitRows.length === 0 ? <p className="empty-state">No advertising units match the selected filters.</p> : null}
+        {unitRows.length ? <div className="inventory-table-wrap inventory-workspace-table-wrap"><table className="inventory-table inventory-workspace-table inventory-units-table"><thead><tr><th>Photo</th><th>Advertising Unit</th><th>Location</th><th>Facing</th><th>Dimensions</th><th>Format</th><th>Illumination</th><th>Rate</th><th>Status</th><th>Actions</th></tr></thead><tbody>{unitRows.map((unit) => <tr key={unit.id}><td><SafeImage src={unit.thumbnail_url} alt={`${unit.unit_code} thumbnail`} className="all-sites-thumb" fallback={<div className="all-sites-thumb all-sites-thumb-empty">No photo</div>} /></td><td><div className="table-primary"><span>ADVERTISING UNIT</span><strong>{unit.unit_code}</strong><span>{unit.image_count} photo(s)</span></div></td><td><button className="inventory-location-link" type="button" onClick={() => void openLocation(unit.location_id)}><span>LOCATION</span><strong>{unit.location_name}</strong><small>{unit.location_code} · {unit.city}</small></button></td><td>{unit.facing_direction || "Pending"}</td><td>{unit.width} × {unit.height}<br /><span className="site-code">{unit.face_count} face(s)</span></td><td>{formatMediaUnitSiteType(unit.site_type)}</td><td>{unit.is_illuminated ? "Illuminated" : "Standard"}</td><td>{formatMoney(unit.monthly_rate)}</td><td><span className={`status-pill status-${unit.status}`}>{formatChoice(unit.status)}</span></td><td><div className="all-sites-actions"><button className="ghost table-action" type="button" onClick={() => void openUnit(unit.id)}>View</button>{canManageUnits ? <button className="ghost table-action" type="button" onClick={() => void openUnitEditor(unit.id)}>Edit</button> : null}<details className="inventory-more"><summary>More</summary><div>{canManageImages ? <button type="button" onClick={() => void openUnit(unit.id, true)}>Manage photos</button> : null}</div></details></div></td></tr>)}</tbody></table></div> : null}
+        <Pagination page={unitFilters.page ?? 1} pageCount={unitPageCount} loading={isUnitLoading} onChange={(page) => setUnitFilters((current) => ({ ...current, page }))} />
+      </section> : null}
 
-        {!isSiteListLoading && !siteListError && (siteList?.results?.length ?? 0) > 0 ? (
-          <>
-            <div className="inventory-table-wrap all-sites-table-wrap">
-              <table className="inventory-table all-sites-table">
-                <thead>
-                  <tr>
-                    <th>Image</th>
-                    <th>Site</th>
-                    <th>Location</th>
-                    <th>Media</th>
-                    <th>Status</th>
-                    <th>Updated</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {siteList?.results.map((site) => {
-                    const primaryUnitId = site.unit_ids[0] ?? null;
-                    return (
-                      <tr key={site.site_id}>
-                        <td>
-                          <SafeImage
-                            src={site.thumbnail_url}
-                            alt={`${site.title} thumbnail`}
-                            className="all-sites-thumb"
-                            fallback={<div className="all-sites-thumb all-sites-thumb-empty">No image</div>}
-                          />
-                        </td>
-                        <td>
-                          <div className="table-primary">
-                            <strong>{site.title}</strong>
-                            <span>{site.site_code}</span>
-                          </div>
-                          <p className="site-copy all-sites-unit-codes">
-                            {site.unit_codes.length > 0 ? site.unit_codes.join(", ") : "No units yet"}
-                          </p>
-                        </td>
-                        <td>
-                          <strong>{site.city || "City pending"}</strong>
-                          <p className="site-copy">{[site.address, site.state].filter(Boolean).join(", ")}</p>
-                        </td>
-                        <td>
-                          <p>{formatChoice(site.media_type)}</p>
-                          <p className="site-copy">{site.dimensions || "Size pending"}</p>
-                          <p className="site-copy">{site.facing_direction || "Direction pending"}</p>
-                          <p className="site-copy">{formatUnitSiteTypes(site.unit_site_type)}</p>
-                        </td>
-                        <td>
-                          <span className={`status-pill status-${site.status}`}>{formatSiteListStatus(site.status)}</span>
-                        </td>
-                        <td>{formatDate(site.updated_at)}</td>
-                        <td>
-                          <div className="all-sites-actions">
-                            <a className="ghost table-action" href={`#site-image-${site.site_id}-file`}>
-                              View
-                            </a>
-                            {canManageUnits && primaryUnitId ? (
-                              <button className="ghost table-action" type="button" onClick={() => handleEditUnit(primaryUnitId)}>
-                                Edit
-                              </button>
-                            ) : null}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+      {isAddOpen ? <div className="inventory-modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closeAdd()}><section className="inventory-modal" role="dialog" aria-modal="true" aria-labelledby="add-inventory-title"><div className="module-head"><div><p className="site-code">ADD INVENTORY</p><h2 id="add-inventory-title">{editingSiteId ? "Edit Location" : editingUnitId ? "Edit Advertising Unit" : "Add Inventory"}</h2></div><button className="ghost" type="button" onClick={closeAdd}>Close</button></div>{addMode === "choose" ? <div className="inventory-choice-grid"><button type="button" onClick={() => setAddMode("existing-location")}><strong>Add advertising units</strong><span>Use an existing location.</span></button>{canManageSites ? <button type="button" onClick={() => setAddMode("new-location")}><strong>Create a new location</strong><span>Then add its sellable unit.</span></button> : null}</div> : null}{addMode === "new-location" ? <form className="site-form-grid" onSubmit={handleSubmitSite}><p className="section-copy field-full">Location: a physical advertising structure or geographic place that may contain one or more sellable advertising units.</p><label className="field"><span>Location name</span><input value={siteForm.name} onChange={(event) => updateSiteForm("name", event.target.value)} required /></label><label className="field"><span>Location code</span><input value={siteForm.code} onChange={(event) => updateSiteForm("code", event.target.value.toUpperCase())} required /></label><label className="field"><span>Structure category</span><select value={siteForm.site_type} onChange={(event) => updateSiteForm("site_type", event.target.value)}>{["billboard", "transit", "street_furniture", "digital"].map((type) => <option key={type} value={type}>{formatChoice(type)}</option>)}</select></label><label className="field"><span>City</span><input value={siteForm.city} onChange={(event) => updateSiteForm("city", event.target.value)} required /></label><label className="field field-full"><span>Address</span><input value={siteForm.address} onChange={(event) => updateSiteForm("address", event.target.value)} required /></label><label className="field"><span>State</span><input value={siteForm.state} onChange={(event) => updateSiteForm("state", event.target.value)} required /></label><label className="field"><span>Latitude</span><input type="number" step="0.000001" value={siteForm.latitude ?? ""} onChange={(event) => updateSiteForm("latitude", event.target.value)} /></label><label className="field"><span>Longitude</span><input type="number" step="0.000001" value={siteForm.longitude ?? ""} onChange={(event) => updateSiteForm("longitude", event.target.value)} /></label><label className="field field-full"><span>Optional location photo</span><input type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => setPendingLocationPhoto(event.target.files?.[0] ?? null)} /><small>Show the physical structure, surroundings, and approach.</small></label>{siteError ? <p className="error field-full">{siteError}</p> : null}{siteSuccess ? <p className="success field-full">{siteSuccess}</p> : null}<div className="form-actions field-full"><button className="ghost" type="button" onClick={() => setAddMode("choose")}>Back</button><button className="submit" type="submit" disabled={isSiteSubmitting}>{isSiteSubmitting ? "Saving..." : editingSiteId ? "Save Location" : "Create Location"}</button></div></form> : null}{addMode === "existing-location" ? <form className="site-form-grid" onSubmit={handleSubmitUnit}><p className="section-copy field-full">Advertising Unit: a sellable advertising face, direction, screen, or display at a location.</p><label className="field field-full"><span>Parent Location</span><select value={unitForm.site || ""} onChange={(event) => updateUnitForm("site", Number(event.target.value))} required><option value="" disabled>Select a location</option>{(directory?.sites ?? []).map((site) => <option key={site.id} value={site.id}>{site.code} · {site.name}</option>)}</select></label><label className="field"><span>Unit code</span><input value={unitForm.unit_code} onChange={(event) => updateUnitForm("unit_code", event.target.value.toUpperCase())} required /></label><label className="field"><span>Facing direction</span><input value={unitForm.facing_direction} onChange={(event) => updateUnitForm("facing_direction", event.target.value)} /></label><label className="field"><span>Display format / sides sold</span><select value={unitForm.site_type} onChange={(event) => updateUnitForm("site_type", event.target.value)}>{MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label><label className="field"><span>Face count</span><input type="number" min="1" value={unitForm.face_count} onChange={(event) => updateUnitForm("face_count", Number(event.target.value))} required /></label><label className="field"><span>Status</span><select value={unitForm.status} onChange={(event) => updateUnitForm("status", event.target.value)}>{["available", "reserved", "maintenance", "retired"].map((status) => <option key={status} value={status}>{formatChoice(status)}</option>)}</select></label><label className="field"><span>Width</span><input type="number" min="0" step="0.01" value={unitForm.width} onChange={(event) => updateUnitForm("width", event.target.value)} required /></label><label className="field"><span>Height</span><input type="number" min="0" step="0.01" value={unitForm.height} onChange={(event) => updateUnitForm("height", event.target.value)} required /></label><label className="field"><span>Monthly rate</span><input type="number" min="0" step="0.01" value={unitForm.monthly_rate} onChange={(event) => updateUnitForm("monthly_rate", event.target.value)} required /></label><label className="checkbox-field"><input type="checkbox" checked={unitForm.is_illuminated} onChange={(event) => updateUnitForm("is_illuminated", event.target.checked)} /><span>Illuminated</span></label><label className="field field-full"><span>Unit photos</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handlePendingUnitImagesChange} /><small>Show the specific sellable advertising face or direction.</small></label>{pendingUnitImages.length ? <div className="unit-upload-preview-grid field-full">{pendingUnitImages.map((image) => <article className="upload-preview-card upload-preview-card-stacked" key={image.id}><img className="upload-preview-image" src={image.previewUrl} alt={image.file.name} /><label className="field"><span>Caption</span><input value={image.caption} onChange={(event) => setPendingUnitImages((current) => current.map((item) => item.id === image.id ? { ...item, caption: event.target.value } : item))} /></label><label className="checkbox-field"><input type="radio" name="unit-primary" checked={primaryPendingUnitImageId === image.id} onChange={() => setPrimaryPendingUnitImageId(image.id)} /><span>Set as primary image</span></label></article>)}</div> : null}{unitError ? <p className="error field-full">{unitError}</p> : null}{unitSuccess ? <p className="success field-full">{unitSuccess}</p> : null}<div className="form-actions field-full"><button className="ghost" type="button" onClick={() => setAddMode("choose")}>Back</button><button className="submit" type="submit" disabled={isUnitSubmitting || !unitForm.site}>{isUnitSubmitting ? "Saving..." : editingUnitId ? "Save Advertising Unit" : "Create Advertising Unit"}</button></div></form> : null}</section></div> : null}
 
-            <div className="pagination-row">
-              <button
-                className="ghost"
-                type="button"
-                disabled={(siteListFilters.page ?? 1) <= 1 || isSiteListLoading}
-                onClick={() =>
-                  setSiteListFilters((current) => ({
-                    ...current,
-                    page: Math.max(1, (current.page ?? 1) - 1),
-                    page_size: SITE_LIST_PAGE_SIZE,
-                  }))
-                }
-              >
-                Previous
-              </button>
-              <span>
-                Page {siteListFilters.page ?? 1} of {siteListTotalPages}
-              </span>
-              <button
-                className="ghost"
-                type="button"
-                disabled={(siteListFilters.page ?? 1) >= siteListTotalPages || isSiteListLoading}
-                onClick={() =>
-                  setSiteListFilters((current) => ({
-                    ...current,
-                    page: Math.min(siteListTotalPages, (current.page ?? 1) + 1),
-                    page_size: SITE_LIST_PAGE_SIZE,
-                  }))
-                }
-              >
-                Next
-              </button>
-            </div>
-          </>
-        ) : null}
-      </section>
+      {(detailTarget || isDetailLoading) ? <div className="inventory-drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setDetailTarget(null)}><aside className="inventory-drawer" role="dialog" aria-modal="true" aria-label="Inventory details">{isDetailLoading ? <p className="empty-state">Loading details...</p> : null}{detailTarget?.kind === "location" ? <LocationDetail site={detailTarget.item} canManage={canManageSites} canManageImages={canManageImages} onClose={() => setDetailTarget(null)} onEdit={() => editLocation(detailTarget.item)} onPhotos={() => { setPhotoTarget(detailTarget); setDetailTarget(null); }} onDelete={() => void handleDeleteLocation(detailTarget.item)} /> : null}{detailTarget?.kind === "unit" ? <UnitDetail unit={detailTarget.item} canManage={canManageUnits} canManageImages={canManageImages} onClose={() => setDetailTarget(null)} onEdit={() => editUnit(detailTarget.item)} onPhotos={() => { setPhotoTarget(detailTarget); setDetailTarget(null); }} onLocation={() => void openLocation(detailTarget.item.site)} /> : null}</aside></div> : null}
 
-      {canManageUnits ? (
-        <section
-          id="media-unit-editor"
-          className={`module-card creation-panel${isUnitFormHighlighted ? " creation-panel-active" : ""}`}
-          ref={unitFormSectionRef}
-        >
-          <div className="module-head">
-            <h2>{editingUnitId ? `Editing Media Unit${unitForm.unit_code ? `: ${unitForm.unit_code}` : ""}` : "Create media unit"}</h2>
-            <span>{editingUnitId ? "Update unit" : "Admin + operations"}</span>
-          </div>
-          <p className="section-copy creation-copy">
-            Use one site for the physical structure, and create a separate media unit for each sellable face or direction.
-          </p>
-          {unitEditHint ? <p className="info">{unitEditHint}</p> : null}
-          {unitMutationError ? <p className="error">{unitMutationError}</p> : null}
-          {unitMutationSuccess ? <p className="success">{unitMutationSuccess}</p> : null}
-          <form className="site-form-grid" onSubmit={handleSubmitUnit}>
-            <div className="field">
-              <label htmlFor="unit-site">Site</label>
-              <select
-                id="unit-site"
-                value={unitForm.site || ""}
-                onChange={(event) => updateUnitForm("site", Number(event.target.value))}
-                required
-              >
-                <option value="" disabled>
-                  Select site
-                </option>
-                {sortedSites.map((site) => (
-                  <option key={site.id} value={site.id}>
-                    {site.name} ({site.code})
-                  </option>
-                ))}
-              </select>
-              {unitFieldErrors.site?.length ? <p className="field-help field-help-error">{unitFieldErrors.site[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-code">Media unit code</label>
-              <input
-                id="unit-code"
-                ref={unitCodeInputRef}
-                value={unitForm.unit_code}
-                onChange={(event) => updateUnitForm("unit_code", event.target.value.toUpperCase())}
-                placeholder="SIDCO-A"
-                required
-              />
-              {unitFieldErrors.unit_code?.length ? <p className="field-help field-help-error">{unitFieldErrors.unit_code[0]}</p> : null}
-            </div>
-            <div className="field field-full">
-              <label htmlFor="unit-facing-direction">Facing direction</label>
-              <input
-                id="unit-facing-direction"
-                value={unitForm.facing_direction ?? ""}
-                onChange={(event) => updateUnitForm("facing_direction", event.target.value)}
-                placeholder="Example: Toward Jammu City"
-              />
-              <p className="field-help">Use the direction visible to traffic or pedestrians for this sellable face.</p>
-              {unitFieldErrors.facing_direction?.length ? <p className="field-help field-help-error">{unitFieldErrors.facing_direction[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-site-type">Media unit site type</label>
-              <select
-                id="unit-site-type"
-                value={unitForm.site_type ?? ""}
-                onChange={(event) => updateUnitForm("site_type", event.target.value)}
-              >
-                <option value="">Select type</option>
-                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <p className="field-help">Choose whether this unit sells one side or both sides.</p>
-              {unitFieldErrors.site_type?.length ? <p className="field-help field-help-error">{unitFieldErrors.site_type[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-face-count">Face count</label>
-              <input
-                id="unit-face-count"
-                type="number"
-                min="1"
-                step="1"
-                value={unitForm.face_count}
-                onChange={(event) => updateUnitForm("face_count", Number(event.target.value))}
-                required
-              />
-              {unitFieldErrors.face_count?.length ? <p className="field-help field-help-error">{unitFieldErrors.face_count[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-status">Status</label>
-              <select
-                id="unit-status"
-                value={unitForm.status}
-                onChange={(event) => updateUnitForm("status", event.target.value)}
-              >
-                <option value="available">Available</option>
-                <option value="reserved">Reserved</option>
-                <option value="maintenance">Maintenance</option>
-                <option value="retired">Retired</option>
-              </select>
-              {unitFieldErrors.status?.length ? <p className="field-help field-help-error">{unitFieldErrors.status[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-width">Width</label>
-              <input
-                id="unit-width"
-                type="number"
-                min="0"
-                step="0.01"
-                value={unitForm.width}
-                onChange={(event) => updateUnitForm("width", event.target.value)}
-                placeholder="20.00"
-                required
-              />
-              {unitFieldErrors.width?.length ? <p className="field-help field-help-error">{unitFieldErrors.width[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-height">Height</label>
-              <input
-                id="unit-height"
-                type="number"
-                min="0"
-                step="0.01"
-                value={unitForm.height}
-                onChange={(event) => updateUnitForm("height", event.target.value)}
-                placeholder="10.00"
-                required
-              />
-              {unitFieldErrors.height?.length ? <p className="field-help field-help-error">{unitFieldErrors.height[0]}</p> : null}
-            </div>
-            <div className="field">
-              <label htmlFor="unit-rate">Monthly rate</label>
-              <input
-                id="unit-rate"
-                type="number"
-                min="0"
-                step="0.01"
-                value={unitForm.monthly_rate}
-                onChange={(event) => updateUnitForm("monthly_rate", event.target.value)}
-                placeholder="50000.00"
-                required
-              />
-              {unitFieldErrors.monthly_rate?.length ? <p className="field-help field-help-error">{unitFieldErrors.monthly_rate[0]}</p> : null}
-            </div>
-            <label className="checkbox-field" htmlFor="unit-illuminated">
-              <input
-                id="unit-illuminated"
-                type="checkbox"
-                checked={unitForm.is_illuminated}
-                onChange={(event) => updateUnitForm("is_illuminated", event.target.checked)}
-              />
-              <span>Illuminated face</span>
-            </label>
-            <div className="field field-full">
-              <label htmlFor="unit-images">Media unit images</label>
-              <input
-                id="unit-images"
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={handlePendingUnitImagesChange}
-              />
-              <p className="field-help">
-                {editingUnitId
-                  ? "Add new images while editing. They will upload automatically after the unit update is saved."
-                  : "Choose one or more images. The unit will be created first, then the selected images will upload automatically."}
-              </p>
-              {isUnitSubmitting && pendingUnitImages.length > 0 ? (
-                <p className="field-help">Uploading selected images... {unitImageUploadProgress}%</p>
-              ) : null}
-            </div>
-            {pendingUnitImages.length > 0 ? (
-              <div className="field field-full unit-upload-preview-grid">
-                {pendingUnitImages.map((image) => (
-                  <article className="upload-preview-card upload-preview-card-stacked" key={image.id}>
-                    <img className="upload-preview-image" src={image.previewUrl} alt={image.file.name} />
-                    <div className="upload-preview-copy">
-                      <p className="site-copy">{image.file.name}</p>
-                      <label className="field">
-                        <span>Caption</span>
-                        <input
-                          value={image.caption}
-                          onChange={(event) => updatePendingUnitImageCaption(image.id, event.target.value)}
-                          placeholder="Optional caption"
-                        />
-                      </label>
-                      <label className="checkbox-field">
-                        <input
-                          type="radio"
-                          name="primary-unit-upload-image"
-                          checked={primaryPendingUnitImageId === image.id}
-                          onChange={() => setPrimaryPendingUnitImageId(image.id)}
-                        />
-                        <span>Set as primary image</span>
-                      </label>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            ) : null}
-            <div className="form-actions field-full">
-              {editingUnitId ? (
-                <button className="ghost" type="button" onClick={() => resetUnitForm(unitForm.site)}>
-                  Cancel Edit
-                </button>
-              ) : null}
-              <button className="submit" type="submit" disabled={isUnitSubmitting || isLoading || sortedSites.length === 0}>
-                {isUnitSubmitting ? (editingUnitId ? "Saving changes..." : "Creating unit...") : editingUnitId ? "Save Changes" : "Create Media Unit"}
-              </button>
-            </div>
-          </form>
-        </section>
-      ) : null}
-
-      <section className="inventory-section">
-        <div className="module-head">
-          <h2>Site image library</h2>
-          <span>{inventory?.sites?.length ?? 0} sites</span>
-        </div>
-        {siteMutationError && !canManageSites ? <p className="error">{siteMutationError}</p> : null}
-        {siteMutationSuccess && !canManageSites ? <p className="success">{siteMutationSuccess}</p> : null}
-        <div className="image-manager-grid">
-          {(inventory?.sites ?? []).map((site) => (
-            <ImageManagerCard
-              key={site.id}
-              formIdPrefix={`site-image-${site.id}`}
-              title={site.name}
-              eyebrow={site.code}
-              description={site.address}
-              meta={`${site.city}, ${site.state} • ${site.site_type.replaceAll("_", " ")}`}
-              images={site.image_gallery ?? []}
-              primaryImage={site.primary_image ?? null}
-              showHeroPreview={false}
-              canManage={canManageImages}
-              uploadLabel="Upload site photo"
-              emptyCopy="No site photos have been uploaded yet."
-              headerAction={
-                canManageSites ? (
-                  <button
-                    className="ghost ghost-danger"
-                    type="button"
-                    disabled={activeSiteId === site.id}
-                    onClick={() => void handleDeleteSite(site.id, site.name)}
-                  >
-                    {activeSiteId === site.id ? "Deleting..." : "Delete site"}
-                  </button>
-                ) : null
-              }
-              onUpload={(payload) => handleSiteImageUpload(site.id, payload)}
-              onMarkPrimary={handleSitePrimary}
-              onDelete={handleSiteDelete}
-            />
-          ))}
-        </div>
-        {!isLoading && (inventory?.sites?.length ?? 0) === 0 ? (
-          <p className="empty-state">No sites are visible for the current account.</p>
-        ) : null}
-      </section>
-
-      <section className="inventory-section">
-        <div className="module-head">
-          <h2>Media unit image library</h2>
-          <span>{filteredUnits.length} of {inventory?.units?.length ?? 0} units</span>
-        </div>
-        {unitLibraryNotice ? <p className="info inventory-section-notice">{unitLibraryNotice}</p> : null}
-        {unitMutationError && !canManageUnits ? <p className="error">{unitMutationError}</p> : null}
-        {unitMutationSuccess && !canManageUnits ? <p className="success">{unitMutationSuccess}</p> : null}
-        <section className="module-card inventory-filter-panel">
-          <div className="module-head">
-            <h2>Sales filters</h2>
-            <span>Unit finder</span>
-          </div>
-          <div className="inventory-filter-grid">
-            <div className="field">
-              <label htmlFor="filter-city">City</label>
-              <select
-                id="filter-city"
-                value={unitFilters.city}
-                onChange={(event) => updateUnitFilter("city", event.target.value)}
-              >
-                <option value="">All cities</option>
-                {filterCities.map((city) => (
-                  <option key={city} value={city}>
-                    {city}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="filter-status">Status</label>
-              <select
-                id="filter-status"
-                value={unitFilters.status}
-                onChange={(event) => updateUnitFilter("status", event.target.value)}
-              >
-                <option value="">All statuses</option>
-                {filterStatuses.map((status) => (
-                  <option key={status} value={status}>
-                    {status}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="filter-direction">Facing direction</label>
-              <input
-                id="filter-direction"
-                value={unitFilters.facing_direction}
-                onChange={(event) => updateUnitFilter("facing_direction", event.target.value)}
-                placeholder="Example: Toward Jammu City"
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="filter-site-type">Media unit site type</label>
-              <select
-                id="filter-site-type"
-                value={unitFilters.site_type}
-                onChange={(event) => updateUnitFilter("site_type", event.target.value)}
-              >
-                <option value="">All types</option>
-                {MEDIA_UNIT_SITE_TYPE_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="form-actions field-full">
-              <button className="ghost" type="button" onClick={() => setUnitFilters(INITIAL_UNIT_FILTERS)}>
-                Clear filters
-              </button>
-            </div>
-          </div>
-        </section>
-        <div className="image-manager-grid">
-          {filteredUnits.map((unit) => (
-            <ImageManagerCard
-              key={unit.id}
-              formIdPrefix={`unit-image-${unit.id}`}
-              title={unit.unit_code}
-              eyebrow={siteMap.get(unit.site)?.label ?? `Site #${unit.site}`}
-              description={`${unit.width} x ${unit.height} • ${unit.face_count} face(s)${unit.facing_direction ? ` • ${unit.facing_direction}` : ""}`}
-              meta={`${formatMediaUnitSiteType(unit.site_type)} • ${unit.is_illuminated ? "Illuminated" : "Standard"} • ${unit.status} • INR ${Number(unit.monthly_rate).toLocaleString("en-IN")}${siteMap.get(unit.site)?.city ? ` • ${siteMap.get(unit.site)?.city}` : ""}`}
-              badges={[
-                { label: unit.status.replaceAll("_", " "), tone: unit.status },
-                { label: unit.facing_direction || "Direction pending" },
-                { label: formatMediaUnitSiteType(unit.site_type) },
-              ]}
-              images={unit.image_gallery ?? []}
-              primaryImage={unit.primary_image ?? null}
-              showHeroPreview={false}
-              canManage={canManageImages}
-              uploadLabel="Upload media unit photo"
-              emptyCopy="No media unit photos have been uploaded yet."
-              headerAction={
-                canManageUnits ? (
-                  <button
-                    className="ghost"
-                    type="button"
-                    disabled={isUnitSubmitting}
-                    onClick={() => handleEditUnit(unit.id)}
-                  >
-                    Edit unit
-                  </button>
-                ) : null
-              }
-              onUpload={(payload) => handleUnitImageUpload(unit.id, payload)}
-              onMarkPrimary={handleUnitPrimary}
-              onDelete={handleUnitDelete}
-            />
-          ))}
-        </div>
-        {!isLoading && (inventory?.units?.length ?? 0) === 0 ? (
-          <p className="empty-state">No media units are visible for the current account.</p>
-        ) : null}
-        {!isLoading && (inventory?.units?.length ?? 0) > 0 && filteredUnits.length === 0 ? (
-          <p className="empty-state">No media units match the current filters.</p>
-        ) : null}
-      </section>
+      {photoTarget ? <div className="inventory-drawer-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && setPhotoTarget(null)}><aside className="inventory-drawer inventory-photo-drawer" role="dialog" aria-modal="true" aria-label="Manage inventory photos"><div className="module-head"><div><p className="site-code">{photoTarget.kind === "location" ? "LOCATION PHOTOS" : "UNIT PHOTOS"}</p><h2>{photoTarget.kind === "location" ? photoTarget.item.name : photoTarget.item.unit_code}</h2></div><button className="ghost" type="button" onClick={() => setPhotoTarget(null)}>Close</button></div><p className="section-copy">{photoTarget.kind === "location" ? "Show the physical structure, surroundings, and approach." : "Show the specific sellable advertising face or direction."}</p><ImageManagerCard formIdPrefix={`${photoTarget.kind}-${photoTarget.item.id}-photo`} title={photoTarget.kind === "location" ? photoTarget.item.name : photoTarget.item.unit_code} eyebrow={photoTarget.kind === "location" ? photoTarget.item.code : "ADVERTISING UNIT"} description="" meta="" images={photoTarget.item.image_gallery} primaryImage={photoTarget.item.primary_image} canManage={canManageImages} uploadLabel="Upload image" emptyCopy="No photos have been uploaded yet." showHeroPreview onUpload={(payload) => photoTarget.kind === "location" ? handleSitePhotoUpload(photoTarget.item.id, payload) : handleUnitPhotoUpload(photoTarget.item.id, payload)} onMarkPrimary={photoTarget.kind === "location" ? handleSitePrimary : handleUnitPrimary} onDelete={photoTarget.kind === "location" ? handleSiteImageDelete : handleUnitImageDelete} /></aside></div> : null}
     </AppShell>
   );
+}
+
+function Pagination({ page, pageCount, loading, onChange }: { page: number; pageCount: number; loading: boolean; onChange: (page: number) => void }) {
+  return <div className="pagination-row"><button className="ghost" type="button" disabled={loading || page <= 1} onClick={() => onChange(page - 1)}>Previous</button><span>Page {page} of {pageCount}</span><button className="ghost" type="button" disabled={loading || page >= pageCount} onClick={() => onChange(page + 1)}>Next</button></div>;
+}
+
+function LocationDetail({ site, canManage, canManageImages, onClose, onEdit, onPhotos, onDelete }: { site: InventorySite; canManage: boolean; canManageImages: boolean; onClose: () => void; onEdit: () => void; onPhotos: () => void; onDelete: () => void }) {
+  return <><div className="module-head"><div><p className="site-code">INVENTORY › LOCATIONS</p><h2>{site.name}</h2><p className="section-copy">{site.code} · {site.city}</p></div><button className="ghost" type="button" onClick={onClose}>Close</button></div><div className="inventory-detail-actions"><button className="ghost" type="button" onClick={onPhotos}>Manage Photos</button>{canManage ? <button className="ghost" type="button" onClick={onEdit}>Edit</button> : null}{canManage ? <details className="inventory-more"><summary>More</summary><div><button className="ghost-danger" type="button" onClick={onDelete}>Delete Location</button></div></details> : null}</div><div className="inventory-detail-facts"><div><span>Address</span><strong>{site.address}</strong></div><div><span>City / State</span><strong>{site.city}, {site.state}</strong></div><div><span>Coordinates</span><strong>{site.latitude && site.longitude ? `${site.latitude}, ${site.longitude}` : "Not recorded"}</strong></div><div><span>Category</span><strong>{formatChoice(site.site_type)}</strong></div><div><span>Photo completeness</span><strong>{site.image_gallery.length} photo(s)</strong></div><div><span>Updated</span><strong>{formatDate(site.updated_at)}</strong></div></div>{canManageImages ? <p className="field-help">Photo management uses safe public image URLs only. Existing booking and deletion safeguards remain unchanged.</p> : null}</>;
+}
+
+function UnitDetail({ unit, canManage, canManageImages, onClose, onEdit, onPhotos, onLocation }: { unit: InventoryUnit; canManage: boolean; canManageImages: boolean; onClose: () => void; onEdit: () => void; onPhotos: () => void; onLocation: () => void }) {
+  return <><div className="module-head"><div><p className="site-code">INVENTORY › ADVERTISING UNITS</p><h2>{unit.unit_code}</h2><span className={`status-pill status-${unit.status}`}>{formatChoice(unit.status)}</span></div><button className="ghost" type="button" onClick={onClose}>Close</button></div><div className="inventory-detail-actions"><button className="ghost" type="button" onClick={onPhotos}>Manage Photos</button>{canManage ? <button className="ghost" type="button" onClick={onEdit}>Edit</button> : null}</div><button className="inventory-parent-location" type="button" onClick={onLocation}><span>LOCATION</span><strong>View parent location</strong></button><div className="inventory-detail-facts"><div><span>Facing direction</span><strong>{unit.facing_direction || "Pending"}</strong></div><div><span>Dimensions</span><strong>{unit.width} × {unit.height}</strong></div><div><span>Face count</span><strong>{unit.face_count}</strong></div><div><span>Display format</span><strong>{formatMediaUnitSiteType(unit.site_type)}</strong></div><div><span>Illumination</span><strong>{unit.is_illuminated ? "Illuminated" : "Standard"}</strong></div><div><span>Monthly rate</span><strong>{formatMoney(unit.monthly_rate)}</strong></div><div><span>Photos</span><strong>{unit.image_gallery.length} photo(s)</strong></div><div><span>Updated</span><strong>{formatDate(unit.updated_at)}</strong></div></div>{canManageImages ? <p className="field-help">Bookings, campaigns, POE, and public image URLs continue to use this unit’s existing identifiers and APIs.</p> : null}</>;
 }

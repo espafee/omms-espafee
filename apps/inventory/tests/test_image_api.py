@@ -548,7 +548,15 @@ class InventoryImageAPITests(APITestCase):
             address="SIDCO Chowk",
             city="Jammu",
             state="Jammu and Kashmir",
+            latitude=Decimal("32.726600"),
+            longitude=Decimal("74.857000"),
             owner=self.operations,
+        )
+        MediaSiteImage.objects.create(
+            site=other_site,
+            image=generate_test_image("site-filter-primary.png"),
+            is_primary=True,
+            uploaded_by=self.operations,
         )
         other_unit = MediaUnit.objects.create(
             site=other_site,
@@ -572,6 +580,8 @@ class InventoryImageAPITests(APITestCase):
                 "media_type": MediaSite.SiteType.DIGITAL,
                 "facing_direction": "Toward Lakhanpur",
                 "site_type": MediaUnit.SiteType.BOTH_SIDE,
+                "photo_status": "with_photos",
+                "coordinate_status": "coordinates_set",
                 "search": "SIDCO",
                 "page_size": 1,
             },
@@ -583,3 +593,41 @@ class InventoryImageAPITests(APITestCase):
         self.assertEqual(response.data["results"][0]["site_id"], other_site.id)
         self.assertEqual(response.data["results"][0]["unit_ids"], [other_unit.id])
         self.assertEqual(response.data["results"][0]["city"], "Jammu")
+
+    def test_all_units_list_exposes_location_summary_filters_and_safe_thumbnail(self):
+        unit_image = MediaUnitImage.objects.create(
+            media_unit=self.unit,
+            image=generate_test_image("unit-summary.png"),
+            caption="Sellable face",
+            is_primary=True,
+            uploaded_by=self.operations,
+        )
+
+        self.client.force_authenticate(user=self.sales)
+        response = self.client.get(
+            reverse("inventory-units-all-units"),
+            {
+                "search": "Airport",
+                "city": "Pune",
+                "status": MediaUnit.Status.AVAILABLE,
+                "site_type": MediaUnit.SiteType.SINGLE_SIDE,
+                "facing_direction": "Jammu",
+                "is_illuminated": "true",
+                "size": "20.00x10.00",
+                "page_size": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["count"], 1)
+        row = response.data["results"][0]
+        self.assertEqual(row["id"], self.unit.id)
+        self.assertEqual(row["unit_code"], self.unit.unit_code)
+        self.assertEqual(row["location_id"], self.site.id)
+        self.assertEqual(row["location_name"], self.site.name)
+        self.assertEqual(row["location_code"], self.site.code)
+        self.assertEqual(row["city"], self.site.city)
+        self.assertEqual(row["image_count"], 1)
+        self.assertIn("/media/inventory/units/", row["thumbnail_url"])
+        self.assertNotIn("documents/", row["thumbnail_url"])
+        self.assertEqual(unit_image.id, self.unit.primary_image_object.id)

@@ -1,5 +1,11 @@
 # Product Journey
 
+## Location And Advertising Unit Inventory Workspace
+
+Inventory now makes the commercial hierarchy explicit: **Location → Advertising Unit → Bookings / Campaigns / POE**. The default `/inventory?view=units` list is the operational sales surface; Locations remain a separate physical-place list at `/inventory?view=locations`, and `/inventory?view=overview` is intentionally compact. This is a terminology and interaction improvement only: the existing `MediaSite` and `MediaUnit` APIs, records, tenant scoping, booking links, POE links, campaign previews, public campaign image URLs, and permissions remain unchanged.
+
+Lists are the default so teams can compare availability, direction, rate, dimensions, parent location, and photo completeness without opening a gallery for every record. Photos are managed on demand in a focused drawer using the existing public image endpoints; private document URLs are never used. Admin-only Location creation/deletion and operations/admin Unit/photo rights remain backed by the existing server-side permissions.
+
 ## All Sites Inventory List
 
 Inventory now has a complete All Sites list view backed by `GET /api/v1/inventory/sites/all-sites/`. The endpoint uses `MediaSite` as the source of truth so newly created sites appear even before sellable media units are added, while related `MediaUnit` data supplies unit codes, dimensions, facing direction, single/both-side type, and availability where present.

@@ -262,6 +262,10 @@ class InventorySiteListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
     unit_site_type = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
     thumbnail_url = serializers.SerializerMethodField()
+    unit_count = serializers.SerializerMethodField()
+    available_unit_count = serializers.SerializerMethodField()
+    image_count = serializers.SerializerMethodField()
+    has_coordinates = serializers.SerializerMethodField()
 
     class Meta:
         model = MediaSite
@@ -281,6 +285,10 @@ class InventorySiteListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
             "unit_site_type",
             "status",
             "thumbnail_url",
+            "unit_count",
+            "available_unit_count",
+            "image_count",
+            "has_coordinates",
             "created_at",
             "updated_at",
         ]
@@ -332,15 +340,80 @@ class InventorySiteListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
         return statuses[0]
 
     def get_thumbnail_url(self, obj):
-        image = obj.primary_image_object
+        images = list(obj.images.all())
+        image = next((item for item in images if item.is_primary), None) or (images[0] if images else None)
         if not image:
             for unit in self._units(obj):
-                image = unit.primary_image_object
+                unit_images = list(unit.images.all())
+                image = next((item for item in unit_images if item.is_primary), None) or (unit_images[0] if unit_images else None)
                 if image:
                     break
         if not image:
             return None
         return self.build_absolute_media_url(image.image)
+
+    def get_unit_count(self, obj):
+        return len(self._units(obj))
+
+    def get_available_unit_count(self, obj):
+        return sum(unit.status == MediaUnit.Status.AVAILABLE for unit in self._units(obj))
+
+    def get_image_count(self, obj):
+        return len(list(obj.images.all()))
+
+    def get_has_coordinates(self, obj):
+        return obj.latitude is not None and obj.longitude is not None
+
+
+class InventoryUnitListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerializer):
+    location_id = serializers.IntegerField(source="site_id", read_only=True)
+    location_name = serializers.CharField(source="site.name", read_only=True)
+    location_code = serializers.CharField(source="site.code", read_only=True)
+    city = serializers.CharField(source="site.city", read_only=True)
+    address = serializers.CharField(source="site.address", read_only=True)
+    location_type = serializers.CharField(source="site.site_type", read_only=True)
+    thumbnail_url = serializers.SerializerMethodField()
+    image_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MediaUnit
+        fields = [
+            "id",
+            "unit_code",
+            "location_id",
+            "location_name",
+            "location_code",
+            "city",
+            "address",
+            "location_type",
+            "face_count",
+            "width",
+            "height",
+            "status",
+            "is_illuminated",
+            "monthly_rate",
+            "facing_direction",
+            "site_type",
+            "thumbnail_url",
+            "image_count",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+    def _images(self, obj):
+        return list(obj.images.all())
+
+    def get_thumbnail_url(self, obj):
+        images = self._images(obj)
+        image = next((item for item in images if item.is_primary), None) or (images[0] if images else None)
+        if not image:
+            location_images = list(obj.site.images.all())
+            image = next((item for item in location_images if item.is_primary), None) or (location_images[0] if location_images else None)
+        return self.build_absolute_media_url(image.image) if image else None
+
+    def get_image_count(self, obj):
+        return len(self._images(obj))
 
 
 class RateCardSerializer(serializers.ModelSerializer):

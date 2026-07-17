@@ -61,7 +61,7 @@ const defaultProfile = {
   role: "admin",
   role_label: "Admin",
   active_widgets: ["campaign_performance", "billing_risk", "assigned_work"],
-  hidden_widgets: [],
+  hidden_widgets: [] as string[],
   can_customize: true,
   can_view_finance: true,
   can_view_operations: true,
