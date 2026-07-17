@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 
 import { ImageLightbox } from "@/components/image-lightbox";
 import { SafeImage } from "@/components/safe-image";
@@ -47,6 +47,7 @@ export function ImageManagerCard({
 }: ImageManagerCardProps) {
   const safeImages = images ?? [];
   const safePrimaryImage = primaryImage ?? null;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [caption, setCaption] = useState("");
   const [isPrimary, setIsPrimary] = useState(!safePrimaryImage);
@@ -98,8 +99,12 @@ export function ImageManagerCard({
       setCaption("");
       setIsPrimary(false);
       setUploadProgress(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
       setFormSuccess("Image uploaded successfully.");
     } catch (error) {
+      setUploadProgress(0);
       setFormError(error instanceof Error ? error.message : "Unable to upload the image.");
     } finally {
       setIsSubmitting(false);
@@ -252,6 +257,7 @@ export function ImageManagerCard({
               <label htmlFor={`${formIdPrefix}-file`}>{uploadLabel}</label>
               <input
                 id={`${formIdPrefix}-file`}
+                ref={fileInputRef}
                 type="file"
                 accept="image/*"
                 onChange={(event) => {
@@ -295,7 +301,12 @@ export function ImageManagerCard({
               <span>Set as primary image</span>
             </label>
             <div className="form-actions field-full">
-              <button className="submit" type="submit" disabled={!selectedFile || isSubmitting}>
+              <button
+                className="submit"
+                type="submit"
+                disabled={!selectedFile || isSubmitting}
+                data-uploading={isSubmitting ? "true" : "false"}
+              >
                 {isSubmitting ? "Uploading..." : "Upload image"}
               </button>
             </div>

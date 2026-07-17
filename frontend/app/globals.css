@@ -740,8 +740,12 @@ textarea::placeholder {
 }
 
 .submit:disabled {
-  cursor: wait;
+  cursor: not-allowed;
   opacity: 0.7;
+}
+
+.submit[data-uploading="true"]:disabled {
+  cursor: wait;
 }
 
 .ghost {
