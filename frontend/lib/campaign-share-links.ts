@@ -6,6 +6,7 @@ export type CampaignAccessLink = {
   id: number;
   campaign: number;
   public_path?: string | null;
+  link_status: CampaignAccessLinkStatus;
   token_prefix: string;
   is_active: boolean;
   expires_at: string | null;
@@ -47,18 +48,8 @@ async function list<T>(path: string) {
   return Array.isArray(payload) ? payload : payload.results;
 }
 
-export function getCampaignAccessLinkStatus(link: CampaignAccessLink, campaignEndDate: string): CampaignAccessLinkStatus {
-  const now = new Date();
-  if (link.revoked_at || !link.is_active) {
-    return "revoked";
-  }
-  if (link.expires_at && new Date(link.expires_at) <= now) {
-    return "expired";
-  }
-  if (campaignEndDate && new Date(`${campaignEndDate}T23:59:59`) < now) {
-    return "ended";
-  }
-  return "active";
+export function getCampaignAccessLinkStatus(link: CampaignAccessLink): CampaignAccessLinkStatus {
+  return link.link_status ?? (link.revoked_at || !link.is_active ? "revoked" : "active");
 }
 
 export function getShareLinkStatusLabel(status: CampaignAccessLinkStatus) {

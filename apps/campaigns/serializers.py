@@ -48,6 +48,10 @@ class CampaignAssetSerializer(serializers.ModelSerializer):
 class CampaignSerializer(serializers.ModelSerializer):
     assets = CampaignAssetSerializer(many=True, read_only=True)
     performance = serializers.SerializerMethodField()
+    effective_status = serializers.CharField(read_only=True)
+    is_ended = serializers.BooleanField(read_only=True)
+    is_ongoing = serializers.BooleanField(read_only=True)
+    is_upcoming = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Campaign
@@ -91,9 +95,19 @@ class CampaignSerializer(serializers.ModelSerializer):
 
 class CampaignAccessTokenSerializer(serializers.ModelSerializer):
     public_path = serializers.SerializerMethodField()
+    link_status = serializers.SerializerMethodField()
 
     def get_public_path(self, obj):
         return obj.public_path
+
+    def get_link_status(self, obj):
+        if obj.is_revoked():
+            return "revoked"
+        if obj.has_expired():
+            return "expired"
+        if obj.has_campaign_ended():
+            return "ended"
+        return "active"
 
     class Meta:
         model = CampaignAccessToken
@@ -101,6 +115,7 @@ class CampaignAccessTokenSerializer(serializers.ModelSerializer):
             "id",
             "campaign",
             "public_path",
+            "link_status",
             "token_prefix",
             "is_active",
             "expires_at",
@@ -225,6 +240,10 @@ class PublicCampaignDetailSerializer(serializers.Serializer):
     name = serializers.CharField()
     code = serializers.CharField()
     status = serializers.CharField()
+    effective_status = serializers.CharField()
+    is_ended = serializers.BooleanField()
+    is_ongoing = serializers.BooleanField()
+    is_upcoming = serializers.BooleanField()
     objective = serializers.CharField()
     start_date = serializers.DateField()
     end_date = serializers.DateField()

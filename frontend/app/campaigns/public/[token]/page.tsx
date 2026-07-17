@@ -16,11 +16,12 @@ function formatDate(value: string) {
     return "Not available";
   }
 
+  const dateValue = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value;
   return new Intl.DateTimeFormat("en-IN", {
     day: "numeric",
     month: "short",
     year: "numeric",
-  }).format(new Date(value));
+  }).format(new Date(dateValue));
 }
 
 function formatDateTime(value: string) {
@@ -165,7 +166,9 @@ export default function PublicCampaignPage() {
                   <span className="eyebrow dashboard-eyebrow">Client Campaign View</span>
                   <h1 className="workspace-title public-title">{payload.campaign.name}</h1>
                 </div>
-                <span className={`status-pill status-${payload.campaign.status}`}>{payload.campaign.status}</span>
+                <span className={`status-pill status-${payload.campaign.effective_status}`}>
+                  {formatStatusLabel(payload.campaign.effective_status)}
+                </span>
               </div>
               <p className="workspace-copy">
                 {payload.campaign.objective || "No campaign objective was shared for this view."}
@@ -190,7 +193,9 @@ export default function PublicCampaignPage() {
               </div>
               <div className="public-summary-banner">
                 <div className="unit-meta-chip-row">
-                  <span className={`status-pill status-${payload.campaign.status}`}>{formatStatusLabel(payload.campaign.status)}</span>
+                  <span className={`status-pill status-${payload.campaign.effective_status}`}>
+                    {formatStatusLabel(payload.campaign.effective_status)}
+                  </span>
                   <span className="unit-meta-chip">{summary.uniqueSites} site(s)</span>
                   <span className="unit-meta-chip">{summary.uniqueUnits} media unit(s)</span>
                   <span className="unit-meta-chip">{summary.totalBookings} booking window(s)</span>

@@ -11,14 +11,14 @@ from .models import Campaign, CampaignAccessToken, CampaignAsset
 
 class CampaignRepository(BaseRepository):
     model = Campaign
-    select_related = ("client", "account_manager")
+    select_related = ("tenant", "client", "account_manager")
     prefetch_related = ("assets",)
 
     def scope_queryset(self, queryset, user=None):
         queryset = scope_queryset_to_tenant_path(queryset, user)
         if user and getattr(user, "role", None) == CLIENT and not is_platform_super_admin(user):
             queryset = queryset.filter(client=user)
-        return queryset.order_by("-created_at")
+        return queryset.order_by("-created_at", "-start_date", "-id")
 
 
 class CampaignAssetRepository(BaseRepository):
@@ -33,13 +33,13 @@ class CampaignAssetRepository(BaseRepository):
 
 class CampaignAccessTokenRepository(BaseRepository):
     model = CampaignAccessToken
-    select_related = ("campaign", "created_by", "revoked_by")
+    select_related = ("campaign", "campaign__tenant", "created_by", "revoked_by")
 
     def scope_queryset(self, queryset, user=None):
         return scope_queryset_to_tenant_path(queryset, user, "campaign__tenant")
 
     def get_public_campaign_queryset(self):
-        return Campaign.objects.select_related("client").prefetch_related(
+        return Campaign.objects.select_related("tenant", "client").prefetch_related(
             Prefetch("assets", queryset=CampaignAsset.objects.filter(is_approved=True).order_by("-created_at")),
             Prefetch(
                 "bookings",

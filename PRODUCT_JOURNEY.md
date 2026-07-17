@@ -261,3 +261,9 @@ Production audit execution remains pending because authenticated Render shell/jo
 OMMS now gives owners and administrators a clearer first answer to the question that matters most: what is healthy, what is moving, and what needs attention now. The dashboard begins with a calm executive command center covering campaign health, live booking execution, POE coverage, collection performance, and priority risks.
 
 The upgrade uses the platform's existing tenant-scoped summaries and role permissions, so the stronger international presentation does not weaken data isolation or create a second analytics contract. User-selected modules remain dynamic and persistent, while dashboard customization has moved into a compact secondary control. The result is a more credible leadership view without making the day-to-day product harder to understand.
+
+## Campaign Operations Consolidation
+
+Campaign operations now tell one consistent lifecycle story. OMMS distinguishes the administrative state chosen by the team from the effective state determined by tenant-local campaign dates, so an expired campaign can no longer appear active in the roster while its client link says it has ended.
+
+The campaign workspace has also moved from fragmented roster, detail, and sharing blocks into one compact operational table. Teams can scan delivery, POE progress, budget, assets, billing, objective, and share-link state in one place, then open a dedicated internal detail route regardless of whether public sharing remains available. Copying a client link is now a quiet local action with clear confirmation and no page jump.

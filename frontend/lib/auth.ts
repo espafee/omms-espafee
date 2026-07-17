@@ -9,7 +9,13 @@ export type AuthUser = {
   last_name?: string;
   role?: string;
   organization_name?: string;
+  region?: string;
+  reports_to?: number | null;
   is_active?: boolean;
+  is_platform_admin?: boolean;
+  is_company_admin?: boolean;
+  is_staff?: boolean;
+  is_superuser?: boolean;
 };
 
 export type AuthSessionPayload = {

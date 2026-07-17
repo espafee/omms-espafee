@@ -65,6 +65,10 @@ export type PublicCampaignAccessPayload = {
     name: string;
     code: string;
     status: string;
+    effective_status: "upcoming" | "ongoing" | "ended" | "paused" | "cancelled";
+    is_ended: boolean;
+    is_ongoing: boolean;
+    is_upcoming: boolean;
     objective: string;
     start_date: string;
     end_date: string;

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { ReactNode, useEffect, useState } from "react";
 
 import { GlobalOperationalSearch } from "@/components/global-operational-search";
-import { getAccessToken } from "@/lib/auth";
+import { getAccessToken, getStoredUser } from "@/lib/auth";
 import { fetchOperationalMode, type OperationalMode } from "@/lib/environment";
 
 type AppShellProps = {
@@ -17,6 +17,7 @@ type AppShellProps = {
     | "poe"
     | "notifications"
     | "operations"
+    | "team"
     | "training"
     | "setup";
   roleLabel: string;
@@ -41,11 +42,14 @@ export function AppShell({
   children,
 }: AppShellProps) {
   const [operationalMode, setOperationalMode] = useState<OperationalMode | null>(null);
+  const [canManageTeam, setCanManageTeam] = useState(roleLabel === "admin");
 
   useEffect(() => {
     if (!getAccessToken()) {
       return;
     }
+    const storedUser = getStoredUser();
+    setCanManageTeam(Boolean(storedUser?.is_platform_admin || storedUser?.is_company_admin || storedUser?.role === "admin"));
     let isMounted = true;
     fetchOperationalMode()
       .then((mode) => {
@@ -102,6 +106,11 @@ export function AppShell({
           <Link data-testid="sidebar-operations" className={`nav-item ${active === "operations" ? "nav-item-active" : ""}`} href="/operations">
             Operations
           </Link>
+          {canManageTeam ? (
+            <Link data-testid="sidebar-team" className={`nav-item ${active === "team" ? "nav-item-active" : ""}`} href="/settings/team">
+              Team &amp; access
+            </Link>
+          ) : null}
           <Link data-testid="sidebar-training" className={`nav-item ${active === "training" ? "nav-item-active" : ""}`} href="/training">
             Training
           </Link>
@@ -113,6 +122,7 @@ export function AppShell({
         <div className="sidebar-foot">
           <p className="sidebar-kicker">Signed in</p>
           <p className="sidebar-user">{userEmail}</p>
+          {canManageTeam ? <Link className="sidebar-profile-link" href="/settings/team">Manage team access</Link> : null}
           <button className="ghost sidebar-button" type="button" onClick={onLogout}>
             Log out
           </button>

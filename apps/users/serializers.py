@@ -28,6 +28,8 @@ class UserSerializer(serializers.ModelSerializer):
             "phone_number",
             "role",
             "organization_name",
+            "region",
+            "reports_to",
             "tenant",
             "tenant_name",
             "tenant_slug",

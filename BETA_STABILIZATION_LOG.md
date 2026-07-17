@@ -215,3 +215,17 @@ Client, if available:
 - Backend: `manage.py check`, `manage.py migrate --check`, and 278 app tests passed.
 - Frontend: lint, build, and 9 Playwright smoke tests passed.
 - Mobile: install, lint, Expo Doctor, and TypeScript passed.
+
+## Campaign Lifecycle And Action Stabilization
+
+Date: 2026-07-17
+
+Status: **implemented and locally validated / not deployed**
+
+- Root cause of conflicting status labels was split authority: campaign rows displayed stored administrative `status`, while share-link access independently evaluated `end_date`.
+- The backend now owns tenant-local effective lifecycle calculation and exposes it consistently to internal/public consumers.
+- The roster is consolidated into one tenant-scoped table with deterministic latest-first ordering and effective lifecycle filters.
+- Internal View is now a real Next.js route at `/campaigns/[id]`; ended public access does not block authorized internal reads.
+- Copy uses a non-submit button and component-local feedback, with no navigation, refresh, regeneration, or scroll loss.
+- No model constraint, identifier, invoice/estimate numbering, campaign code, POE upload-id, or tenant uniqueness behavior changed.
+- Local gate passed: Django checks, 319 backend tests, frontend lint/build, and 11 Playwright tests.

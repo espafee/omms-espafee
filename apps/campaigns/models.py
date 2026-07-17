@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.conf import settings
 from django.db import OperationalError, ProgrammingError
@@ -15,6 +16,13 @@ class Campaign(TimeStampedModel):
         ACTIVE = "active", "Active"
         PAUSED = "paused", "Paused"
         COMPLETED = "completed", "Completed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    class EffectiveStatus(models.TextChoices):
+        UPCOMING = "upcoming", "Upcoming"
+        ONGOING = "ongoing", "Ongoing"
+        ENDED = "ended", "Ended"
+        PAUSED = "paused", "Paused"
         CANCELLED = "cancelled", "Cancelled"
 
     name = models.CharField(max_length=255)
@@ -46,6 +54,43 @@ class Campaign(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.name
+
+    def local_date(self):
+        tenant = self.tenant if self.tenant_id else None
+        timezone_name = (getattr(tenant, "metadata", None) or {}).get("timezone") or settings.TIME_ZONE
+        try:
+            tenant_timezone = ZoneInfo(timezone_name)
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            tenant_timezone = timezone.get_default_timezone()
+        return timezone.localdate(timezone=tenant_timezone)
+
+    def effective_status_at(self, today=None):
+        today = today or self.local_date()
+        if self.status == self.Status.CANCELLED:
+            return self.EffectiveStatus.CANCELLED
+        if self.status == self.Status.PAUSED:
+            return self.EffectiveStatus.PAUSED
+        if self.start_date > today:
+            return self.EffectiveStatus.UPCOMING
+        if self.end_date < today:
+            return self.EffectiveStatus.ENDED
+        return self.EffectiveStatus.ONGOING
+
+    @property
+    def effective_status(self):
+        return self.effective_status_at()
+
+    @property
+    def is_ended(self):
+        return self.effective_status == self.EffectiveStatus.ENDED
+
+    @property
+    def is_ongoing(self):
+        return self.effective_status == self.EffectiveStatus.ONGOING
+
+    @property
+    def is_upcoming(self):
+        return self.effective_status == self.EffectiveStatus.UPCOMING
 
     def save(self, *args, **kwargs):
         if self.tenant_id is None:
@@ -131,7 +176,7 @@ class CampaignAccessToken(TimeStampedModel):
         return bool(self.expires_at and self.expires_at <= timezone.now())
 
     def has_campaign_ended(self) -> bool:
-        return timezone.localdate() > self.campaign.end_date
+        return self.campaign.is_ended
 
     def is_revoked(self) -> bool:
         return bool(self.revoked_at or not self.is_active)

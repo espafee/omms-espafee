@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from apps.billing.serializers import CampaignInvoicePreviewSerializer, InvoiceSerializer
 from apps.billing.services import InvoiceService
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, FINANCE, SALES
+from core.roles import ALL_ROLES, ADMIN, FINANCE, POE_REVIEWER, SALES
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
@@ -20,19 +20,38 @@ from .serializers import (
     CampaignSummarySerializer,
     PublicCampaignAccessSerializer,
 )
-from .services import CampaignAccessTokenService, CampaignAssetService, CampaignService, PublicCampaignAccessError
+from .models import Campaign
+from .services import (
+    CampaignAccessTokenService,
+    CampaignAssetService,
+    CampaignService,
+    PublicCampaignAccessError,
+    annotate_campaign_effective_status,
+)
 
 
 class CampaignViewSet(ServiceModelViewSet):
     serializer_class = CampaignSerializer
     permission_classes = [RoleBasedPermission]
     service_class = CampaignService
-    allowed_roles = ALL_ROLES
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
     write_roles = (ADMIN, SALES)
     write_roles_by_action = {"generate_invoice": (ADMIN, FINANCE)}
     filterset_fields = ["status", "client", "account_manager"]
     search_fields = ["name", "code", "client__email", "account_manager__email"]
-    ordering_fields = ["start_date", "end_date", "budget", "created_at"]
+    ordering_fields = ["start_date", "end_date", "budget", "created_at", "id"]
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        effective_status = self.request.query_params.get("effective_status")
+        if not effective_status:
+            return queryset
+
+        normalized = effective_status.lower()
+        valid_statuses = {choice.value for choice in Campaign.EffectiveStatus}
+        if normalized not in valid_statuses:
+            return queryset.none()
+        return annotate_campaign_effective_status(queryset).filter(effective_lifecycle=normalized)
 
     @extend_schema(responses=CampaignSummarySerializer)
     @action(detail=False, methods=["get"], url_path="summary")
@@ -59,7 +78,7 @@ class CampaignAssetViewSet(ServiceModelViewSet):
     serializer_class = CampaignAssetSerializer
     permission_classes = [RoleBasedPermission]
     service_class = CampaignAssetService
-    allowed_roles = ALL_ROLES
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
     write_roles = (ADMIN, SALES)
     filterset_fields = ["campaign", "asset_type", "is_approved"]
     search_fields = ["name", "campaign__name", "campaign__code"]

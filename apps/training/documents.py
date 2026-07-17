@@ -3,7 +3,7 @@ from pathlib import Path
 
 from django.conf import settings
 
-from core.roles import ADMIN, FIELD_STAFF, FINANCE, OPERATIONS
+from core.roles import ADMIN, FIELD_STAFF, FINANCE, INVENTORY_MANAGER, OPERATIONS, POE_REVIEWER
 
 
 @dataclass(frozen=True)
@@ -47,14 +47,14 @@ TRAINING_DOCUMENTS: dict[str, TrainingDocument] = {
         title="Operations Guide",
         audience="Operations managers",
         filename="OMMS_Operations_Team_Guide.pdf",
-        allowed_roles=(ADMIN, OPERATIONS),
+        allowed_roles=(ADMIN, OPERATIONS, INVENTORY_MANAGER),
     ),
     "inventory-management": TrainingDocument(
         slug="inventory-management",
         title="Inventory Import Guide",
         audience="Inventory managers",
         filename="OMMS_Inventory_Management_Guide.pdf",
-        allowed_roles=(ADMIN, OPERATIONS),
+        allowed_roles=(ADMIN, OPERATIONS, POE_REVIEWER),
     ),
     "poe-review": TrainingDocument(
         slug="poe-review",

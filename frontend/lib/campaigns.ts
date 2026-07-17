@@ -27,6 +27,10 @@ export type Campaign = {
   end_date: string;
   budget: string;
   status: string;
+  effective_status: "upcoming" | "ongoing" | "ended" | "paused" | "cancelled";
+  is_ended: boolean;
+  is_ongoing: boolean;
+  is_upcoming: boolean;
   objective: string;
   assets: CampaignAsset[];
   performance?: {
@@ -82,6 +86,10 @@ export async function fetchCampaignData(): Promise<CampaignPayload> {
     apiFetch<CampaignSummary>("campaigns/summary/"),
   ]);
   return { campaigns, summary };
+}
+
+export async function fetchCampaign(campaignId: number) {
+  return apiFetch<Campaign>(`campaigns/${campaignId}/`);
 }
 
 export async function createCampaign(payload: CampaignCreateInput) {

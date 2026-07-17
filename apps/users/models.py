@@ -7,12 +7,14 @@ from core.models import TimeStampedModel
 
 class User(TimeStampedModel, AbstractUser):
     class Role(models.TextChoices):
-        ADMIN = "admin", "Admin"
+        ADMIN = "admin", "Company Admin"
         SALES = "sales", "Sales"
-        OPERATIONS = "operations", "Operations"
+        OPERATIONS = "operations", "Operations Manager"
         FIELD_STAFF = "field_staff", "Field Staff"
+        POE_REVIEWER = "poe_reviewer", "POE Reviewer"
         FINANCE = "finance", "Finance"
-        CLIENT = "client", "Client"
+        INVENTORY_MANAGER = "inventory_manager", "Inventory Manager"
+        CLIENT = "client", "Client Viewer"
 
     class Meta:
         verbose_name = "user"
@@ -22,6 +24,15 @@ class User(TimeStampedModel, AbstractUser):
     phone_number = models.CharField(max_length=20, blank=True)
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.CLIENT)
     organization_name = models.CharField(max_length=255, blank=True)
+    region = models.CharField(max_length=120, blank=True)
+    reports_to = models.ForeignKey(
+        "self",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="direct_reports",
+    )
+    setup_sent_at = models.DateTimeField(blank=True, null=True)
     tenant = models.ForeignKey(
         "tenants.Tenant",
         blank=True,

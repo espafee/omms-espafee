@@ -1,7 +1,7 @@
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, DecimalField, Q, Sum
+from django.db.models import Case, CharField, Count, DecimalField, Q, Sum, Value, When
 from django.db.models.functions import Coalesce
 from django.conf import settings
 from django.core.cache import cache
@@ -18,6 +18,38 @@ from .repositories import CampaignAccessTokenRepository, CampaignAssetRepository
 
 SUMMARY_DECIMAL_FIELD = DecimalField(max_digits=14, decimal_places=2)
 ZERO = Decimal("0.00")
+
+
+def campaign_effective_status_query(status, *, today=None):
+    today = today or timezone.localdate()
+    normalized = str(status or "").lower()
+    if normalized == Campaign.EffectiveStatus.CANCELLED:
+        return Q(status=Campaign.Status.CANCELLED)
+    if normalized == Campaign.EffectiveStatus.PAUSED:
+        return Q(status=Campaign.Status.PAUSED)
+
+    normal_lifecycle = ~Q(status__in=[Campaign.Status.CANCELLED, Campaign.Status.PAUSED])
+    if normalized == Campaign.EffectiveStatus.UPCOMING:
+        return normal_lifecycle & Q(start_date__gt=today)
+    if normalized == Campaign.EffectiveStatus.ENDED:
+        return normal_lifecycle & Q(end_date__lt=today)
+    if normalized == Campaign.EffectiveStatus.ONGOING:
+        return normal_lifecycle & Q(start_date__lte=today, end_date__gte=today)
+    raise ValueError("Unsupported effective campaign status.")
+
+
+def annotate_campaign_effective_status(queryset, *, today=None):
+    today = today or timezone.localdate()
+    return queryset.annotate(
+        effective_lifecycle=Case(
+            When(status=Campaign.Status.CANCELLED, then=Value(Campaign.EffectiveStatus.CANCELLED)),
+            When(status=Campaign.Status.PAUSED, then=Value(Campaign.EffectiveStatus.PAUSED)),
+            When(start_date__gt=today, then=Value(Campaign.EffectiveStatus.UPCOMING)),
+            When(end_date__lt=today, then=Value(Campaign.EffectiveStatus.ENDED)),
+            default=Value(Campaign.EffectiveStatus.ONGOING),
+            output_field=CharField(),
+        )
+    )
 
 
 def _can_view_campaign_billing(user=None) -> bool:
@@ -74,7 +106,8 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
 
         poe_completion = round((approved_poe_sites / booked_sites) * 100) if booked_sites else 0
         pending_poe_count = missing_poe_sites
-        is_active = campaign.status == Campaign.Status.ACTIVE or (campaign.start_date <= today <= campaign.end_date)
+        effective_status = campaign.effective_status_at(today)
+        is_active = effective_status == Campaign.EffectiveStatus.ONGOING
         is_ending_soon = is_active and today <= campaign.end_date <= ending_soon_cutoff
         if is_active:
             active_count += 1
@@ -141,6 +174,7 @@ def build_campaign_performance_analytics(*, user=None, queryset=None, today=None
                 "campaign_name": campaign.name,
                 "campaign_code": campaign.code,
                 "status": campaign.status,
+                "effective_status": effective_status,
                 "start_date": campaign.start_date,
                 "end_date": campaign.end_date,
                 "is_active": is_active,
@@ -205,7 +239,7 @@ class CampaignService(BaseService):
     repository_class = CampaignRepository
 
     def get_active_campaigns(self):
-        return self.get_queryset().filter(status="active")
+        return self.get_queryset().filter(campaign_effective_status_query(Campaign.EffectiveStatus.ONGOING))
 
     def get_summary(self, user=None):
         cache_key = f"dashboard:campaigns:{self._dashboard_cache_version()}:{getattr(user, 'id', 'anon')}:{getattr(user, 'role', '')}"
@@ -213,14 +247,16 @@ class CampaignService(BaseService):
         if cached is not None:
             return cached
         queryset = self.get_queryset(user=user)
+        today = timezone.localdate()
+        ongoing_filter = campaign_effective_status_query(Campaign.EffectiveStatus.ONGOING, today=today)
         summary = queryset.aggregate(
             total_campaigns=Count("id"),
-            active_campaigns=Count("id", filter=Q(status=Campaign.Status.ACTIVE)),
+            active_campaigns=Count("id", filter=ongoing_filter),
             draft_campaigns=Count("id", filter=Q(status=Campaign.Status.DRAFT)),
             completed_campaigns=Count("id", filter=Q(status=Campaign.Status.COMPLETED)),
             total_budget=Coalesce(Sum("budget"), Decimal("0.00"), output_field=SUMMARY_DECIMAL_FIELD),
             active_budget=Coalesce(
-                Sum("budget", filter=Q(status=Campaign.Status.ACTIVE)),
+                Sum("budget", filter=ongoing_filter),
                 Decimal("0.00"),
                 output_field=SUMMARY_DECIMAL_FIELD,
             ),

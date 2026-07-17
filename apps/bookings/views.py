@@ -8,7 +8,7 @@ from rest_framework.response import Response
 from apps.issues.models import IssueReportToken
 from apps.issues.services import build_public_issue_report_url
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, SALES
+from core.roles import ALL_ROLES, ADMIN, POE_REVIEWER, SALES
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import BookingSerializer, BookingSummarySerializer
@@ -19,7 +19,7 @@ class BookingViewSet(ServiceModelViewSet):
     serializer_class = BookingSerializer
     permission_classes = [RoleBasedPermission]
     service_class = BookingService
-    allowed_roles = ALL_ROLES
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
     write_roles = (ADMIN, SALES)
     write_roles_by_action = {"issue_report_token": (ADMIN,)}
     filterset_fields = ["status", "campaign", "media_unit"]

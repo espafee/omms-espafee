@@ -1086,3 +1086,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Existing dashboard widget registry behavior, saved visibility, required widgets, ordering, restore-default behavior, and API contracts are preserved.
 - Dashboard customization is now a compact expandable control below the operational modules so it does not compete with decision-critical information.
 - Frontend validation passed: ESLint, Next.js production build, and all 9 Playwright smoke tests. The dashboard test now verifies the executive layer, safe percentage fallbacks, widget visibility, and preference restoration.
+
+## Canonical Campaign Lifecycle And Roster
+
+- Campaign administrative `status` remains stored for workflow intent, while the API now exposes one authoritative tenant-local `effective_status`: cancelled and paused override dates; otherwise a campaign is upcoming before its start date, ongoing from start through end date inclusively, and ended after its end date.
+- `effective_status`, `is_ended`, `is_ongoing`, and `is_upcoming` are exposed on internal and public campaign serializers. Share-link state is also computed by the backend, removing duplicated browser timezone logic.
+- The Campaign page now uses one consolidated, latest-first operational roster for lifecycle, POE performance, budget, assets, billing, objective, public sharing, and internal View access. All/Ongoing/Upcoming/Ended filters are available without weakening tenant or role scoping.
+- Internal campaign detail now lives at `/campaigns/[id]` and remains available to authorized users for ended campaigns. Public-link expiry/end rules are intentionally independent from internal access.
+- Copy is a local button action: it writes once to the Clipboard API, never submits or navigates, preserves scroll position, and shows `Link copied` for about two seconds.
+- Validation passed with no migration: Django checks, 319 backend tests, frontend lint/build, and 11 Playwright tests.

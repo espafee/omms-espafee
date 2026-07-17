@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, FINANCE, OPERATIONS
+from core.roles import ALL_ROLES, ADMIN, FINANCE, INVENTORY_MANAGER, OPERATIONS, POE_REVIEWER
 from core.viewsets import ServiceModelViewSet
 from core.services import BaseService
 from core.repositories import BaseRepository
@@ -123,8 +123,8 @@ class NotificationPreferenceViewSet(ServiceModelViewSet):
     serializer_class = NotificationPreferenceSerializer
     permission_classes = [RoleBasedPermission]
     service_class = NotificationPreferenceService
-    allowed_roles = ALL_ROLES
-    write_roles = ALL_ROLES
+    allowed_roles = ALL_ROLES + (INVENTORY_MANAGER, POE_REVIEWER)
+    write_roles = ALL_ROLES + (INVENTORY_MANAGER, POE_REVIEWER)
     filterset_fields = ["user", "notification_type", "in_app_enabled", "email_enabled"]
     ordering_fields = ["notification_type", "updated_at"]
 
@@ -155,8 +155,8 @@ class NotificationViewSet(ServiceModelViewSet):
     serializer_class = NotificationSerializer
     permission_classes = [RoleBasedPermission]
     service_class = NotificationInboxService
-    allowed_roles = ALL_ROLES
-    write_roles = ALL_ROLES
+    allowed_roles = ALL_ROLES + (INVENTORY_MANAGER, POE_REVIEWER)
+    write_roles = ALL_ROLES + (INVENTORY_MANAGER, POE_REVIEWER)
     http_method_names = ["get", "post", "head", "options"]
     filterset_fields = ["event_type", "severity", "is_read", "delivery_status"]
     search_fields = ["title", "message"]

@@ -5,7 +5,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, OPERATIONS
+from core.roles import ALL_ROLES, ADMIN, OPERATIONS, POE_REVIEWER
 from core.viewsets import ServiceModelViewSet
 
 from .exceptions import DuplicateProofOfExecutionError
@@ -24,8 +24,8 @@ class ProofOfExecutionViewSet(ServiceModelViewSet):
     serializer_class = ProofOfExecutionSerializer
     permission_classes = [RoleBasedPermission]
     service_class = ProofOfExecutionService
-    allowed_roles = ALL_ROLES
-    write_roles = (ADMIN, OPERATIONS)
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
+    write_roles = (ADMIN, OPERATIONS, POE_REVIEWER)
     filterset_fields = ["booking", "verification_status", "checked_by", "review_sla_status", "review_due_at"]
     ordering_fields = ["executed_on", "captured_at", "review_due_at", "created_at"]
 
@@ -70,8 +70,8 @@ class ProofOfExecutionMediaViewSet(ServiceModelViewSet):
     serializer_class = ProofOfExecutionMediaSerializer
     permission_classes = [RoleBasedPermission]
     service_class = ProofOfExecutionMediaService
-    allowed_roles = ALL_ROLES
-    write_roles = (ADMIN, OPERATIONS)
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
+    write_roles = (ADMIN, OPERATIONS, POE_REVIEWER)
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     filterset_fields = ["poe_record", "media_type"]
     ordering_fields = ["captured_at", "created_at"]
@@ -84,8 +84,8 @@ class ProofOfExecutionMediaViewSet(ServiceModelViewSet):
 
 class ProofOfExecutionVerifyView(APIView):
     permission_classes = [RoleBasedPermission]
-    allowed_roles = ALL_ROLES
-    write_roles = (ADMIN, OPERATIONS)
+    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
+    write_roles = (ADMIN, OPERATIONS, POE_REVIEWER)
 
     def post(self, request, *args, **kwargs):
         serializer = ProofOfExecutionVerifyRequestSerializer(data=request.data, context={"request": request})

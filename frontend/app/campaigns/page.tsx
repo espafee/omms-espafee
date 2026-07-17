@@ -1,10 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
-import { CampaignShareCard } from "@/components/campaign-share-card";
 import { ClientCreatePanel } from "@/components/client-create-panel";
 import { clearAuthSession, fetchCurrentUser, getAccessToken, getStoredUser } from "@/lib/auth";
 import {
@@ -25,6 +25,8 @@ type StoredUser = {
   email?: string;
   role?: string;
 };
+
+type CampaignRosterFilter = "all" | "ongoing" | "upcoming" | "ended";
 
 const WRITE_ROLES = new Set(["admin", "sales"]);
 const ADMIN_ROLES = new Set(["admin"]);
@@ -48,7 +50,7 @@ function formatDateRange(startDate: string, endDate: string) {
     year: "numeric",
   });
 
-  return `${formatter.format(new Date(startDate))} - ${formatter.format(new Date(endDate))}`;
+  return `${formatter.format(new Date(`${startDate}T12:00:00`))} - ${formatter.format(new Date(`${endDate}T12:00:00`))}`;
 }
 
 export default function CampaignsPage() {
@@ -63,13 +65,15 @@ export default function CampaignsPage() {
   const [formSuccess, setFormSuccess] = useState("");
   const [shareError, setShareError] = useState("");
   const [shareSuccess, setShareSuccess] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState<{ linkId: number; message: string; isError: boolean } | null>(null);
   const [form, setForm] = useState<CampaignCreateInput>(INITIAL_FORM);
-  const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+  const [rosterFilter, setRosterFilter] = useState<CampaignRosterFilter>("all");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isShareLoading, setIsShareLoading] = useState(false);
   const [activeShareKey, setActiveShareKey] = useState<string | null>(null);
   const shareActionInFlight = useRef(false);
+  const copyFeedbackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const canManageCampaigns = WRITE_ROLES.has(user?.role ?? "");
   const canManageShareLinks = ADMIN_ROLES.has(user?.role ?? "");
@@ -172,6 +176,11 @@ export default function CampaignsPage() {
       setUser(storedUser);
     }
     void loadCampaigns(storedUser);
+    return () => {
+      if (copyFeedbackTimer.current) {
+        clearTimeout(copyFeedbackTimer.current);
+      }
+    };
   }, [loadCampaigns, router]);
 
   function handleLogout() {
@@ -186,7 +195,7 @@ export default function CampaignsPage() {
 
     return [
       { label: "Total campaigns", value: String(campaignData.summary.total_campaigns) },
-      { label: "Active campaigns", value: String(campaignData.summary.active_campaigns) },
+      { label: "Ongoing campaigns", value: String(campaignData.summary.active_campaigns) },
       { label: "Ending soon", value: String(campaignData.summary.ending_soon_count) },
       { label: "Campaigns at risk", value: String(campaignData.summary.campaigns_at_risk) },
       { label: "Critical campaigns", value: String(campaignData.summary.critical_campaigns) },
@@ -219,12 +228,19 @@ export default function CampaignsPage() {
     return grouped;
   }, [accessLinks]);
   const campaigns = useMemo(() => campaignData?.campaigns ?? [], [campaignData?.campaigns]);
-  const selectedCampaign = useMemo(() => {
-    if (campaigns.length === 0) {
-      return null;
-    }
-    return campaigns.find((campaign) => campaign.id === selectedCampaignId) ?? campaigns[0] ?? null;
-  }, [campaigns, selectedCampaignId]);
+  const filteredCampaigns = useMemo(() => {
+    const visible = rosterFilter === "all"
+      ? campaigns
+      : campaigns.filter((campaign) => campaign.effective_status === rosterFilter);
+    return [...visible].sort((left, right) => {
+      const createdDifference = new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
+      if (createdDifference !== 0) {
+        return createdDifference;
+      }
+      const startDifference = right.start_date.localeCompare(left.start_date);
+      return startDifference || right.id - left.id;
+    });
+  }, [campaigns, rosterFilter]);
 
   function updateForm<K extends keyof CampaignCreateInput>(field: K, value: CampaignCreateInput[K]) {
     setForm((current) => ({
@@ -277,14 +293,14 @@ export default function CampaignsPage() {
     }
   }
 
-  function getPreferredAccessLink(campaignId: number, campaignEndDate: string): CampaignAccessLink | null {
+  function getPreferredAccessLink(campaignId: number): CampaignAccessLink | null {
     const links = [...(accessLinkMap.get(campaignId) ?? [])];
     if (links.length === 0) {
       return null;
     }
 
     const activeLink =
-      links.find((link) => getCampaignAccessLinkStatus(link, campaignEndDate) === "active") ?? null;
+      links.find((link) => getCampaignAccessLinkStatus(link) === "active") ?? null;
     if (activeLink) {
       return activeLink;
     }
@@ -319,8 +335,8 @@ export default function CampaignsPage() {
       return;
     }
 
-    setShareError("");
-    setShareSuccess("");
+    const scrollPosition = window.scrollY;
+    setCopyFeedback(null);
     shareActionInFlight.current = true;
     setActiveShareKey(`copy-${linkId}`);
 
@@ -329,12 +345,17 @@ export default function CampaignsPage() {
         throw new Error("Clipboard API is not available.");
       }
       await navigator.clipboard.writeText(url);
-      setShareSuccess("Copied!");
+      setCopyFeedback({ linkId, message: "Link copied", isError: false });
     } catch {
-      setShareError("Unable to copy the link automatically. You can still copy it from the field.");
+      setCopyFeedback({ linkId, message: "Copy failed. Please try again.", isError: true });
     } finally {
       shareActionInFlight.current = false;
       setActiveShareKey(null);
+      window.requestAnimationFrame(() => window.scrollTo({ top: scrollPosition, behavior: "auto" }));
+      if (copyFeedbackTimer.current) {
+        clearTimeout(copyFeedbackTimer.current);
+      }
+      copyFeedbackTimer.current = setTimeout(() => setCopyFeedback(null), 2000);
     }
   }
 
@@ -559,7 +580,7 @@ export default function CampaignsPage() {
               <p className="stat-value">{isLoading ? "..." : campaignData?.summary.draft_campaigns ?? 0}</p>
             </div>
             <div className="module-stat">
-              <p className="stat-label">Active</p>
+              <p className="stat-label">Ongoing</p>
               <p className="stat-value">{isLoading ? "..." : campaignData?.summary.active_campaigns ?? 0}</p>
             </div>
             <div className="module-stat">
@@ -601,201 +622,193 @@ export default function CampaignsPage() {
         </article>
       </section>
 
-      <section className="campaign-layout">
-        <article className="module-card module-card-wide">
-          <div className="module-head">
+      <section className="module-card campaign-roster-section">
+        <div className="campaign-roster-header">
+          <div>
+            <span className="site-code">Operational portfolio</span>
             <h2>Campaign roster</h2>
-            <span>{campaignData?.campaigns.length ?? 0} items</span>
+            <p className="site-copy">One view for lifecycle, delivery, billing, sharing, and internal campaign access.</p>
           </div>
-          <div className="inventory-table-wrap">
-            <table className="inventory-table">
-              <thead>
-                <tr>
-                  <th>Campaign</th>
-                  <th>Timeline</th>
-                  <th>Status</th>
-                  <th>Performance</th>
-                  <th>Budget</th>
-                  <th>Assets</th>
-                  <th>Objective</th>
-                  <th>Details</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(campaignData?.campaigns ?? []).map((campaign) => (
-                  <tr className={selectedCampaign?.id === campaign.id ? "selected-row" : ""} key={campaign.id}>
+          <span className="campaign-roster-count">{filteredCampaigns.length} of {campaigns.length}</span>
+        </div>
+
+        <div className="campaign-roster-toolbar">
+          <div className="campaign-filter-tabs" aria-label="Filter campaigns by lifecycle">
+            {(["all", "ongoing", "upcoming", "ended"] as CampaignRosterFilter[]).map((filter) => (
+              <button
+                className={rosterFilter === filter ? "campaign-filter-active" : ""}
+                key={filter}
+                type="button"
+                aria-pressed={rosterFilter === filter}
+                onClick={() => setRosterFilter(filter)}
+              >
+                {filter === "all" ? "All" : filter[0].toUpperCase() + filter.slice(1)}
+              </button>
+            ))}
+          </div>
+          <div className="campaign-share-notice" aria-live="polite">
+            {shareError ? <span className="campaign-inline-error">{shareError}</span> : null}
+            {!shareError && shareSuccess ? <span>{shareSuccess}</span> : null}
+          </div>
+        </div>
+
+        <div className="inventory-table-wrap campaign-roster-table-wrap">
+          <table className="inventory-table campaign-roster-table">
+            <thead>
+              <tr>
+                <th>Campaign</th>
+                <th>Timeline</th>
+                <th>Status</th>
+                <th>Performance</th>
+                <th>Budget</th>
+                <th>Assets</th>
+                <th>Billing</th>
+                <th>Objective</th>
+                <th>Share link</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCampaigns.map((campaign) => {
+                const accessLink = canManageShareLinks ? getPreferredAccessLink(campaign.id) : null;
+                const accessLinkUrl = getCampaignAccessLinkUrl(accessLink);
+                const linkStatus = accessLink ? getCampaignAccessLinkStatus(accessLink) : null;
+                const isGenerating = activeShareKey === `generate-${campaign.id}`;
+                const isCopying = Boolean(accessLink && activeShareKey === `copy-${accessLink.id}`);
+                const isRevoking = Boolean(accessLink && activeShareKey === `revoke-${accessLink.id}`);
+                const feedback = accessLink && copyFeedback?.linkId === accessLink.id ? copyFeedback : null;
+                const approvedAssets = campaign.assets.filter((asset) => asset.is_approved).length;
+                const billingVisible = campaign.performance?.billing_status !== "hidden";
+
+                return (
+                  <tr className={campaign.is_ended ? "campaign-row-ended" : ""} key={campaign.id}>
                     <td>
-                      <div className="table-primary">
+                      <div className="table-primary campaign-name-cell">
                         <strong>{campaign.name}</strong>
                         <span>{campaign.code}</span>
                       </div>
                     </td>
-                    <td>{formatDateRange(campaign.start_date, campaign.end_date)}</td>
+                    <td className="campaign-timeline-cell">{formatDateRange(campaign.start_date, campaign.end_date)}</td>
                     <td>
-                      <span className={`status-pill status-${campaign.status}`}>{campaign.status}</span>
+                      <span className={`status-pill status-${campaign.effective_status}`}>
+                        {campaign.effective_status.replaceAll("_", " ")}
+                      </span>
                     </td>
                     <td>
-                      <div className="table-primary">
-                        <strong>
-                          <span className={`status-pill status-${campaign.performance?.risk_status ?? "on_track"}`}>
-                            {(campaign.performance?.risk_status ?? "on_track").replaceAll("_", " ")}
-                          </span>
-                        </strong>
-                        <span>POE {campaign.performance?.poe_completion_percentage ?? 0}% · {campaign.performance?.pending_poe_count ?? 0} pending</span>
+                      <div className="campaign-performance-cell">
+                        <strong>{campaign.performance?.poe_completion_percentage ?? 0}% POE</strong>
+                        <span>{campaign.performance?.pending_poe_count ?? 0} pending</span>
+                        <span className={`campaign-risk-label status-${campaign.performance?.risk_status ?? "on_track"}`}>
+                          {(campaign.performance?.risk_status ?? "on_track").replaceAll("_", " ")}
+                        </span>
                       </div>
                     </td>
-                    <td>{formatCurrency(campaign.budget)}</td>
-                    <td>{campaign.assets.length}</td>
-                    <td className="table-wrap">{campaign.objective || "No objective added yet."}</td>
+                    <td className="campaign-value-cell">{formatCurrency(campaign.budget)}</td>
                     <td>
-                      <button className="ghost table-action" type="button" onClick={() => setSelectedCampaignId(campaign.id)}>
+                      <div className="campaign-assets-cell">
+                        <strong>{campaign.assets.length}</strong>
+                        <span>{approvedAssets} approved</span>
+                      </div>
+                    </td>
+                    <td>
+                      {billingVisible ? (
+                        <div className="campaign-billing-cell">
+                          <strong>{(campaign.performance?.billing_status ?? "no_invoice").replaceAll("_", " ")}</strong>
+                          <span>
+                            {(campaign.performance?.overdue_amount ?? "0.00") !== "0.00"
+                              ? `${formatCurrency(campaign.performance?.overdue_amount)} overdue`
+                              : `${campaign.performance?.payment_completion_percentage ?? 0}% collected`}
+                          </span>
+                        </div>
+                      ) : <span className="campaign-restricted-value">Restricted</span>}
+                    </td>
+                    <td>
+                      <p className="campaign-objective-cell" title={campaign.objective || "No objective added yet."}>
+                        {campaign.objective || "No objective added yet."}
+                      </p>
+                    </td>
+                    <td>
+                      {canManageShareLinks ? (
+                        <div className="campaign-share-cell">
+                          {campaign.is_ended || linkStatus === "ended" ? (
+                            <span className="campaign-link-state">Campaign ended · public access closed</span>
+                          ) : linkStatus === "active" && accessLink && accessLinkUrl ? (
+                            <>
+                              <span className="campaign-link-state">Active · {accessLink.token_prefix}...</span>
+                              <div className="campaign-row-actions">
+                                <button
+                                  className="ghost table-action"
+                                  type="button"
+                                  disabled={isShareLoading || isCopying || isRevoking}
+                                  onClick={() => void handleCopyLink(accessLinkUrl, accessLink.id)}
+                                >
+                                  {isCopying ? "Copying..." : "Copy"}
+                                </button>
+                                <button
+                                  className="ghost ghost-danger table-action"
+                                  type="button"
+                                  disabled={isShareLoading || isCopying || isRevoking}
+                                  onClick={() => void handleRevokeLink(accessLink)}
+                                >
+                                  {isRevoking ? "Revoking..." : "Revoke"}
+                                </button>
+                              </div>
+                            </>
+                          ) : linkStatus === "active" && accessLink ? (
+                            <>
+                              <span className="campaign-link-state">Link unavailable · regenerate securely</span>
+                              <div className="campaign-row-actions">
+                                <button
+                                  className="ghost ghost-danger table-action"
+                                  type="button"
+                                  disabled={isShareLoading || isRevoking}
+                                  onClick={() => void handleRevokeLink(accessLink)}
+                                >
+                                  {isRevoking ? "Revoking..." : "Revoke"}
+                                </button>
+                              </div>
+                            </>
+                          ) : (
+                            <>
+                              <span className="campaign-link-state">
+                                {linkStatus === "revoked" ? "Revoked" : linkStatus === "expired" ? "Expired" : "Not generated"}
+                              </span>
+                              <button
+                                className="ghost table-action"
+                                type="button"
+                                disabled={isShareLoading || isGenerating}
+                                onClick={() => void handleGenerateLink(campaign.id)}
+                              >
+                                {isGenerating ? "Generating..." : linkStatus ? "Generate new" : "Generate link"}
+                              </button>
+                            </>
+                          )}
+                          <span className={`campaign-copy-feedback${feedback?.isError ? " campaign-copy-feedback-error" : ""}`} aria-live="polite">
+                            {feedback?.message ?? "\u00a0"}
+                          </span>
+                        </div>
+                      ) : <span className="campaign-restricted-value">Admin only</span>}
+                    </td>
+                    <td>
+                      <Link
+                        className="ghost table-action campaign-view-action"
+                        href={`/campaigns/${campaign.id}`}
+                        aria-label={`View ${campaign.name}`}
+                      >
                         View
-                      </button>
+                      </Link>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {!isLoading && (campaignData?.campaigns.length ?? 0) === 0 ? (
-            <p className="empty-state">No campaigns are visible for the current account.</p>
-          ) : null}
-          {selectedCampaign ? (
-            <section className="campaign-detail-panel" aria-label="Selected campaign details">
-              <div className="campaign-detail-head">
-                <div>
-                  <p className="site-code">{selectedCampaign.code}</p>
-                  <h3>{selectedCampaign.name}</h3>
-                </div>
-                <span className={`status-pill status-${selectedCampaign.status}`}>{selectedCampaign.status}</span>
-              </div>
-              {selectedCampaign.performance ? (
-                <div className="module-stats">
-                  <div className="module-stat">
-                    <p className="stat-label">POE completion</p>
-                    <p className="stat-value">{selectedCampaign.performance.poe_completion_percentage}%</p>
-                  </div>
-                  <div className="module-stat">
-                    <p className="stat-label">Missing POE</p>
-                    <p className="stat-value">{selectedCampaign.performance.sites_missing_poe}</p>
-                  </div>
-                  <div className="module-stat">
-                    <p className="stat-label">Risk</p>
-                    <p className="stat-value">{selectedCampaign.performance.risk_status.replaceAll("_", " ")}</p>
-                  </div>
-                </div>
-              ) : null}
-              <div className="campaign-detail-grid">
-                <div>
-                  <p className="stat-label">Timeline</p>
-                  <p className="site-copy">{formatDateRange(selectedCampaign.start_date, selectedCampaign.end_date)}</p>
-                </div>
-                <div>
-                  <p className="stat-label">Budget</p>
-                  <p className="site-copy">{formatCurrency(selectedCampaign.budget)}</p>
-                </div>
-                <div>
-                  <p className="stat-label">Assets</p>
-                  <p className="site-copy">{selectedCampaign.assets.length}</p>
-                </div>
-                {selectedCampaign.performance ? (
-                  <div>
-                    <p className="stat-label">Billing</p>
-                    <p className="site-copy">
-                      {selectedCampaign.performance.billing_status.replaceAll("_", " ")}
-                      {selectedCampaign.performance.invoice_generated ? ` · payment ${selectedCampaign.performance.payment_completion_percentage}%` : " · no invoice"}
-                      {selectedCampaign.performance.overdue_amount !== "0.00" ? ` · ${formatCurrency(selectedCampaign.performance.overdue_amount)} overdue` : ""}
-                    </p>
-                  </div>
-                ) : null}
-                {selectedCampaign.performance ? (
-                  <div>
-                    <p className="stat-label">Health</p>
-                    <p className="site-copy">
-                      {selectedCampaign.performance.operational_delay_indicators.length
-                        ? selectedCampaign.performance.operational_delay_indicators.join(", ").replaceAll("_", " ")
-                        : "No delay indicators"}
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-              <div>
-                <p className="stat-label">Objective</p>
-                <p className="site-copy">{selectedCampaign.objective || "No objective added yet."}</p>
-              </div>
-              {canManageShareLinks ? (
-                <div className="campaign-detail-share">
-                  <div className="module-head">
-                    <h2>Share Link</h2>
-                    <span>Admin only</span>
-                  </div>
-                  {shareError ? <p className="error">{shareError}</p> : null}
-                  {shareSuccess ? <p className="success">{shareSuccess}</p> : null}
-                  {(() => {
-                    const accessLink = getPreferredAccessLink(selectedCampaign.id, selectedCampaign.end_date);
-                    const accessLinkUrl = getCampaignAccessLinkUrl(accessLink);
-                    const status = accessLink ? getCampaignAccessLinkStatus(accessLink, selectedCampaign.end_date) : null;
-                    const activeAction =
-                      activeShareKey === `generate-${selectedCampaign.id}`
-                        ? "generate"
-                        : accessLink && activeShareKey === `copy-${accessLink.id}`
-                          ? "copy"
-                          : accessLink && activeShareKey === `revoke-${accessLink.id}`
-                            ? "revoke"
-                            : null;
-
-                    return (
-                      <CampaignShareCard
-                        campaign={selectedCampaign}
-                        accessLink={accessLink}
-                        accessLinkUrl={accessLinkUrl}
-                        status={status}
-                        isLoading={isShareLoading || isLoading}
-                        activeAction={activeAction}
-                        embedded
-                        onGenerate={handleGenerateLink}
-                        onCopy={handleCopyLink}
-                        onRevoke={handleRevokeLink}
-                      />
-                    );
-                  })()}
-                </div>
-              ) : null}
-            </section>
-          ) : null}
-        </article>
-
-        <article className="module-card">
-          <div className="module-head">
-            <h2>Recent assets</h2>
-            <span>Creative</span>
-          </div>
-          <div className="asset-list">
-            {recentAssets.map((asset) => (
-              <article className="asset-card" key={asset.id}>
-                <div className="asset-head">
-                  <div>
-                    <p className="site-code">{asset.campaignCode}</p>
-                    <h3>{asset.name}</h3>
-                  </div>
-                  <span className={`status-pill ${asset.is_approved ? "status-approved" : "status-draft"}`}>
-                    {asset.is_approved ? "approved" : "pending"}
-                  </span>
-                </div>
-                <p className="site-copy">{asset.campaignName}</p>
-                <p className="site-copy">
-                  {asset.asset_type} • {asset.version}
-                </p>
-                <a className="asset-link" href={asset.file_url} rel="noreferrer" target="_blank">
-                  Open asset
-                </a>
-              </article>
-            ))}
-            {!isLoading && recentAssets.length === 0 ? (
-              <p className="empty-state">No assets are available for the current campaign scope.</p>
-            ) : null}
-          </div>
-        </article>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {!isLoading && filteredCampaigns.length === 0 ? (
+          <p className="empty-state">
+            {rosterFilter === "all" ? "No campaigns are visible for the current account." : `No ${rosterFilter} campaigns in this tenant.`}
+          </p>
+        ) : null}
       </section>
     </AppShell>
   );

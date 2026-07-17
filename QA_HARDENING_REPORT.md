@@ -144,3 +144,12 @@ Recommended follow-up:
 ## QA Conclusion
 
 OMMS is ready for controlled production launch after environment setup and production migration execution. The remaining issues are operational deployment tasks and dependency governance, not blocking application defects.
+
+## Campaign Lifecycle Regression Gate
+
+Date: 2026-07-17
+
+- Added backend coverage for ended/ongoing/upcoming lifecycle, paused/cancelled overrides, inclusive end-date boundaries, effective-status filtering, deterministic ordering, tenant isolation, and ended-campaign internal access independent of public links.
+- Added Playwright coverage for latest-first rendering, Ended filtering, ended visual treatment, internal View navigation, Clipboard API invocation, `Link copied` feedback, URL stability, and scroll preservation.
+- Full validation passed: 319 Django tests and 11 Playwright tests, plus clean Django system/migration checks, ESLint, TypeScript, and Next.js production build.
+- Residual risk: the SQL effective-status filter uses the application timezone for queryset-wide filtering. Per-tenant metadata timezones are authoritative on serialized model status; a platform-superadmin viewing multiple tenants around midnight could see a short filter boundary difference until filtering is made tenant-timezone-aware at the database level.
