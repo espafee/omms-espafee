@@ -1117,3 +1117,13 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The reusable image viewer now supports galleries, arrows, swipe, focus trapping/restoration, safe failure states, metadata, and permission-controlled downloads.
 - Identifier and numbering behavior remains unchanged. Deployment requires `inventory.0009` and `planner.0001`.
 - Final local gate: Django check/migration drift checks passed; all 353 backend tests passed; frontend lint and production build passed; all 21 Playwright tests passed.
+
+## Live Media Planner UX Correction
+
+- Planner link generation now shows explicit `Link generated` feedback only after the API returns the one-time token, disables duplicate submits while creating the link, and preserves the generated URL panel so the raw token can still be copied once.
+- Copying a generated planner URL now reports `Link copied` through an accessible inline status without navigation or layout reset.
+- The public planner now receives token-scoped facets for cities, locations, formats, facing directions, illumination, availability statuses, and safe rate bounds from the backend instead of deriving options from the currently filtered page.
+- Allowed city matching now trims whitespace and compares case-insensitively while preserving canonical display text in facets.
+- Public planner empty states now distinguish no published/eligible inventory, no filter matches, and no date availability. API failures show a retryable `Unable to load media units` state.
+- Inventory advertising units now expose a clear `Published to Media Planner` / `Not published` status with permission-controlled publish/unpublish and bulk publish/unpublish actions. Existing inventory remains unpublished until an authorized user opts in.
+- No tenant, token, expiry, proposal snapshot, estimate, numbering, or campaign lifecycle behavior was intentionally changed.

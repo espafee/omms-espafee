@@ -147,6 +147,28 @@ class InventoryImageAPITests(APITestCase):
         self.assertTrue(MediaUnitImage.objects.filter(pk=response.data["id"]).exists())
         self.assertTrue(Path(MediaUnitImage.objects.get(pk=response.data["id"]).image.path).exists())
 
+    def test_admin_can_publish_and_unpublish_media_units_for_planner(self):
+        self.client.force_authenticate(user=self.admin)
+
+        publish_response = self.client.post(
+            reverse("inventory-units-bulk-publication"),
+            {"unit_ids": [self.unit.id], "is_publicly_listed": True},
+            format="json",
+        )
+        self.assertEqual(publish_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(publish_response.data["updated_count"], 1)
+        self.unit.refresh_from_db()
+        self.assertTrue(self.unit.is_publicly_listed)
+
+        unpublish_response = self.client.post(
+            reverse("inventory-units-bulk-publication"),
+            {"unit_ids": [self.unit.id], "is_publicly_listed": False},
+            format="json",
+        )
+        self.assertEqual(unpublish_response.status_code, status.HTTP_200_OK)
+        self.unit.refresh_from_db()
+        self.assertFalse(self.unit.is_publicly_listed)
+
     @override_settings(MEDIA_PUBLIC_BASE_URL="https://omms-api.onrender.com")
     def test_media_urls_can_use_public_base_override(self):
         image = MediaSiteImage.objects.create(

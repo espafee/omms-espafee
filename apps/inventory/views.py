@@ -2,6 +2,7 @@ from django.db.models import Q
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework import status
 
 from core.permissions import RoleBasedPermission
 from core.roles import ALL_ROLES, ADMIN, INVENTORY_MANAGER, OPERATIONS, POE_REVIEWER
@@ -118,6 +119,18 @@ class MediaUnitViewSet(ServiceModelViewSet):
     filterset_fields = ["status", "site", "is_illuminated", "site_type", "facing_direction", "site__city", "site__site_type"]
     search_fields = ["unit_code", "site__name", "site__code", "site__address", "site__city"]
     ordering_fields = ["unit_code", "monthly_rate", "status", "created_at", "updated_at", "site__city", "site__code"]
+
+    @action(detail=False, methods=["post"], url_path="bulk-publication")
+    def bulk_publication(self, request):
+        unit_ids = request.data.get("unit_ids") or []
+        if not isinstance(unit_ids, list) or not unit_ids:
+            return Response({"unit_ids": ["Select at least one advertising unit."]}, status=status.HTTP_400_BAD_REQUEST)
+        is_publicly_listed = request.data.get("is_publicly_listed")
+        if not isinstance(is_publicly_listed, bool):
+            return Response({"is_publicly_listed": ["Use true to publish or false to unpublish."]}, status=status.HTTP_400_BAD_REQUEST)
+        queryset = self.get_queryset().filter(id__in=unit_ids)
+        updated_count = queryset.update(is_publicly_listed=is_publicly_listed)
+        return Response({"updated_count": updated_count, "is_publicly_listed": is_publicly_listed})
 
     @action(detail=False, methods=["get"], url_path="all-units")
     def all_units(self, request):

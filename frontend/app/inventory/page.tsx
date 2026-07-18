@@ -48,6 +48,7 @@ import {
   type InventoryUnitMutationInput,
   MEDIA_UNIT_SITE_TYPE_OPTIONS,
   updateMediaUnit,
+  updateMediaUnitPublication,
   updateSite,
 } from "@/lib/inventory";
 import {
@@ -218,6 +219,8 @@ function InventoryWorkspace() {
   const [viewerUnit, setViewerUnit] = useState<InventoryUnit | null>(null);
   const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
+  const [isPublicationUpdating, setIsPublicationUpdating] = useState(false);
 
   const canManageImages = WRITE_ROLES.has(user?.role ?? "");
   const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
@@ -778,6 +781,27 @@ function InventoryWorkspace() {
     }
   }
 
+  async function updatePublication(unitIds: number[], isPubliclyListed: boolean) {
+    if (!unitIds.length || isPublicationUpdating) return;
+    setIsPublicationUpdating(true);
+    setUnitError("");
+    setUnitSuccess("");
+    try {
+      const result = await updateMediaUnitPublication(unitIds, isPubliclyListed);
+      await loadUnits(unitFilters);
+      setSelectedUnitIds([]);
+      setUnitSuccess(
+        `${result.updated_count} advertising unit${result.updated_count === 1 ? "" : "s"} ${
+          isPubliclyListed ? "published to" : "removed from"
+        } the Live Media Planner.`,
+      );
+    } catch (mutationError) {
+      setUnitError(getInventoryUnitMutationError(mutationError).message);
+    } finally {
+      setIsPublicationUpdating(false);
+    }
+  }
+
   const locationPageCount = Math.max(
     1,
     Math.ceil((locations?.count ?? 0) / PAGE_SIZE),
@@ -785,6 +809,10 @@ function InventoryWorkspace() {
   const unitPageCount = Math.max(1, Math.ceil((units?.count ?? 0) / PAGE_SIZE));
   const locationRows = locations?.results ?? [];
   const unitRows = units?.results ?? [];
+  const visibleUnitIds = unitRows.map((unit) => unit.id);
+  const allVisibleUnitsSelected =
+    visibleUnitIds.length > 0 &&
+    visibleUnitIds.every((id) => selectedUnitIds.includes(id));
 
   return (
     <AppShell
@@ -1299,6 +1327,48 @@ function InventoryWorkspace() {
               </div>
             </div>
           </section>
+          {canManageUnits && unitRows.length ? (
+            <div className="inventory-publication-bar" aria-live="polite">
+              <div>
+                <label className="inventory-select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleUnitsSelected}
+                    onChange={(event) =>
+                      setSelectedUnitIds((current) =>
+                        event.target.checked
+                          ? [...new Set([...current, ...visibleUnitIds])]
+                          : current.filter((id) => !visibleUnitIds.includes(id)),
+                      )
+                    }
+                  />
+                  <strong>{selectedUnitIds.length} selected</strong>
+                </label>
+                <span>
+                  Publish controls decide what clients can see in the Live Media
+                  Planner.
+                </span>
+              </div>
+              <button
+                className="ghost"
+                type="button"
+                disabled={!selectedUnitIds.length || isPublicationUpdating}
+                onClick={() => void updatePublication(selectedUnitIds, true)}
+              >
+                Publish
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                disabled={!selectedUnitIds.length || isPublicationUpdating}
+                onClick={() => void updatePublication(selectedUnitIds, false)}
+              >
+                Unpublish
+              </button>
+            </div>
+          ) : null}
+          {unitError ? <p className="error">{unitError}</p> : null}
+          {unitSuccess ? <p className="success">{unitSuccess}</p> : null}
           {isUnitLoading ? (
             <p className="empty-state">Loading advertising units...</p>
           ) : null}
@@ -1349,11 +1419,36 @@ function InventoryWorkspace() {
                       </td>
                       <td>
                         <div className="table-primary">
+                          {canManageUnits ? (
+                            <label className="inventory-row-select">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select advertising unit ${unit.unit_code}`}
+                                checked={selectedUnitIds.includes(unit.id)}
+                                onChange={(event) =>
+                                  setSelectedUnitIds((current) =>
+                                    event.target.checked
+                                      ? [...new Set([...current, unit.id])]
+                                      : current.filter((id) => id !== unit.id),
+                                  )
+                                }
+                              />
+                              <span>Select</span>
+                            </label>
+                          ) : null}
                           <span>ADVERTISING UNIT</span>
                           <strong>{unit.unit_code}</strong>
-                          <span>
-                            {unit.image_count} photo(s)
-                            {unit.is_publicly_listed ? " · Published" : ""}
+                          <span>{unit.image_count} photo(s)</span>
+                          <span
+                            className={`planner-publication-status ${
+                              unit.is_publicly_listed
+                                ? "is-published"
+                                : "is-unpublished"
+                            }`}
+                          >
+                            {unit.is_publicly_listed
+                              ? "Published to Media Planner"
+                              : "Not published"}
                           </span>
                         </div>
                       </td>
@@ -1404,6 +1499,23 @@ function InventoryWorkspace() {
                               onClick={() => void openUnitEditor(unit.id)}
                             >
                               Edit
+                            </button>
+                          ) : null}
+                          {canManageUnits ? (
+                            <button
+                              className="ghost table-action"
+                              type="button"
+                              disabled={isPublicationUpdating}
+                              onClick={() =>
+                                void updatePublication(
+                                  [unit.id],
+                                  !unit.is_publicly_listed,
+                                )
+                              }
+                            >
+                              {unit.is_publicly_listed
+                                ? "Unpublish"
+                                : "Publish"}
                             </button>
                           ) : null}
                           <details className="inventory-more">
