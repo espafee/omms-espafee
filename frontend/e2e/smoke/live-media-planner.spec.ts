@@ -2,12 +2,20 @@ import { expect, test, type Page } from "@playwright/test";
 
 const pixel = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
 const admin = { id: 1, email: "admin@example.com", username: "admin", role: "admin", is_company_admin: true };
+const platformAdmin = { id: 2, email: "platform@example.com", username: "platform", role: "admin", is_platform_admin: true, is_superuser: true };
 
 async function seedAdmin(page: Page) {
   await page.addInitScript((profile) => {
     localStorage.setItem("omms_access_token", "planner-test-token");
     localStorage.setItem("omms_user", JSON.stringify(profile));
   }, admin);
+}
+
+async function seedPlatformAdmin(page: Page) {
+  await page.addInitScript((profile) => {
+    localStorage.setItem("omms_access_token", "platform-diagnostics-token");
+    localStorage.setItem("omms_user", JSON.stringify(profile));
+  }, platformAdmin);
 }
 
 function publicPayload(showRates = false) {
@@ -167,4 +175,51 @@ test("admin generates a one-time secure planner link and sees submitted proposal
   await expect(page.getByText("The full token is shown once")).toBeVisible();
   await page.getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByText("Link copied")).toBeVisible();
+});
+
+test("platform superadmin runs safe media planner diagnostics", async ({ page }) => {
+  await seedPlatformAdmin(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => undefined },
+    });
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    if (path === "observability/operational-mode/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
+    }
+    if (path === "planner/links/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 7, title: "Live Media Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1 }]) });
+    }
+    if (path.startsWith("platform/diagnostics/media-planner/")) {
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
+          database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "inventory.0009_mediaunit_is_publicly_listed_and_more": true, "planner.0001_initial": true } },
+          planner_link: { id: 7, title: "Live Media Planner", tenant_id: 4, tenant_name: "ESPA FEE", is_active: true, is_revoked: false, is_expired: false, allowed_cities_raw_type: "list", allowed_cities_safe_summary: ["Jammu"], allowed_cities_normalized: ["jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 1 },
+          pipeline: { all_units: 3, tenant_units: 2, publicly_listed: 1, active_units: 1, operationally_eligible: 1, parent_location_eligible: 1, allowed_city_eligible: 1, allowed_region_eligible: 1, inventory_type_eligible: 1, link_restriction_eligible: 1, available_for_requested_dates: 1, date_eligible: 1, public_serializer_eligible: 1, final_serialized: 1 },
+          exclusions: { unpublished: 1, inactive: 0, wrong_tenant: 1, wrong_city: 0, retired: 0, maintenance: 0, missing_public_id: 0, unavailable_for_dates: 0, other: 0 },
+          units: [{ code: "ESPA-001", tenant_id: 4, published: true, public_id_present: true, status: "available", availability_status: "available", city_raw: "Jammu", city_normalized: "jammu", parent_active: true, eligible: true, exclusion_reason: null }],
+        }),
+      });
+    }
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
+  });
+  await page.goto("/platform/diagnostics/media-planner");
+  await expect(page.getByRole("link", { name: "Media Planner Diagnostics" })).toHaveCount(0);
+  await expect(page.getByText("Platform diagnostics.")).toBeVisible();
+  await page.getByLabel("Planner link").selectOption("7");
+  await page.getByLabel("Unit codes").fill("ESPA-001");
+  await page.getByRole("button", { name: "Run diagnostics" }).click();
+  await expect(page.getByText("Eligible units")).toBeVisible();
+  await expect(page.getByText("a1b2c3d4e5f6a7b8")).toBeVisible();
+  await expect(page.getByText("final serialized")).toBeVisible();
+  await expect(page.getByText("ESPA-001")).toBeVisible();
+  await expect(page.getByText("DATABASE_URL")).toHaveCount(0);
+  await page.getByRole("button", { name: "Copy diagnostics JSON" }).click();
+  await expect(page.getByText("Diagnostics JSON copied")).toBeVisible();
 });

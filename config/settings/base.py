@@ -232,10 +232,15 @@ OMMS_REQUEST_LOG_RETENTION_DAYS = get_int("OMMS_REQUEST_LOG_RETENTION_DAYS", 30)
 OMMS_QUERY_TIMING_ENABLED = get_bool("OMMS_QUERY_TIMING_ENABLED", False)
 OMMS_DASHBOARD_CACHE_SECONDS = get_int("OMMS_DASHBOARD_CACHE_SECONDS", 60)
 OMMS_APP_VERSION = get_env("OMMS_APP_VERSION", "")
-OMMS_GIT_COMMIT = get_env("OMMS_GIT_COMMIT", "")
-OMMS_ENVIRONMENT_NAME = get_env("OMMS_ENVIRONMENT_NAME", get_env("RENDER_SERVICE_NAME", "local" if DEBUG else "production"))
+OMMS_GIT_COMMIT = get_env("GIT_COMMIT_SHA", get_env("OMMS_GIT_COMMIT", ""))
+OMMS_BUILD_TIMESTAMP = get_env("BUILD_TIMESTAMP", get_env("OMMS_BUILD_TIMESTAMP", ""))
+OMMS_ENVIRONMENT_NAME = get_env(
+    "ENVIRONMENT_NAME",
+    get_env("OMMS_ENVIRONMENT_NAME", get_env("RENDER_SERVICE_NAME", "local" if DEBUG else "production")),
+)
 OMMS_BACKEND_PUBLIC_BASE_URL = get_env("OMMS_BACKEND_PUBLIC_BASE_URL", "")
 OMMS_ENABLE_BACKGROUND_JOBS = get_bool("OMMS_ENABLE_BACKGROUND_JOBS", True)
+ENABLE_PLATFORM_DIAGNOSTICS = get_bool("ENABLE_PLATFORM_DIAGNOSTICS", False)
 OMMS_PUBLIC_REGISTRATION_ENABLED = get_bool("OMMS_PUBLIC_REGISTRATION_ENABLED", False)
 AUTH_USER_MODEL = "users.User"
 TEST_RUNNER = "core.test_runner.BackendOnlyDiscoverRunner"
@@ -262,6 +267,7 @@ REST_FRAMEWORK = {
         "public_issue_report": get_env("DRF_PUBLIC_ISSUE_REPORT_THROTTLE_RATE", "60/hour"),
         "public_media_planner": get_env("DRF_PUBLIC_MEDIA_PLANNER_THROTTLE_RATE", "240/hour"),
         "public_media_proposal": get_env("DRF_PUBLIC_MEDIA_PROPOSAL_THROTTLE_RATE", "20/hour"),
+        "platform_diagnostics": get_env("DRF_PLATFORM_DIAGNOSTICS_THROTTLE_RATE", "30/hour"),
         "uploads": get_env("DRF_UPLOAD_THROTTLE_RATE", "120/hour"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

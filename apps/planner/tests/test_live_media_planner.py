@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIClient
@@ -381,3 +381,159 @@ class LiveMediaPlannerTests(TestCase):
         convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="AUDIT-CMP")
         events = set(AuditEvent.objects.filter(entity_id=proposal.id).values_list("event_type", flat=True))
         self.assertTrue({"planner.proposal.submitted", "planner.proposal.estimate_created", "planner.proposal.converted"}.issubset(events))
+
+
+class MediaPlannerPlatformDiagnosticsTests(TestCase):
+    endpoint = "/api/v1/platform/diagnostics/media-planner/"
+
+    def setUp(self):
+        self.platform_tenant = Tenant.objects.create(
+            name="OMMS Platform",
+            slug="omms-platform-test",
+            tenant_type=Tenant.TenantType.PLATFORM,
+            status=Tenant.Status.ACTIVE,
+        )
+        self.tenant = Tenant.objects.create(name="ESPA FEE", slug="espa-fee", status=Tenant.Status.ACTIVE)
+        self.other_tenant = Tenant.objects.create(name="Other Media", slug="other-media", status=Tenant.Status.ACTIVE)
+        self.platform_admin = User.objects.create_superuser(
+            email="platform@omms.test",
+            username="platform",
+            password="secret",
+            tenant=self.platform_tenant,
+        )
+        self.company_admin = User.objects.create_user(
+            email="admin@espa.test",
+            username="espa-admin",
+            password="secret",
+            role=User.Role.ADMIN,
+            tenant=self.tenant,
+        )
+        self.user = User.objects.create_user(
+            email="ops@espa.test",
+            username="espa-ops",
+            password="secret",
+            role=User.Role.OPERATIONS,
+            tenant=self.tenant,
+        )
+        self.site = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="SIDCO Chowk",
+            code="ESPA-SITE",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Canal Road",
+            city="Jammu",
+            state="Jammu and Kashmir",
+        )
+        self.other_site = MediaSite.objects.create(
+            tenant=self.other_tenant,
+            name="Other Chowk",
+            code="OTHER-SITE",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Other Road",
+            city="Delhi",
+            state="Delhi",
+        )
+        self.published_unit = self.make_unit(self.site, "ESPA-001", public=True)
+        self.unpublished_unit = self.make_unit(self.site, "ESPA-002_1", public=False)
+        self.other_unit = self.make_unit(self.other_site, "OTHER-001", public=True)
+        self.link, self.raw_token = MediaPlannerShareLink.create_with_token(
+            tenant=self.tenant,
+            created_by=self.company_admin,
+            title="Live Media Planner",
+            allowed_cities="Jammu",
+            pricing_mode=MediaPlannerShareLink.PricingMode.HIDDEN,
+        )
+        self.api = APIClient()
+
+    def make_unit(self, site, code, *, public, status=MediaUnit.Status.AVAILABLE):
+        return MediaUnit.objects.create(
+            site=site,
+            unit_code=code,
+            face_count=1,
+            width=Decimal("20.00"),
+            height=Decimal("10.00"),
+            monthly_rate=Decimal("50000.00"),
+            status=status,
+            site_type=MediaUnit.SiteType.SINGLE_SIDE,
+            is_publicly_listed=public,
+            public_description="Safe public text",
+            public_features=["Visible"],
+        )
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_diagnostics_requires_authentication(self):
+        response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(response.status_code, 401)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_diagnostics_allows_only_platform_superadmin(self):
+        self.api.force_authenticate(self.company_admin)
+        company_response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(company_response.status_code, 403)
+
+        self.api.force_authenticate(self.user)
+        user_response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(user_response.status_code, 403)
+
+        self.api.force_authenticate(self.platform_admin)
+        platform_response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(platform_response.status_code, 200)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=False)
+    def test_diagnostics_feature_flag_disables_endpoint(self):
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(response.status_code, 404)
+
+    @override_settings(
+        ENABLE_PLATFORM_DIAGNOSTICS=True,
+        OMMS_GIT_COMMIT="abcdef1234567890",
+        OMMS_BUILD_TIMESTAMP="2026-07-18T07:00:00Z",
+        OMMS_ENVIRONMENT_NAME="test",
+    )
+    def test_diagnostics_returns_safe_pipeline_evidence_without_secrets(self):
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(
+            self.endpoint,
+            {
+                "planner_link_id": self.link.id,
+                "unit_code": "ESPA-001,ESPA-002_1,OTHER-001",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.data
+        self.assertEqual(payload["service"]["git_sha"], "abcdef123456")
+        self.assertEqual(payload["service"]["environment"], "test")
+        self.assertEqual(payload["planner_link"]["allowed_cities_raw_type"], "str")
+        self.assertEqual(payload["planner_link"]["allowed_cities_safe_summary"], ["Jammu"])
+        self.assertEqual(payload["pipeline"]["tenant_units"], 2)
+        self.assertEqual(payload["pipeline"]["publicly_listed"], 1)
+        self.assertEqual(payload["pipeline"]["allowed_city_eligible"], 1)
+        self.assertEqual(payload["pipeline"]["final_serialized"], 1)
+        self.assertEqual(payload["exclusions"]["unpublished"], 1)
+        self.assertEqual(payload["exclusions"]["wrong_tenant"], 1)
+        self.assertTrue(payload["database"]["migration_status"]["inventory.0009_mediaunit_is_publicly_listed_and_more"])
+        self.assertTrue(payload["database"]["migration_status"]["planner.0001_initial"])
+        self.assertRegex(payload["database"]["database_fingerprint"], r"^[a-f0-9]{16}$")
+
+        serialized_payload = str(payload)
+        self.assertNotIn(self.raw_token, serialized_payload)
+        self.assertNotIn(self.link.token_hash, serialized_payload)
+        self.assertNotIn("DATABASE_URL", serialized_payload)
+        self.assertNotIn("SECRET_KEY", serialized_payload)
+        self.assertNotIn("monthly_rate", serialized_payload)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_diagnostics_requires_planner_identifier(self):
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(self.endpoint)
+        self.assertEqual(response.status_code, 400)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_diagnostics_unit_sampling_is_limited(self):
+        for index in range(30):
+            self.make_unit(self.site, f"ESPA-BULK-{index}", public=True)
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(len(response.data["units"]), 25)

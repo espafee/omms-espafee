@@ -5331,6 +5331,19 @@ body.modal-open { overflow: hidden; }
 .planner-eligibility-preview dl div { display: grid; gap: 2px; min-width: 0; }
 .planner-eligibility-preview dt { color: #6b7f76; font-size: 9px; font-weight: 850; text-transform: uppercase; }
 .planner-eligibility-preview dd { margin: 0; color: #10251e; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; text-transform: capitalize; }
+.diagnostics-warning { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; padding: 12px 14px; border: 1px solid #c9ded5; border-radius: 8px; background: #f4fbf7; color: #0b4f3a; }
+.diagnostics-warning span { color: #496258; font-size: 13px; font-weight: 700; }
+.diagnostics-layout { align-items: start; }
+.diagnostics-form, .diagnostics-output { display: grid; gap: 14px; }
+.diagnostics-form textarea { min-height: 88px; resize: vertical; }
+.diagnostics-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.diagnostics-map { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
+.diagnostics-map div { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid #dce9e3; border-radius: 8px; background: #ffffff; }
+.diagnostics-map dt { color: #4b6259; text-transform: capitalize; }
+.diagnostics-map dd { margin: 0; font-weight: 800; color: #0b4f3a; }
+.diagnostics-migrations { display: flex; flex-wrap: wrap; gap: 8px; }
+.diagnostics-table-wrap { overflow-x: auto; }
+.diagnostics-table { min-width: 760px; }
 .planner-link-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
 .planner-link-row div { display: grid; gap: 2px; }
 .planner-link-row div span { color: #64776f; font-size: 12px; text-transform: capitalize; }
