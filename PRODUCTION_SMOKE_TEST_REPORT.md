@@ -18,6 +18,16 @@ Result: **Conditional launch readiness.**
 
 VistaAi `/omms/login` has since been corrected to a redirect/launch page for `https://omms.vercel.app/login`, so the remaining blockers are backend infrastructure proof and authenticated role smoke.
 
+## 2026-07-18 Planner Link Copy Action Release
+
+- PR: [#11 Add copy action for planner links](https://github.com/kapoorashish87/OMMS/pull/11)
+- Merge result: merged into `main` at `6da92cf26e973bc478b0e478cd0ba066ba93c14d`.
+- Production frontend deployment: Vercel `dpl_KhwGfHwSdb9HN24eZUityEwUw4x2`, Ready, aliased to `https://omms.vercel.app`.
+- Deployment source: GitHub `main`, commit `6da92cf`.
+- Backend deployment: not required; no backend runtime code or database migration changed.
+- Public route smoke: `https://omms.vercel.app/login`, `https://omms.vercel.app/sales/proposals`, and `https://omms-backend.onrender.com/health/` returned `200`.
+- Authenticated Copy Link smoke: pending production credentials. The repository does not contain safe production admin/sales credentials, so the live Sales/Proposals Copy Link workflow was not exercised against real planner records in this session.
+
 ## Commands And Results
 
 ### Backend Local Final Check
