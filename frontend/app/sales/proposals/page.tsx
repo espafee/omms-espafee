@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -61,6 +61,29 @@ function isCopyablePlannerLink(link: PlannerLink) {
   return Boolean(link.id && link.is_available && !link.revoked_at);
 }
 
+function formatPlannerPricing(value: string) {
+  if (value === "hidden") return "Rates hidden";
+  if (value === "standard_selling_rate") return "Standard rates visible";
+  if (value === "client_rate_card") return "Client rate card";
+  return value.replaceAll("_", " ");
+}
+
+function formatPlannerDate(value?: string | null) {
+  if (!value) return "";
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function getPlannerLinkStatus(link: PlannerLink) {
+  if (link.revoked_at) return "revoked";
+  if (link.expires_at && new Date(link.expires_at).getTime() <= Date.now()) return "expired";
+  if (link.is_available) return "active";
+  return "closed";
+}
+
 function hasTenantMismatch(report?: PlannerLinkEligibilityDiagnostics | null) {
   if (!report) return false;
   return (
@@ -98,6 +121,9 @@ export default function ProposalsWorkspacePage() {
   const historyCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlatformAdmin = Boolean(user?.is_platform_admin);
   const userCompanyName = user?.tenant_name || user?.organization_name || "Your company";
+  const recentPlannerLinks = links.slice(0, 8);
+  const showPlannerDateColumn = recentPlannerLinks.some((link) => Boolean(link.created_at));
+  const plannerHistoryColumnCount = showPlannerDateColumn ? 6 : 5;
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -520,79 +546,130 @@ export default function ProposalsWorkspacePage() {
               <h2>Recent planner links</h2>
             </div>
           </div>
-          {links.length ? (
-            links.slice(0, 8).map((link) => {
-              const diagnostics = diagnosticsByLink[link.id];
-              const canCopyPlannerLink = isCopyablePlannerLink(link);
-              const hasPlannerUrl = Boolean(buildPlannerPublicUrl(link.public_path));
-              const isCopied = copiedPlannerLinkId === link.id;
-              return (
-              <div className="planner-link-row" key={link.id}>
-                <div className="planner-link-main">
-                  <strong>{link.title}</strong>
-                  <span>
-                    {link.client_name || "General client link"} ·{" "}
-                    {isPlatformAdmin && link.tenant_name ? `${link.tenant_name} · ` : ""}
-                    {link.pricing_mode.replaceAll("_", " ")}
-                  </span>
-                  <span className="planner-link-metrics">
-                    Eligible units: {diagnostics?.link.eligible_count ?? link.eligible_unit_count ?? 0}
-                    {isPlatformAdmin ? (
-                      <>
-                        {" · "}Published units: {diagnostics?.link.published_count ?? "pending"}
-                        {" · "}Excluded units: {diagnostics?.link.excluded_count ?? "pending"}
-                      </>
-                    ) : null}
-                  </span>
-                </div>
-                {hasTenantMismatch(diagnostics) ? (
-                  <p className="planner-link-warning">{TENANT_MISMATCH_MESSAGE}</p>
-                ) : null}
-                <div className="planner-link-actions">
-                  <span
-                    className={`status-pill ${link.is_available ? "status-active" : "status-failed"}`}
-                  >
-                    {link.is_available ? "Active" : "Closed"}
-                  </span>
-                  {canCopyPlannerLink ? (
-                    <button
-                      className="ghost planner-copy-link-button"
-                      type="button"
-                      aria-label="Copy Live Media Planner link"
-                      disabled={!hasPlannerUrl}
-                      onClick={() => void copyPlannerHistoryLink(link)}
-                    >
-                      <CopyLinkIcon />
-                      {isCopied ? "Copied" : "Copy Link"}
-                    </button>
-                  ) : null}
-                  {isPlatformAdmin ? (
-                    <button
-                      className="ghost"
-                      type="button"
-                      disabled={isDiagnosticsLoading}
-                      onClick={() => void openDiagnostics(link)}
-                    >
-                      Diagnostics
-                    </button>
-                  ) : null}
-                  {link.is_available &&
-                  ["admin", "sales"].includes(user?.role || "") ? (
-                    <button
-                      className="ghost"
-                      type="button"
-                      onClick={async () => {
-                        await revokePlannerLink(link.id);
-                        await load();
-                      }}
-                    >
-                      Revoke
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-              );
-            })
+          {recentPlannerLinks.length ? (
+            <div className="planner-link-table-wrap">
+              <table className="planner-link-table" aria-label="Recent planner links">
+                <thead>
+                  <tr>
+                    <th scope="col">Planner Link</th>
+                    <th scope="col">Client / Company</th>
+                    <th scope="col">Inventory</th>
+                    <th scope="col">Status</th>
+                    {showPlannerDateColumn ? <th scope="col">Created / Expiry</th> : null}
+                    <th scope="col">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentPlannerLinks.map((link) => {
+                    const diagnostics = diagnosticsByLink[link.id];
+                    const canCopyPlannerLink = isCopyablePlannerLink(link);
+                    const hasPlannerUrl = Boolean(buildPlannerPublicUrl(link.public_path));
+                    const isCopied = copiedPlannerLinkId === link.id;
+                    const status = getPlannerLinkStatus(link);
+                    const clientPrimary = link.client_name || link.tenant_name || userCompanyName;
+                    const clientSecondary = link.client_name && link.tenant_name ? link.tenant_name : "";
+                    const createdDate = formatPlannerDate(link.created_at);
+                    const expiryDate = formatPlannerDate(link.expires_at);
+                    return (
+                      <Fragment key={link.id}>
+                        <tr className="planner-link-row">
+                          <td data-label="Planner Link">
+                            <div className="planner-link-main">
+                              <strong>{link.title}</strong>
+                              <span>
+                                {link.client_name ? "Client-specific link" : "General client link"} ·{" "}
+                                {formatPlannerPricing(link.pricing_mode)}
+                              </span>
+                            </div>
+                          </td>
+                          <td data-label="Client / Company">
+                            <div className="planner-link-client">
+                              <strong>{clientPrimary}</strong>
+                              {clientSecondary ? <span>{clientSecondary}</span> : null}
+                            </div>
+                          </td>
+                          <td data-label="Inventory">
+                            <dl className="planner-link-inventory">
+                              <div>
+                                <dt>Eligible</dt>
+                                <dd>{diagnostics?.link.eligible_count ?? link.eligible_unit_count ?? 0}</dd>
+                              </div>
+                              <div>
+                                <dt>Published</dt>
+                                <dd>{diagnostics?.link.published_count ?? "pending"}</dd>
+                              </div>
+                              <div>
+                                <dt>Excluded</dt>
+                                <dd>{diagnostics?.link.excluded_count ?? "pending"}</dd>
+                              </div>
+                            </dl>
+                          </td>
+                          <td data-label="Status">
+                            <span className={`status-pill status-${status}`}>
+                              {status.toUpperCase()}
+                            </span>
+                          </td>
+                          {showPlannerDateColumn ? (
+                            <td data-label="Created / Expiry">
+                              <div className="planner-link-dates">
+                                {createdDate ? <span>Created {createdDate}</span> : null}
+                                <span>{expiryDate ? `Expires ${expiryDate}` : "No expiry"}</span>
+                              </div>
+                            </td>
+                          ) : null}
+                          <td data-label="Actions">
+                            <div className="planner-link-actions">
+                              {canCopyPlannerLink ? (
+                                <button
+                                  className="ghost planner-copy-link-button"
+                                  type="button"
+                                  aria-label="Copy Live Media Planner link"
+                                  disabled={!hasPlannerUrl}
+                                  onClick={() => void copyPlannerHistoryLink(link)}
+                                >
+                                  <CopyLinkIcon />
+                                  {isCopied ? "Copied" : "Copy Link"}
+                                </button>
+                              ) : null}
+                              {isPlatformAdmin ? (
+                                <button
+                                  className="ghost"
+                                  type="button"
+                                  disabled={isDiagnosticsLoading}
+                                  onClick={() => void openDiagnostics(link)}
+                                >
+                                  Diagnostics
+                                </button>
+                              ) : null}
+                              {link.is_available &&
+                              ["admin", "sales"].includes(user?.role || "") ? (
+                                <button
+                                  className="ghost"
+                                  type="button"
+                                  onClick={async () => {
+                                    await revokePlannerLink(link.id);
+                                    await load();
+                                  }}
+                                >
+                                  Revoke
+                                </button>
+                              ) : null}
+                            </div>
+                          </td>
+                        </tr>
+                        {hasTenantMismatch(diagnostics) ? (
+                          <tr className="planner-link-warning-row" key={`${link.id}-warning`}>
+                            <td colSpan={plannerHistoryColumnCount}>
+                              <p className="planner-link-warning">{TENANT_MISMATCH_MESSAGE}</p>
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           ) : (
             <p className="empty-state">No client planner links yet.</p>
           )}

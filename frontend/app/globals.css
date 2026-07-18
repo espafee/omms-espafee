@@ -2194,7 +2194,9 @@ textarea::placeholder {
 }
 
 .status-available,
+.status-active,
 .status-approved,
+.status-closed,
 .status-completed,
 .status-verified,
 .status-reviewed,
@@ -5318,7 +5320,7 @@ body.modal-open { overflow: hidden; }
 .planner-empty-state h2, .planner-empty-state p { margin: 0; }
 .planner-empty-state h2 { color: #10251e; font-size: 20px; }
 .planner-public-state { max-width: 620px; margin: 15vh auto; padding: 28px; border: 1px solid #d6e2dd; border-radius: 8px; background: white; }
-.planner-internal-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr); gap: 16px; }
+.planner-internal-grid { display: grid; grid-template-columns: 1fr; gap: 16px; }
 .planner-link-card, .planner-link-history, .planner-proposals-card { padding: 18px; }
 .planner-link-form .submit { align-self: end; }
 .planner-company-context { min-height: 42px; padding: 10px 12px; border: 1px solid #d7e5df; border-radius: 5px; background: #f7fbf9; color: #526b61; }
@@ -5352,12 +5354,31 @@ body.modal-open { overflow: hidden; }
 .diagnostics-migrations { display: flex; flex-wrap: wrap; gap: 8px; }
 .diagnostics-table-wrap { overflow-x: auto; }
 .diagnostics-table { min-width: 760px; }
-.planner-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
-.planner-link-main { display: grid; gap: 2px; }
-.planner-link-main span { color: #64776f; font-size: 12px; text-transform: capitalize; }
-.planner-link-row .planner-link-metrics { color: #244f40; font-weight: 800; text-transform: none; }
-.planner-link-row .planner-link-warning { grid-column: 1 / -1; }
-.planner-link-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.planner-link-table-wrap { width: 100%; overflow: visible; }
+.planner-link-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.planner-link-table th { padding: 9px 8px; border-bottom: 1px solid #d8e5df; color: #64776f; font-size: 10px; font-weight: 850; text-align: left; text-transform: uppercase; letter-spacing: .08em; }
+.planner-link-table td { padding: 11px 8px; border-bottom: 1px solid #e2ebe7; vertical-align: middle; }
+.planner-link-table th:nth-child(1) { width: 20%; }
+.planner-link-table th:nth-child(2) { width: 16%; }
+.planner-link-table th:nth-child(3) { width: 18%; }
+.planner-link-table th:nth-child(4) { width: 12%; }
+.planner-link-table th:nth-child(5) { width: 16%; }
+.planner-link-table th:last-child { width: 18%; }
+.planner-link-row { transition: background .15s ease; }
+.planner-link-row:hover { background: #f7fbf9; }
+.planner-link-main, .planner-link-client, .planner-link-dates { display: grid; gap: 2px; min-width: 0; }
+.planner-link-main strong, .planner-link-client strong { overflow-wrap: anywhere; }
+.planner-link-main span, .planner-link-client span, .planner-link-dates span { color: #64776f; font-size: 12px; text-transform: capitalize; }
+.planner-link-table td[data-label="Status"] { white-space: nowrap; }
+.planner-link-dates span { line-height: 1.4; }
+.planner-link-inventory { display: flex; flex-wrap: wrap; gap: 8px 12px; margin: 0; }
+.planner-link-inventory div { display: inline-flex; gap: 4px; min-width: 0; }
+.planner-link-inventory dt { color: #64776f; font-size: 11px; font-weight: 750; }
+.planner-link-inventory dd { margin: 0; color: #244f40; font-size: 11px; font-weight: 850; text-transform: capitalize; }
+.planner-link-warning-row td { padding: 0 8px 11px; border-bottom: 1px solid #e2ebe7; }
+.planner-link-warning-row + .planner-link-row td { border-top: 0; }
+.planner-link-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
+.planner-link-actions .ghost { padding: 7px 9px; font-size: 11px; }
 .planner-copy-link-button { display: inline-flex; align-items: center; gap: 6px; }
 .planner-copy-link-button svg { width: 15px; height: 15px; flex: 0 0 15px; }
 .planner-diagnostics-modal { width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
@@ -5402,8 +5423,25 @@ body.modal-open { overflow: hidden; }
   .planner-filter-panel:not([open]) .planner-filter-grid { display: none; }
   .planner-filter-grid, .planner-proposal-form, .planner-link-form { grid-template-columns: 1fr; }
   .planner-unit-grid, .planner-internal-grid, .planner-detail-grid, .planner-line-grid { grid-template-columns: 1fr; }
-  .planner-link-row { grid-template-columns: 1fr; align-items: start; }
+  .planner-link-table-wrap { overflow: visible; }
+  .planner-link-table, .planner-link-table tbody { display: block; width: 100%; }
+  .planner-link-table thead { display: none; }
+  .planner-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 8px; padding: 12px 0; }
+  .planner-link-table td { display: block; padding: 0; border-bottom: 0; }
+  .planner-link-table td::before { content: attr(data-label); display: block; margin-bottom: 3px; color: #64776f; font-size: 9px; font-weight: 850; text-transform: uppercase; letter-spacing: .08em; }
+  .planner-link-table td[data-label="Planner Link"] { grid-column: 1; order: 1; }
+  .planner-link-table td[data-label="Status"] { grid-column: 2; order: 2; justify-self: end; }
+  .planner-link-table td[data-label="Planner Link"]::before,
+  .planner-link-table td[data-label="Status"]::before { display: none; }
+  .planner-link-table td[data-label="Client / Company"] { grid-column: 1 / -1; order: 3; }
+  .planner-link-table td[data-label="Inventory"] { grid-column: 1 / -1; order: 4; }
+  .planner-link-table td[data-label="Created / Expiry"] { grid-column: 1 / -1; order: 5; }
+  .planner-link-table td[data-label="Actions"] { grid-column: 1 / -1; order: 6; padding-top: 8px; border-top: 1px solid #e2ebe7; }
+  .planner-link-inventory { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .planner-link-inventory div { display: grid; gap: 1px; }
   .planner-link-actions { justify-content: flex-start; }
+  .planner-link-warning-row { display: block; }
+  .planner-link-warning-row td { display: block; padding: 0 0 12px; }
   .planner-unit-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .planner-basket-bar { right: 12px; bottom: 12px; gap: 10px; }
   .planner-basket-help { grid-column: 1 / -1; max-width: none; }
