@@ -5344,9 +5344,12 @@ body.modal-open { overflow: hidden; }
 .diagnostics-migrations { display: flex; flex-wrap: wrap; gap: 8px; }
 .diagnostics-table-wrap { overflow-x: auto; }
 .diagnostics-table { min-width: 760px; }
-.planner-link-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
+.planner-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
 .planner-link-row div { display: grid; gap: 2px; }
 .planner-link-row div span { color: #64776f; font-size: 12px; text-transform: capitalize; }
+.planner-link-row .planner-link-metrics { color: #244f40; font-weight: 800; text-transform: none; }
+.planner-diagnostics-modal { width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
 .planner-proposals-card { margin-top: 16px; }
 .table-link { display: inline-flex; text-decoration: none; }
 .planner-detail-top { display: flex; justify-content: space-between; align-items: center; }

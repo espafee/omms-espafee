@@ -14,13 +14,17 @@ import {
 import {
   createPlannerLink,
   fetchPlannerLinkEligibility,
+  fetchPlannerLinkEligibilityDiagnostics,
   fetchPlannerLinks,
   fetchPlannerProposals,
   revokePlannerLink,
   type PlannerEligibilityPreview,
+  type PlannerLinkEligibilityDiagnostics,
   type PlannerLink,
   type PlannerProposal,
 } from "@/lib/planner";
+
+const DEFAULT_DIAGNOSTIC_UNITS = "ESPA-001,ESPA-002_1,ESPA-002_2,ESPA-003";
 
 export default function ProposalsWorkspacePage() {
   const router = useRouter();
@@ -36,8 +40,13 @@ export default function ProposalsWorkspacePage() {
   const [eligibilityPreview, setEligibilityPreview] =
     useState<PlannerEligibilityPreview | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [diagnosticsByLink, setDiagnosticsByLink] = useState<Record<number, PlannerLinkEligibilityDiagnostics>>({});
+  const [activeDiagnostics, setActiveDiagnostics] = useState<PlannerLinkEligibilityDiagnostics | null>(null);
+  const [diagnosticsFeedback, setDiagnosticsFeedback] = useState("");
+  const [isDiagnosticsLoading, setIsDiagnosticsLoading] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const isPlatformAdmin = Boolean(user?.is_platform_admin);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -67,6 +76,30 @@ export default function ProposalsWorkspacePage() {
     setUser(getStoredUser());
     void load();
   }, [load, router]);
+
+  useEffect(() => {
+    if (!isPlatformAdmin || !links.length) {
+      return;
+    }
+    let isMounted = true;
+    void Promise.allSettled(
+      links.slice(0, 8).map((link) =>
+        fetchPlannerLinkEligibilityDiagnostics(link.id, { unit_code: DEFAULT_DIAGNOSTIC_UNITS }),
+      ),
+    ).then((results) => {
+      if (!isMounted) return;
+      const next: Record<number, PlannerLinkEligibilityDiagnostics> = {};
+      results.forEach((result) => {
+        if (result.status === "fulfilled") {
+          next[result.value.link.id] = result.value;
+        }
+      });
+      setDiagnosticsByLink(next);
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [isPlatformAdmin, links]);
 
   async function generateLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -129,6 +162,32 @@ export default function ProposalsWorkspacePage() {
     } catch {
       setCopyFeedback("Unable to copy link. Select the URL and copy it manually.");
     }
+  }
+
+  async function openDiagnostics(link: PlannerLink) {
+    setDiagnosticsFeedback("");
+    setIsDiagnosticsLoading(true);
+    try {
+      const report =
+        diagnosticsByLink[link.id] ??
+        (await fetchPlannerLinkEligibilityDiagnostics(link.id, { unit_code: DEFAULT_DIAGNOSTIC_UNITS }));
+      setDiagnosticsByLink((current) => ({ ...current, [link.id]: report }));
+      setActiveDiagnostics(report);
+    } catch (diagnosticsError) {
+      setDiagnosticsFeedback(
+        diagnosticsError instanceof Error
+          ? diagnosticsError.message
+          : "Unable to load media planner diagnostics.",
+      );
+    } finally {
+      setIsDiagnosticsLoading(false);
+    }
+  }
+
+  async function copyDiagnosticsReport() {
+    if (!activeDiagnostics) return;
+    await navigator.clipboard.writeText(JSON.stringify(activeDiagnostics, null, 2));
+    setDiagnosticsFeedback("Diagnostic report copied");
   }
 
   function logout() {
@@ -312,7 +371,9 @@ export default function ProposalsWorkspacePage() {
             </div>
           </div>
           {links.length ? (
-            links.slice(0, 8).map((link) => (
+            links.slice(0, 8).map((link) => {
+              const diagnostics = diagnosticsByLink[link.id];
+              return (
               <div className="planner-link-row" key={link.id}>
                 <div>
                   <strong>{link.title}</strong>
@@ -320,12 +381,31 @@ export default function ProposalsWorkspacePage() {
                     {link.client_name || "General client link"} ·{" "}
                     {link.pricing_mode.replaceAll("_", " ")}
                   </span>
+                  <span className="planner-link-metrics">
+                    Eligible units: {diagnostics?.link.eligible_count ?? link.eligible_unit_count ?? 0}
+                    {isPlatformAdmin ? (
+                      <>
+                        {" · "}Published units: {diagnostics?.link.published_count ?? "pending"}
+                        {" · "}Excluded units: {diagnostics?.link.excluded_count ?? "pending"}
+                      </>
+                    ) : null}
+                  </span>
                 </div>
                 <span
                   className={`status-pill ${link.is_available ? "status-active" : "status-failed"}`}
                 >
                   {link.is_available ? "Active" : "Closed"}
                 </span>
+                {isPlatformAdmin ? (
+                  <button
+                    className="ghost"
+                    type="button"
+                    disabled={isDiagnosticsLoading}
+                    onClick={() => void openDiagnostics(link)}
+                  >
+                    Diagnostics
+                  </button>
+                ) : null}
                 {link.is_available &&
                 ["admin", "sales"].includes(user?.role || "") ? (
                   <button
@@ -340,12 +420,104 @@ export default function ProposalsWorkspacePage() {
                   </button>
                 ) : null}
               </div>
-            ))
+              );
+            })
           ) : (
             <p className="empty-state">No client planner links yet.</p>
           )}
+          {diagnosticsFeedback ? <p className="planner-action-feedback">{diagnosticsFeedback}</p> : null}
         </article>
       </section>
+      {activeDiagnostics ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal-card planner-diagnostics-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Media planner eligibility diagnostics"
+          >
+            <div className="panel-heading-row">
+              <div>
+                <span className="eyebrow">Platform diagnostics</span>
+                <h2>{activeDiagnostics.link.title}</h2>
+                <p className="site-copy">
+                  Backend {activeDiagnostics.service.git_sha} · {activeDiagnostics.service.environment} · DB{" "}
+                  {activeDiagnostics.database.database_fingerprint}
+                </p>
+              </div>
+              <button className="ghost" type="button" onClick={() => setActiveDiagnostics(null)}>
+                Close
+              </button>
+            </div>
+            <div className="diagnostics-warning" role="status">
+              <strong>Platform diagnostics.</strong>
+              <span>Contains operational metadata. Do not share publicly.</span>
+            </div>
+            <div className="diagnostics-cards">
+              <article className="ops-kpi-card">
+                <p className="stat-label">Eligible units</p>
+                <strong>{activeDiagnostics.link.eligible_count}</strong>
+              </article>
+              <article className="ops-kpi-card">
+                <p className="stat-label">Published units</p>
+                <strong>{activeDiagnostics.link.published_count}</strong>
+              </article>
+              <article className="ops-kpi-card">
+                <p className="stat-label">Excluded units</p>
+                <strong>{activeDiagnostics.link.excluded_count}</strong>
+              </article>
+            </div>
+            <DiagnosticsMap title="Pipeline counts" rows={activeDiagnostics.pipeline} />
+            <DiagnosticsMap title="Exclusion counts" rows={activeDiagnostics.exclusions} />
+            <div>
+              <h3>Migration status</h3>
+              <div className="diagnostics-migrations">
+                {Object.entries(activeDiagnostics.database.migration_status).map(([name, applied]) => (
+                  <span key={name} className={applied ? "status-pill status-pill-success" : "status-pill status-pill-warning"}>
+                    {name}: {applied ? "applied" : "missing"}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="diagnostics-table-wrap">
+              <table className="data-table diagnostics-table">
+                <thead>
+                  <tr>
+                    <th>Unit</th>
+                    <th>Tenant</th>
+                    <th>Published</th>
+                    <th>Status</th>
+                    <th>City</th>
+                    <th>Eligible</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activeDiagnostics.sample_units.map((unit) => (
+                    <tr key={unit.code}>
+                      <td>{unit.code}</td>
+                      <td>{unit.tenant_id ?? "-"}</td>
+                      <td>{unit.published ? "Yes" : "No"}</td>
+                      <td>{unit.status}</td>
+                      <td>{unit.city_raw || "-"}</td>
+                      <td>{unit.eligible ? "Yes" : "No"}</td>
+                      <td>{unit.exclusion_reason ?? "Included"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="modal-actions">
+              <button className="primary" type="button" onClick={() => void copyDiagnosticsReport()}>
+                Copy diagnostic report
+              </button>
+              <button className="ghost" type="button" onClick={() => setActiveDiagnostics(null)}>
+                Close
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
       <section className="module-card planner-proposals-card">
         <div className="module-head">
           <div>
@@ -452,5 +624,21 @@ export default function ProposalsWorkspacePage() {
         )}
       </section>
     </AppShell>
+  );
+}
+
+function DiagnosticsMap({ title, rows }: { title: string; rows: Record<string, number> }) {
+  return (
+    <div>
+      <h3>{title}</h3>
+      <dl className="diagnostics-map">
+        {Object.entries(rows).map(([key, value]) => (
+          <div key={key}>
+            <dt>{key.replaceAll("_", " ")}</dt>
+            <dd>{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
   );
 }

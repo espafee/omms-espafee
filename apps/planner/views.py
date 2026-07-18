@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from django.conf import settings
 from django.db.models import F, Max, Min, Q
 from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -16,6 +17,7 @@ from core.pagination import DefaultPageNumberPagination
 from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FINANCE, OPERATIONS, SALES
 
+from .diagnostics import MediaPlannerDiagnosticsRequest, MediaPlannerDiagnosticsService
 from .models import CampaignProposal, MediaPlannerShareLink
 from .serializers import (
     CampaignProposalSerializer,
@@ -91,6 +93,39 @@ class MediaPlannerShareLinkViewSet(
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         link = self.get_object()
         return Response(planner_inventory_diagnostics(link, start_date=start_date, end_date=end_date))
+
+    @action(detail=True, methods=["get"], url_path="eligibility-diagnostics")
+    def eligibility_diagnostics(self, request, pk=None):
+        if not getattr(settings, "ENABLE_PLATFORM_DIAGNOSTICS", False):
+            raise NotFound("Platform diagnostics are disabled.")
+        if not is_platform_super_admin(request.user):
+            raise PermissionDenied("Only platform superadmins can access media planner diagnostics.")
+        start_date = _parse_date(request.query_params.get("requested_start_date") or request.query_params.get("start_date"))
+        end_date = _parse_date(request.query_params.get("requested_end_date") or request.query_params.get("end_date"))
+        try:
+            InventoryAvailabilityService().validate_dates(start_date, end_date)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        unit_codes = tuple(
+            dict.fromkeys(
+                code.strip()
+                for code in request.query_params.get(
+                    "unit_code",
+                    "ESPA-001,ESPA-002_1,ESPA-002_2,ESPA-003",
+                ).replace("\n", ",").split(",")
+                if code.strip()
+            )
+        )
+        return Response(
+            MediaPlannerDiagnosticsService().build(
+                MediaPlannerDiagnosticsRequest(
+                    link=self.get_object(),
+                    unit_codes=unit_codes,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            )
+        )
 
 
 class CampaignProposalViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
@@ -216,6 +251,7 @@ class PublicMediaPlannerView(APIView):
         eligible_count = eligible_queryset.count()
         facets = _public_facets(eligible_queryset, link, start_date=start_date, end_date=end_date)
         queryset = _filter_public_units(eligible_queryset, request, link)
+        filtered_count = queryset.count()
         paginator = DefaultPageNumberPagination()
         page = paginator.paginate_queryset(queryset, request)
         units = page if page is not None else list(queryset)
@@ -247,6 +283,14 @@ class PublicMediaPlannerView(APIView):
             },
             "meta": {
                 "eligible_unit_count": eligible_count,
+                "eligible_count_before_filters": eligible_count,
+                "results_count": filtered_count,
+                "empty_reason": _public_empty_reason(
+                    eligible_count=eligible_count,
+                    results_count=filtered_count,
+                    has_dates=bool(start_date and end_date),
+                    availability=request.query_params.get("availability", ""),
+                ),
                 "has_campaign_dates": bool(start_date and end_date),
             },
             "results": results,
@@ -390,3 +434,13 @@ def _unique_values(values):
             output.append(text)
             seen.add(key)
     return sorted(output, key=str.casefold)
+
+
+def _public_empty_reason(*, eligible_count, results_count, has_dates, availability):
+    if results_count:
+        return None
+    if eligible_count == 0:
+        return "no_eligible_inventory"
+    if has_dates and availability == AvailabilityStatus.AVAILABLE:
+        return "no_date_availability"
+    return "no_filter_matches"

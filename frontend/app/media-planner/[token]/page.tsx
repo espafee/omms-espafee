@@ -119,6 +119,7 @@ export default function PublicMediaPlannerPage() {
     isLoading,
     eligibleCount: payload?.meta?.eligible_unit_count ?? 0,
     resultCount: payload?.count ?? 0,
+    emptyReason: payload?.meta?.empty_reason ?? null,
     hasActiveFilters,
     hasDates: Boolean(startDate && endDate),
     availability: filters.availability,
@@ -692,6 +693,7 @@ function getEmptyState({
   isLoading,
   eligibleCount,
   resultCount,
+  emptyReason,
   hasActiveFilters,
   hasDates,
   availability,
@@ -699,12 +701,13 @@ function getEmptyState({
   isLoading: boolean;
   eligibleCount: number;
   resultCount: number;
+  emptyReason: "no_eligible_inventory" | "no_date_availability" | "no_filter_matches" | null;
   hasActiveFilters: boolean;
   hasDates: boolean;
   availability: string;
 }) {
   if (isLoading || resultCount > 0) return null;
-  if (eligibleCount === 0) {
+  if (emptyReason === "no_eligible_inventory" || eligibleCount === 0) {
     return {
       title: "No media units are available in this planner",
       message:
@@ -712,7 +715,7 @@ function getEmptyState({
       showClear: false,
     };
   }
-  if (hasDates && availability === "available") {
+  if (emptyReason === "no_date_availability" || (hasDates && availability === "available")) {
     return {
       title: "No units are available for these dates",
       message:
@@ -720,7 +723,7 @@ function getEmptyState({
       showClear: true,
     };
   }
-  if (hasActiveFilters) {
+  if (emptyReason === "no_filter_matches" || hasActiveFilters) {
     return {
       title: "No media units match these filters",
       message: "Clear or adjust the filters to see more options.",
