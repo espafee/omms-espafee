@@ -158,11 +158,28 @@ def resolve_planner_link(raw_token, *, mark_access=False):
     return link
 
 
+def _coerced_allowed_values(values):
+    if values is None or values == "":
+        return []
+    elif isinstance(values, str):
+        raw_values = values.split(",")
+    elif isinstance(values, (list, tuple, set)):
+        raw_values = []
+        for value in values:
+            if isinstance(value, str) and "," in value:
+                raw_values.extend(value.split(","))
+            else:
+                raw_values.append(value)
+    else:
+        raw_values = [values]
+    return [str(value).strip() for value in raw_values if str(value).strip()]
+
+
 def _normalized_allowed_values(values):
     normalized = []
     seen = set()
-    for value in values or []:
-        text = str(value).strip()
+
+    for text in _coerced_allowed_values(values):
         key = text.casefold()
         if text and key not in seen:
             normalized.append(key)
@@ -187,10 +204,57 @@ def planner_unit_queryset(link, *, start_date=None, end_date=None):
     if link.allowed_cities:
         queryset = _filter_normalized_text(queryset, "site__city", link.allowed_cities, "_planner_city")
     if link.allowed_regions:
-        queryset = queryset.filter(site__state__in=link.allowed_regions)
+        queryset = _filter_normalized_text(queryset, "site__state", link.allowed_regions, "_planner_region")
     if link.allowed_inventory_types:
-        queryset = queryset.filter(Q(site_type__in=link.allowed_inventory_types) | Q(site__site_type__in=link.allowed_inventory_types))
+        inventory_types = _coerced_allowed_values(link.allowed_inventory_types)
+        queryset = queryset.filter(Q(site_type__in=inventory_types) | Q(site__site_type__in=inventory_types))
     return queryset.order_by("site__city", "site__name", "unit_code", "id")
+
+
+def planner_inventory_diagnostics(link, *, start_date=None, end_date=None):
+    availability_service = InventoryAvailabilityService()
+    tenant_units = MediaUnit.objects.select_related("site").filter(site__tenant=link.tenant)
+    public_units = tenant_units.filter(is_publicly_listed=True)
+    operational_units = public_units.exclude(status=MediaUnit.Status.RETIRED)
+    allowed_city_units = operational_units
+    if link.allowed_cities:
+        allowed_city_units = _filter_normalized_text(allowed_city_units, "site__city", link.allowed_cities, "_diagnostic_city")
+    eligible_queryset = planner_unit_queryset(link, start_date=start_date, end_date=end_date)
+    eligible_units = list(eligible_queryset)
+    date_available_count = sum(
+        1
+        for unit in eligible_units
+        if availability_service.resolve(unit, start_date=start_date, end_date=end_date)["status"] == AvailabilityStatus.AVAILABLE
+    )
+    excluded = {
+        "not_published": tenant_units.filter(is_publicly_listed=False).count(),
+        "city_not_allowed": 0,
+        "inactive": public_units.filter(status__in=[MediaUnit.Status.RETIRED, MediaUnit.Status.MAINTENANCE]).count(),
+        "unavailable_for_dates": max(len(eligible_units) - date_available_count, 0) if start_date and end_date else 0,
+        "missing_public_information": 0,
+    }
+
+    allowed_city_values = _normalized_allowed_values(link.allowed_cities)
+    if allowed_city_values:
+        excluded["city_not_allowed"] = (
+            operational_units.annotate(_planner_city=Lower(Trim(F("site__city"))))
+            .exclude(_planner_city__in=allowed_city_values)
+            .count()
+        )
+
+    return {
+        "counts": {
+            "base_media_units": MediaUnit.objects.count(),
+            "tenant_scoped": tenant_units.count(),
+            "publicly_listed": public_units.count(),
+            "operational": operational_units.count(),
+            "allowed_city": allowed_city_units.count(),
+            "date_available": date_available_count,
+            "eligible": eligible_queryset.count(),
+        },
+        "excluded": excluded,
+        "allowed_cities": _normalized_allowed_values(link.allowed_cities),
+    }
 
 
 def create_planner_link(*, actor, **values):

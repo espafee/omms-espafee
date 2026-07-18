@@ -1127,3 +1127,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Public planner empty states now distinguish no published/eligible inventory, no filter matches, and no date availability. API failures show a retryable `Unable to load media units` state.
 - Inventory advertising units now expose a clear `Published to Media Planner` / `Not published` status with permission-controlled publish/unpublish and bulk publish/unpublish actions. Existing inventory remains unpublished until an authorized user opts in.
 - No tenant, token, expiry, proposal snapshot, estimate, numbering, or campaign lifecycle behavior was intentionally changed.
+
+## Published Inventory Visibility Fix
+
+- A production-like visibility bug was traced to legacy `MediaPlannerShareLink.allowed_cities` values stored as a JSON string or comma-separated string. The public planner treated that string as an iterable of characters, so a valid published Jammu unit disappeared at the allowed-city filter stage.
+- Planner restriction parsing now supports modern lists, whitespace/case variants, and legacy comma-separated strings for allowed cities. Allowed regions use the same normalized comparison and allowed inventory types safely coerce legacy string values.
+- Existing active links remain live and restriction-based. Publishing a unit after link creation is reflected immediately by the same public planner URL; unpublishing removes it immediately.
+- The inventory publish action writes the same `MediaUnit.is_publicly_listed` field that the public planner reads.
+- Parent `MediaSite` has no separate public-publication requirement in this phase; tenant ownership and unit publication remain the public visibility gates.
+- Internal users can request a safe eligible-inventory preview for a planner link, including pipeline counts and grouped exclusion reasons, without exposing private diagnostics publicly.

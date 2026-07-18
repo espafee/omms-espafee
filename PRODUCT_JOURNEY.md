@@ -297,3 +297,9 @@ Sales, operations, and finance receive the request in a shared pipeline. OMMS pr
 The Live Media Planner now makes its safety model clearer for both internal teams and clients. Internal users get direct confirmation when a secure link is generated, a visible warning if the link has no eligible published units, and a clear copy confirmation for the one-time URL.
 
 Inventory publication remains opt-in. Existing units are not exposed automatically; authorized operators publish or unpublish advertising units from the inventory workspace when they are ready for client planning. On the public planner, filter controls now use tenant-safe options and empty states explain whether the owner has not published units, filters are too narrow, or selected dates exclude availability.
+
+## Live Planner Visibility Reliability
+
+The planner now handles older allowed-city configurations as safely as newly generated links. A link that stores `Jammu`, `jammu`, ` Jammu `, or comma-separated city values still finds the same tenant-owned published Jammu inventory. This keeps existing client links live when operators publish units after creating the link.
+
+Internal teams also have a lightweight eligible-inventory preview, so a zero-unit link can be explained by a practical reason such as unpublished units, city restrictions, inactive units, or date availability rather than guesswork.
