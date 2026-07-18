@@ -6,6 +6,15 @@ Use this checklist after every production deployment or major workflow change.
 - Open the hosted web app.
 - Sign in with an admin or finance user.
 - Expected: user lands on Dashboard and sidebar navigation is visible.
+- Refresh the browser and close/reopen the browser.
+- Expected: user remains signed in through the secure refresh-session cookie.
+- Leave a tab open beyond the access-token lifetime, then perform an authenticated action.
+- Expected: the action silently refreshes the short-lived access token and completes without redirecting to login.
+- Open OMMS in two tabs and click Log out in one tab.
+- Expected: both tabs clear authenticated state, the server session is revoked, and browser Back does not reopen protected data.
+- Simulate a temporary backend/network failure during refresh.
+- Expected: OMMS shows a retryable connection problem and does not immediately clear the session.
+- With a controlled low inactivity timeout, confirm genuine inactivity expiry shows `Your session expired after 72 hours of inactivity. Please sign in again.`
 
 ## 2. Setup
 - Open Setup.

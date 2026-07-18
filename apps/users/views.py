@@ -4,7 +4,9 @@ from rest_framework import generics, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenVerifyView
+from rest_framework.views import APIView
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenVerifyView
 
 from core.permissions import RoleBasedPermission
 from core.roles import ADMIN, FIELD_ASSIGNABLE_ROLES, SALES
@@ -18,6 +20,17 @@ from .serializers import (
     FieldStaffOptionSerializer,
     UserRegistrationSerializer,
     UserSerializer,
+)
+from .session_auth import (
+    RefreshSessionError,
+    clear_refresh_cookie,
+    create_refresh_session,
+    create_session_from_legacy_refresh,
+    get_refresh_session,
+    response_payload_for_session,
+    revoke_refresh_session,
+    set_refresh_cookie,
+    touch_refresh_session,
 )
 from .services import UserService
 
@@ -103,9 +116,60 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     throttle_scope = "auth_token"
 
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        session, cookie_value = create_refresh_session(serializer.user, request)
+        response = Response(response_payload_for_session(session), status=status.HTTP_200_OK)
+        set_refresh_cookie(response, cookie_value)
+        return response
 
-class CustomTokenRefreshView(TokenRefreshView):
+
+class CustomTokenRefreshView(APIView):
+    permission_classes = [AllowAny]
     throttle_scope = "auth_token"
+
+    def post(self, request, *args, **kwargs):
+        cookie_value = request.COOKIES.get(settings.AUTH_REFRESH_COOKIE_NAME)
+        try:
+            session = get_refresh_session(cookie_value)
+            touch_refresh_session(session)
+            response = Response(response_payload_for_session(session), status=status.HTTP_200_OK)
+            if cookie_value:
+                set_refresh_cookie(response, cookie_value)
+            return response
+        except RefreshSessionError:
+            legacy_refresh = request.data.get("refresh") if isinstance(request.data, dict) else None
+            if not legacy_refresh:
+                response = Response(
+                    {"detail": "Refresh session expired. Please sign in again.", "code": "session_expired"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+                clear_refresh_cookie(response)
+                return response
+            try:
+                session, next_cookie_value = create_session_from_legacy_refresh(str(legacy_refresh), request)
+            except (RefreshSessionError, TokenError, InvalidToken, User.DoesNotExist):
+                response = Response(
+                    {"detail": "Refresh session expired. Please sign in again.", "code": "session_expired"},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+                clear_refresh_cookie(response)
+                return response
+            response = Response(response_payload_for_session(session), status=status.HTTP_200_OK)
+            set_refresh_cookie(response, next_cookie_value)
+            return response
+
+
+class LogoutView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_token"
+
+    def post(self, request, *args, **kwargs):
+        revoke_refresh_session(request.COOKIES.get(settings.AUTH_REFRESH_COOKIE_NAME))
+        response = Response(status=status.HTTP_204_NO_CONTENT)
+        clear_refresh_cookie(response)
+        return response
 
 
 class CustomTokenVerifyView(TokenVerifyView):

@@ -9,6 +9,7 @@ from .views import (
     CurrentUserView,
     CustomTokenObtainPairView,
     FieldStaffDirectoryView,
+    LogoutView,
     RegisterView,
     UserViewSet,
 )
@@ -24,6 +25,7 @@ urlpatterns = [
     path("auth/token/", CustomTokenObtainPairView.as_view(), name="token-obtain-pair"),
     path("auth/token/refresh/", CustomTokenRefreshView.as_view(), name="token-refresh"),
     path("auth/token/verify/", CustomTokenVerifyView.as_view(), name="token-verify"),
+    path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", CurrentUserView.as_view(), name="current-user"),
     path("auth/health/", AuthHealthView.as_view(), name="auth-health"),
 ]

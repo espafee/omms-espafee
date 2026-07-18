@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.urls import reverse
@@ -381,7 +382,8 @@ class AccessControlAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("access", response.data)
-        self.assertIn("refresh", response.data)
+        self.assertNotIn("refresh", response.data)
+        self.assertIn(settings.AUTH_REFRESH_COOKIE_NAME, response.cookies)
         self.assertEqual(response.data["user"]["id"], self.client_one.id)
         self.assertIn("full_name", response.data["user"])
         self.assertIn("is_staff", response.data["user"])
