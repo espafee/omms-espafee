@@ -95,6 +95,8 @@ export type PlannerProposal = {
 };
 export type PlannerLink = {
   id: number;
+  tenant?: number;
+  tenant_name?: string;
   title: string;
   client: number | null;
   client_name: string;

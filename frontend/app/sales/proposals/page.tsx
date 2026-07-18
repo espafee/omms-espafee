@@ -23,8 +23,39 @@ import {
   type PlannerLink,
   type PlannerProposal,
 } from "@/lib/planner";
+import { fetchTeamRoles, type TeamTenant } from "@/lib/team";
 
 const DEFAULT_DIAGNOSTIC_UNITS = "ESPA-001,ESPA-002_1,ESPA-002_2,ESPA-003";
+const TENANT_MISMATCH_MESSAGE = "Planner tenant does not match published inventory.";
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(value);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = value;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "-1000px";
+  textarea.style.left = "-1000px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand("copy");
+  document.body.removeChild(textarea);
+  if (!copied) {
+    throw new Error("Clipboard copy failed.");
+  }
+}
+
+function hasTenantMismatch(report?: PlannerLinkEligibilityDiagnostics | null) {
+  if (!report) return false;
+  return (
+    (report.link.eligible_count ?? 0) === 0 &&
+    (report.pipeline.tenant_units ?? 0) === 0 &&
+    (report.exclusions.wrong_tenant ?? 0) > 0
+  );
+}
 
 export default function ProposalsWorkspacePage() {
   const router = useRouter();
@@ -46,7 +77,11 @@ export default function ProposalsWorkspacePage() {
   const [isDiagnosticsLoading, setIsDiagnosticsLoading] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [tenantOptions, setTenantOptions] = useState<TeamTenant[]>([]);
+  const [selectedTenantId, setSelectedTenantId] = useState("");
+  const [tenantFeedback, setTenantFeedback] = useState("");
   const isPlatformAdmin = Boolean(user?.is_platform_admin);
+  const userCompanyName = user?.tenant_name || user?.organization_name || "Your company";
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -101,28 +136,64 @@ export default function ProposalsWorkspacePage() {
     };
   }, [isPlatformAdmin, links]);
 
+  useEffect(() => {
+    if (!isPlatformAdmin) {
+      setTenantOptions([]);
+      setSelectedTenantId("");
+      setTenantFeedback("");
+      return;
+    }
+    let isMounted = true;
+    setTenantFeedback("");
+    void fetchTeamRoles()
+      .then((directory) => {
+        if (!isMounted) return;
+        setTenantOptions(directory.tenants);
+      })
+      .catch((tenantError) => {
+        if (!isMounted) return;
+        setTenantFeedback(
+          tenantError instanceof Error
+            ? tenantError.message
+            : "Unable to load company list.",
+        );
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [isPlatformAdmin]);
+
   async function generateLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isGenerating) return;
+    if (isPlatformAdmin && !selectedTenantId) {
+      setTenantFeedback("Select a company before generating a planner link.");
+      return;
+    }
     setIsGenerating(true);
     setError("");
     setLinkFeedback("");
     setCopyFeedback("");
+    setTenantFeedback("");
     const form = new FormData(event.currentTarget);
+    const payload: Record<string, unknown> = {
+      title: form.get("title"),
+      pricing_mode: form.get("pricing_mode"),
+      show_rates: form.get("pricing_mode") === "standard_selling_rate",
+      allow_proposal_submission: true,
+      allow_image_download: form.get("allow_image_download") === "on",
+      allow_map_data: false,
+      expires_at: form.get("expires_at") || null,
+      allowed_cities: String(form.get("allowed_cities") || "")
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean),
+    };
+    if (isPlatformAdmin) {
+      payload.tenant = Number(selectedTenantId);
+    }
     try {
-      const link = await createPlannerLink({
-        title: form.get("title"),
-        pricing_mode: form.get("pricing_mode"),
-        show_rates: form.get("pricing_mode") === "standard_selling_rate",
-        allow_proposal_submission: true,
-        allow_image_download: form.get("allow_image_download") === "on",
-        allow_map_data: false,
-        expires_at: form.get("expires_at") || null,
-        allowed_cities: String(form.get("allowed_cities") || "")
-          .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean),
-      });
+      const link = await createPlannerLink(payload);
       const url = `${window.location.origin}${link.public_path}`;
       setGeneratedUrl(url);
       setGeneratedLink(link);
@@ -157,7 +228,7 @@ export default function ProposalsWorkspacePage() {
     if (!generatedUrl) return;
     setCopyFeedback("");
     try {
-      await navigator.clipboard.writeText(generatedUrl);
+      await copyText(generatedUrl);
       setCopyFeedback("Link copied");
     } catch {
       setCopyFeedback("Unable to copy link. Select the URL and copy it manually.");
@@ -186,8 +257,13 @@ export default function ProposalsWorkspacePage() {
 
   async function copyDiagnosticsReport() {
     if (!activeDiagnostics) return;
-    await navigator.clipboard.writeText(JSON.stringify(activeDiagnostics, null, 2));
-    setDiagnosticsFeedback("Diagnostic report copied");
+    setDiagnosticsFeedback("");
+    try {
+      await copyText(JSON.stringify(activeDiagnostics, null, 2));
+      setDiagnosticsFeedback("Diagnostic report copied");
+    } catch {
+      setDiagnosticsFeedback("Unable to copy diagnostic report. Select the JSON and copy it manually.");
+    }
   }
 
   function logout() {
@@ -212,6 +288,30 @@ export default function ProposalsWorkspacePage() {
             </div>
           </div>
           <form className="planner-link-form" onSubmit={generateLink}>
+            {isPlatformAdmin ? (
+              <label className="field-full">
+                <span>Select company</span>
+                <select
+                  name="tenant"
+                  value={selectedTenantId}
+                  required
+                  onChange={(event) => setSelectedTenantId(event.target.value)}
+                >
+                  <option value="">Choose a client company</option>
+                  {tenantOptions.map((tenant) => (
+                    <option key={tenant.id} value={tenant.id}>
+                      {tenant.name}
+                    </option>
+                  ))}
+                </select>
+                <small>Planner inventory will be scoped to this company.</small>
+              </label>
+            ) : (
+              <div className="planner-company-context field-full">
+                <span>Company</span>
+                <strong>{userCompanyName}</strong>
+              </div>
+            )}
             <label>
               <span>Link title</span>
               <input name="title" defaultValue="Live Media Planner" required />
@@ -241,7 +341,7 @@ export default function ProposalsWorkspacePage() {
               <input name="allow_image_download" type="checkbox" />
               <span>Allow photo downloads</span>
             </label>
-            <button className="submit" type="submit" disabled={isGenerating}>
+            <button className="submit" type="submit" disabled={isGenerating || (isPlatformAdmin && !selectedTenantId)}>
               {isGenerating
                 ? "Generating..."
                 : linkFeedback === "Link generated"
@@ -250,12 +350,15 @@ export default function ProposalsWorkspacePage() {
             </button>
           </form>
           <div className="planner-action-feedback" aria-live="polite">
-            {copyFeedback || linkFeedback}
+            {copyFeedback || linkFeedback || tenantFeedback}
           </div>
           {generatedUrl ? (
             <div className="planner-generated-link" role="status">
               <strong>Copy this link now</strong>
               <div className="planner-generated-summary">
+                <span>
+                  Company: {generatedLink?.tenant_name || userCompanyName}
+                </span>
                 <span>
                   {generatedLink?.allowed_cities?.length
                     ? `Cities: ${generatedLink.allowed_cities.join(", ")}`
@@ -379,6 +482,7 @@ export default function ProposalsWorkspacePage() {
                   <strong>{link.title}</strong>
                   <span>
                     {link.client_name || "General client link"} ·{" "}
+                    {isPlatformAdmin && link.tenant_name ? `${link.tenant_name} · ` : ""}
                     {link.pricing_mode.replaceAll("_", " ")}
                   </span>
                   <span className="planner-link-metrics">
@@ -391,6 +495,9 @@ export default function ProposalsWorkspacePage() {
                     ) : null}
                   </span>
                 </div>
+                {hasTenantMismatch(diagnostics) ? (
+                  <p className="planner-link-warning">{TENANT_MISMATCH_MESSAGE}</p>
+                ) : null}
                 <span
                   className={`status-pill ${link.is_available ? "status-active" : "status-failed"}`}
                 >
@@ -425,7 +532,7 @@ export default function ProposalsWorkspacePage() {
           ) : (
             <p className="empty-state">No client planner links yet.</p>
           )}
-          {diagnosticsFeedback ? <p className="planner-action-feedback">{diagnosticsFeedback}</p> : null}
+          {diagnosticsFeedback && !activeDiagnostics ? <p className="planner-action-feedback">{diagnosticsFeedback}</p> : null}
         </article>
       </section>
       {activeDiagnostics ? (
@@ -453,6 +560,11 @@ export default function ProposalsWorkspacePage() {
               <strong>Platform diagnostics.</strong>
               <span>Contains operational metadata. Do not share publicly.</span>
             </div>
+            {hasTenantMismatch(activeDiagnostics) ? (
+              <div className="planner-link-warning" role="alert">
+                {TENANT_MISMATCH_MESSAGE}
+              </div>
+            ) : null}
             <div className="diagnostics-cards">
               <article className="ops-kpi-card">
                 <p className="stat-label">Eligible units</p>
@@ -515,6 +627,14 @@ export default function ProposalsWorkspacePage() {
                 Close
               </button>
             </div>
+            <p className="planner-action-feedback" aria-live="polite">{diagnosticsFeedback}</p>
+            <textarea
+              className="diagnostics-json-source"
+              readOnly
+              aria-label="Diagnostic report JSON"
+              value={JSON.stringify(activeDiagnostics, null, 2)}
+              onFocus={(event) => event.currentTarget.select()}
+            />
           </section>
         </div>
       ) : null}

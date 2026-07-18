@@ -17,6 +17,7 @@ from apps.campaigns.models import Campaign
 from apps.campaigns.services import CampaignService
 from apps.inventory.models import MediaUnit, RateCard
 from apps.observability.services import record_audit_event
+from apps.tenants.models import Tenant
 from apps.tenants.services import get_user_tenant, is_platform_super_admin, require_same_tenant
 from apps.users.models import User
 
@@ -258,11 +259,19 @@ def planner_inventory_diagnostics(link, *, start_date=None, end_date=None):
 
 
 def create_planner_link(*, actor, **values):
-    tenant = values.pop("tenant", None) or get_user_tenant(actor)
-    if not tenant:
-        raise ValidationError({"tenant": ["Select a client company."]})
-    if not is_platform_super_admin(actor):
-        require_same_tenant(actor, tenant, message="You can only create planner links for your own company.")
+    requested_tenant = values.pop("tenant", None)
+    if is_platform_super_admin(actor):
+        tenant = requested_tenant
+        if not tenant:
+            raise ValidationError({"tenant": ["Select a client company for this planner link."]})
+        if tenant.tenant_type != Tenant.TenantType.CLIENT:
+            raise ValidationError({"tenant": ["Select a client company, not the platform tenant."]})
+    else:
+        tenant = get_user_tenant(actor)
+        if not tenant:
+            raise ValidationError({"tenant": ["Select a client company."]})
+        if requested_tenant is not None:
+            require_same_tenant(actor, requested_tenant, message="You can only create planner links for your own company.")
     client = values.get("client")
     if client and client.tenant_id != tenant.id:
         raise ValidationError({"client": ["Client must belong to the selected company."]})

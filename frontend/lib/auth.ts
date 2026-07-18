@@ -11,6 +11,10 @@ export type AuthUser = {
   organization_name?: string;
   region?: string;
   reports_to?: number | null;
+  tenant?: number | null;
+  tenant_name?: string;
+  tenant_slug?: string;
+  tenant_type?: string;
   is_active?: boolean;
   is_platform_admin?: boolean;
   is_company_admin?: boolean;

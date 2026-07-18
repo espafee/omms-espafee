@@ -1150,3 +1150,12 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The public planner response now includes safe public metadata only: `eligible_count_before_filters`, `results_count`, and authoritative `empty_reason` (`no_eligible_inventory`, `no_date_availability`, or `no_filter_matches`). Internal exclusion details remain private.
 - Production use: enable `ENABLE_PLATFORM_DIAGNOSTICS=True` on the backend, log in as platform superadmin, run diagnostics for the active planner link with `ESPA-001`, `ESPA-002_1`, `ESPA-002_2`, and `ESPA-003`, compare no-date and campaign-date runs, then disable the flag after evidence is captured.
 - Cleanup plan: turn `ENABLE_PLATFORM_DIAGNOSTICS` back off after the production exclusion stage is confirmed; remove any temporary access workflow if introduced later; retain only safe health/version metadata unless the platform team chooses to keep diagnostics disabled-by-default for future incidents.
+
+## Live Media Planner Tenant Assignment Fix
+
+- Production diagnostics confirmed the zero-unit public planner was not caused by city, date, publication, or serializer filtering. All 11 published ESPA units belonged to tenant ID 2, while the active planner link had zero tenant-scoped units and 11 `wrong_tenant` exclusions.
+- Root cause: platform superadmin planner-link creation could omit `tenant`, and backend creation silently fell back to the platform admin's own tenant. That minted a platform-tenant share link against client-tenant inventory.
+- Backend fix: company admins now always create planner links under their authenticated company tenant and cannot submit another tenant. Platform superadmins must explicitly select a client tenant; missing tenant and platform-tenant submissions are rejected.
+- Existing mismatched planner links are intentionally not rewritten. Platform diagnostics surfaces the mismatch and authorized users should revoke the incorrect link and regenerate under the inventory tenant.
+- `/sales/proposals` now reuses the established Team tenant directory for platform-admin company selection, hides tenant selection for company admins, and shows the company context in generated-link summaries.
+- Diagnostic copy actions now use a resilient clipboard helper with fallback selection support, success/error feedback, and modal-preserving behavior.

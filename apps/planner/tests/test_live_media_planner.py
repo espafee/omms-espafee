@@ -257,6 +257,41 @@ class LiveMediaPlannerTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["eligible_unit_count"], 0)
 
+    def test_company_admin_created_link_uses_own_tenant_without_tenant_payload(self):
+        self.api.force_authenticate(self.admin)
+        response = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "title": "Company Scoped Planner",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+                "allowed_cities": ["Jammu"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["tenant"], self.tenant.id)
+        link = MediaPlannerShareLink.objects.get(id=response.data["id"])
+        self.assertEqual(link.tenant, self.tenant)
+        event = AuditEvent.objects.get(event_type="planner.link.generated", entity_id=str(link.id))
+        self.assertEqual(event.actor, self.admin)
+        self.assertEqual(event.metadata["tenant_id"], self.tenant.id)
+
+    def test_company_admin_cannot_submit_another_tenant_for_planner_link(self):
+        self.api.force_authenticate(self.admin)
+        response = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "tenant": self.other_tenant.id,
+                "title": "Cross Tenant Planner",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("tenant", response.data)
+
     def test_revoked_and_expired_links_fail_safely(self):
         self.link.revoked_at = timezone.now()
         self.link.save(update_fields=["revoked_at"])
@@ -604,3 +639,76 @@ class MediaPlannerPlatformDiagnosticsTests(TestCase):
         self.assertEqual(rows["ESPA-002_1"]["exclusion_reason"], "unpublished")
         self.assertEqual(rows["ESPA-002_2"]["eligible"], True)
         self.assertEqual(rows["ESPA-003"]["exclusion_reason"], "retired")
+
+    def test_platform_superadmin_must_select_client_tenant_for_planner_link(self):
+        self.api.force_authenticate(self.platform_admin)
+        missing_tenant = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "title": "Missing Tenant Planner",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+            },
+            format="json",
+        )
+        self.assertEqual(missing_tenant.status_code, 400)
+        self.assertIn("tenant", missing_tenant.data)
+
+        platform_tenant = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "tenant": self.platform_tenant.id,
+                "title": "Platform Tenant Planner",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+            },
+            format="json",
+        )
+        self.assertEqual(platform_tenant.status_code, 400)
+        self.assertIn("tenant", platform_tenant.data)
+
+    def test_platform_superadmin_created_link_uses_selected_tenant_and_same_tenant_units_are_eligible(self):
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "tenant": self.tenant.id,
+                "title": "ESPA Planner",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+                "allowed_cities": ["Jammu"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["tenant"], self.tenant.id)
+        self.assertEqual(response.data["tenant_name"], self.tenant.name)
+        self.assertEqual(response.data["eligible_unit_count"], 1)
+        link = MediaPlannerShareLink.objects.get(id=response.data["id"])
+        self.assertEqual(link.tenant, self.tenant)
+
+        public_response = self.api.get(f"/api/v1/public/media-planner/{response.data['token']}/")
+        self.assertEqual(public_response.status_code, 200)
+        self.assertEqual(public_response.data["meta"]["eligible_unit_count"], 1)
+        self.assertEqual(public_response.data["results"][0]["unit_code"], self.published_unit.unit_code)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_existing_mismatched_link_is_reported_and_not_reassigned(self):
+        mismatched_link, _ = MediaPlannerShareLink.create_with_token(
+            tenant=self.platform_tenant,
+            created_by=self.platform_admin,
+            title="Incorrect Platform Planner",
+            allowed_cities=["Jammu"],
+            pricing_mode=MediaPlannerShareLink.PricingMode.HIDDEN,
+        )
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(
+            f"/api/v1/planner/links/{mismatched_link.id}/eligibility-diagnostics/",
+            {"unit_code": self.published_unit.unit_code},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["link"]["eligible_count"], 0)
+        self.assertEqual(response.data["pipeline"]["tenant_units"], 0)
+        self.assertGreaterEqual(response.data["exclusions"]["wrong_tenant"], 1)
+        mismatched_link.refresh_from_db()
+        self.assertEqual(mismatched_link.tenant, self.platform_tenant)
