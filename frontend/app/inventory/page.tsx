@@ -225,6 +225,8 @@ function InventoryWorkspace() {
   const canManageImages = WRITE_ROLES.has(user?.role ?? "");
   const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
   const canManageUnits = WRITE_ROLES.has(user?.role ?? "");
+  const hasInventoryOverlay =
+    isAddOpen || Boolean(detailTarget) || Boolean(photoTarget);
 
   const loadLocations = useCallback(
     async (filters: InventorySiteListFilters) => {
@@ -304,6 +306,11 @@ function InventoryWorkspace() {
       ),
     [pendingUnitImages],
   );
+  useEffect(() => {
+    if (!hasInventoryOverlay) return undefined;
+    document.body.classList.add("modal-open");
+    return () => document.body.classList.remove("modal-open");
+  }, [hasInventoryOverlay]);
 
   const locationCities = useMemo(
     () =>

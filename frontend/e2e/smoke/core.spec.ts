@@ -185,6 +185,59 @@ test.describe("OMMS web smoke", () => {
     await expect(page.getByRole("heading", { name: "Airport Road Billboard" })).toBeVisible();
   });
 
+  test("inventory add modal overlays global search controls", async ({ page }) => {
+    await seedAdminSession(page);
+    const adminUser = { id: 1, email: "admin@example.com", username: "admin", role: "admin" };
+    const paginated = (results: unknown[]) => ({ count: results.length, next: null, previous: null, results });
+    await page.route("**/api/v1/**", async (route) => {
+      const path = new URL(route.request().url()).pathname.replace("/api/v1/", "");
+      const payloadByPath: Record<string, unknown> = {
+        "users/auth/me/": adminUser,
+        "inventory/sites/all-sites/": paginated([]),
+        "inventory/units/all-units/": paginated([]),
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(payloadByPath[path] ?? paginated([])),
+      });
+    });
+
+    await page.goto("/inventory");
+    const globalSearch = page.locator(".global-search");
+    await expect(globalSearch).toBeVisible();
+    await page.getByRole("button", { name: /Add Inventory/ }).click();
+    const backdrop = page.locator(".inventory-modal-backdrop");
+    const modal = page.locator(".inventory-modal");
+    await expect(backdrop).toBeVisible();
+    await expect(modal).toBeVisible();
+    await expect(page.locator("body")).toHaveClass(/modal-open/);
+
+    const stacking = await page.evaluate(() => {
+      const search = document.querySelector<HTMLElement>(".global-search");
+      const overlay = document.querySelector<HTMLElement>(".inventory-modal-backdrop");
+      const dialog = document.querySelector<HTMLElement>(".inventory-modal");
+      if (!search || !overlay || !dialog) throw new Error("Missing inventory overlay elements");
+      const rect = search.getBoundingClientRect();
+      const x = Math.min(Math.max(rect.left + rect.width / 2, 0), window.innerWidth - 1);
+      const y = Math.min(Math.max(rect.top + rect.height / 2, 0), window.innerHeight - 1);
+      const topElement = document.elementFromPoint(x, y) as HTMLElement | null;
+      const topLayer = topElement?.closest(".inventory-modal-backdrop, .inventory-modal, .global-search");
+      return {
+        searchZIndex: Number(window.getComputedStyle(search).zIndex),
+        backdropZIndex: Number(window.getComputedStyle(overlay).zIndex),
+        modalZIndex: Number(window.getComputedStyle(dialog).zIndex),
+        topLayerClass: topLayer?.className ?? "",
+      };
+    });
+    expect(stacking.backdropZIndex).toBeGreaterThan(stacking.searchZIndex);
+    expect(stacking.modalZIndex).toBeGreaterThan(stacking.backdropZIndex);
+    expect(stacking.topLayerClass).toContain("inventory-modal-backdrop");
+    await page.getByRole("button", { name: "Close" }).click();
+    await expect(backdrop).toHaveCount(0);
+    await expect(page.locator("body")).not.toHaveClass(/modal-open/);
+  });
+
   test("inventory photo manager enables upload after selection and recovers from failure", async ({ page }) => {
     await seedAdminSession(page);
     const adminUser = { id: 1, email: "admin@example.com", username: "admin", role: "admin" };
