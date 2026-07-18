@@ -5,6 +5,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from apps.tenants.services import is_platform_super_admin
 
+from .session_auth import add_user_claims
 from .services import UserService
 
 User = get_user_model()
@@ -168,16 +169,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        token["email"] = user.email
-        token["role"] = user.role
-        token["tenant_id"] = user.tenant_id
-        token["tenant_slug"] = user.tenant.slug if user.tenant_id else ""
-        token["tenant_type"] = user.tenant.tenant_type if user.tenant_id else ""
-        token["is_platform_admin"] = user.is_platform_admin
-        token["is_company_admin"] = user.is_company_admin
-        token["is_staff"] = user.is_staff
-        token["is_superuser"] = user.is_superuser
-        return token
+        return add_user_claims(token, user)
 
     def validate(self, attrs):
         login_identifier = attrs.get(self.username_field, "")

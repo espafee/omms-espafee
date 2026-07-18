@@ -3,7 +3,15 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { getAccessToken, loginWithEmailPassword, storeAuthSession } from "@/lib/auth";
+import {
+  ApiError,
+  consumeSkipSessionRestore,
+  consumeSessionMessage,
+  getAccessToken,
+  loginWithEmailPassword,
+  restoreAuthSession,
+  storeAuthSession,
+} from "@/lib/auth";
 
 const portalParentOrigins = [
   "https://www.vistaaitech.com",
@@ -27,6 +35,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function getLoginErrorMessage() {
@@ -34,10 +43,41 @@ export default function LoginPage() {
   }
 
   useEffect(() => {
-    if (getAccessToken()) {
-      notifyPortalLogin();
-      router.replace("/dashboard");
+    let isMounted = true;
+    const message = consumeSessionMessage();
+    const skipRestore = consumeSkipSessionRestore();
+    if (message) {
+      setError(message);
     }
+    async function restore() {
+      if (skipRestore) {
+        setIsCheckingSession(false);
+        return;
+      }
+      try {
+        if (getAccessToken() || (await restoreAuthSession())) {
+          notifyPortalLogin();
+          router.replace("/dashboard");
+          return;
+        }
+        const restoreMessage = consumeSessionMessage();
+        if (restoreMessage && isMounted) {
+          setError(restoreMessage);
+        }
+      } catch (restoreError) {
+        if (restoreError instanceof ApiError && restoreError.code === "network_error" && isMounted) {
+          setError("We couldn't reach the server. Check your connection and try again.");
+        }
+      } finally {
+        if (isMounted) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+    void restore();
+    return () => {
+      isMounted = false;
+    };
   }, [router]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -80,6 +120,9 @@ export default function LoginPage() {
             Use your email and password to access the dashboard.
           </p>
 
+          {isCheckingSession ? (
+            <p className="section-copy" role="status">Checking your session...</p>
+          ) : (
           <form className="form" onSubmit={handleSubmit}>
             <div className="field">
               <label htmlFor="email">Email</label>
@@ -115,6 +158,7 @@ export default function LoginPage() {
               {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
           </form>
+          )}
         </div>
       </section>
     </main>

@@ -26,6 +26,8 @@ export type AuthSessionPayload = {
   access: string;
   refresh?: string;
   user?: AuthUser;
+  expires_in?: number;
+  session_expires_at?: string;
 };
 
 const API_ROOT = process.env.NEXT_PUBLIC_API_ROOT ?? "http://127.0.0.1:8000/api/v1";
@@ -35,6 +37,17 @@ const LOGIN_PATH = process.env.NEXT_PUBLIC_AUTH_LOGIN_PATH ?? "/auth/login/";
 const ACCESS_TOKEN_KEY = "omms_access_token";
 const REFRESH_TOKEN_KEY = "omms_refresh_token";
 const USER_KEY = "omms_user";
+const SESSION_MESSAGE_KEY = "omms_session_message";
+const SKIP_RESTORE_KEY = "omms_skip_session_restore";
+const LOGOUT_MARKER_KEY = "omms_logout_marker";
+const AUTH_EVENT_KEY = "omms_auth_event";
+const REFRESH_PATH = "users/auth/token/refresh/";
+const LOGOUT_PATH = "users/auth/logout/";
+const SESSION_EXPIRED_MESSAGE = "Your session expired after 72 hours of inactivity. Please sign in again.";
+
+let memoryAccessToken: string | null = null;
+let refreshPromise: Promise<AuthSessionPayload> | null = null;
+let authGeneration = 0;
 
 function isBrowser() {
   return typeof window !== "undefined";
@@ -141,6 +154,12 @@ export function getAccessToken() {
   if (!isBrowser()) {
     return null;
   }
+  if (window.localStorage.getItem(LOGOUT_MARKER_KEY)) {
+    return null;
+  }
+  if (memoryAccessToken) {
+    return memoryAccessToken;
+  }
   return window.localStorage.getItem(ACCESS_TOKEN_KEY);
 }
 
@@ -166,26 +185,166 @@ export function storeAuthSession(payload: AuthSessionPayload) {
     return;
   }
 
+  memoryAccessToken = payload.access;
   window.localStorage.setItem(ACCESS_TOKEN_KEY, payload.access);
-  if (payload.refresh) {
-    window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh);
-  }
+  window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+  window.localStorage.removeItem(LOGOUT_MARKER_KEY);
   if (payload.user) {
     window.localStorage.setItem(USER_KEY, JSON.stringify(payload.user));
   }
+  publishAuthEvent("session_refreshed");
 }
 
-export function clearAuthSession() {
+function publishAuthEvent(type: "session_cleared" | "session_refreshed") {
+  if (!isBrowser()) {
+    return;
+  }
+  const payload = JSON.stringify({ type, at: Date.now() });
+  try {
+    window.localStorage.setItem(AUTH_EVENT_KEY, payload);
+  } catch {
+    return;
+  }
+  if ("BroadcastChannel" in window) {
+    try {
+      const channel = new BroadcastChannel("omms-auth");
+      channel.postMessage({ type });
+      channel.close();
+    } catch {
+      // Storage events still cover browsers without usable BroadcastChannel support.
+    }
+  }
+}
+
+async function revokeServerSession(accessToken: string | null) {
+  try {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (accessToken) {
+      headers.set("Authorization", `Bearer ${accessToken}`);
+    }
+    await fetch(normalizeUrl(API_ROOT, LOGOUT_PATH), {
+      method: "POST",
+      headers,
+      credentials: "include",
+      keepalive: true,
+      body: "{}",
+    });
+  } catch {
+    // Logout must still clear local state if the network is unavailable.
+  }
+}
+
+export function clearAuthSession(options: { notifyServer?: boolean; reason?: "expired" | "logout" } = {}) {
   if (!isBrowser()) {
     return;
   }
 
+  const accessToken = getAccessToken();
+  authGeneration += 1;
+  if (options.notifyServer !== false) {
+    void revokeServerSession(accessToken);
+  }
+  memoryAccessToken = null;
   window.localStorage.removeItem(ACCESS_TOKEN_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_KEY);
   window.localStorage.removeItem(USER_KEY);
+  if (options.reason === "expired") {
+    window.sessionStorage.setItem(SESSION_MESSAGE_KEY, SESSION_EXPIRED_MESSAGE);
+  } else if (options.notifyServer !== false) {
+    window.sessionStorage.setItem(SKIP_RESTORE_KEY, "1");
+    window.localStorage.setItem(LOGOUT_MARKER_KEY, String(Date.now()));
+  }
+  publishAuthEvent("session_cleared");
 }
 
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export function consumeSessionMessage() {
+  if (!isBrowser()) {
+    return "";
+  }
+  const message = window.sessionStorage.getItem(SESSION_MESSAGE_KEY) || "";
+  window.sessionStorage.removeItem(SESSION_MESSAGE_KEY);
+  return message;
+}
+
+export function consumeSkipSessionRestore() {
+  if (!isBrowser()) {
+    return false;
+  }
+  const shouldSkip = Boolean(
+    window.sessionStorage.getItem(SKIP_RESTORE_KEY) || window.localStorage.getItem(LOGOUT_MARKER_KEY),
+  );
+  window.sessionStorage.removeItem(SKIP_RESTORE_KEY);
+  return shouldSkip;
+}
+
+async function refreshAuthSession(): Promise<AuthSessionPayload> {
+  if (refreshPromise) {
+    return refreshPromise;
+  }
+
+  const refreshGeneration = authGeneration;
+  refreshPromise = (async () => {
+    const legacyRefresh = isBrowser() ? window.localStorage.getItem(REFRESH_TOKEN_KEY) : null;
+    let response: Response;
+    try {
+      response = await fetch(normalizeUrl(API_ROOT, REFRESH_PATH), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(legacyRefresh ? { refresh: legacyRefresh } : {}),
+      });
+    } catch {
+      throw new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error");
+    }
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        const wasExplicitLogout = isBrowser() && Boolean(window.localStorage.getItem(LOGOUT_MARKER_KEY));
+        clearAuthSession({ notifyServer: false, reason: wasExplicitLogout ? undefined : "expired" });
+        throw new ApiError(SESSION_EXPIRED_MESSAGE, response.status, {}, "session_expired");
+      }
+      throw await parseApiError(response);
+    }
+
+    const payload = (await response.json()) as AuthSessionPayload;
+    if (refreshGeneration !== authGeneration || (isBrowser() && window.localStorage.getItem(LOGOUT_MARKER_KEY))) {
+      throw new ApiError("Session changed while refresh was in progress.", 0, {}, "session_changed");
+    }
+    storeAuthSession(payload);
+    return payload;
+  })();
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
+}
+
+export async function restoreAuthSession(): Promise<AuthUser | null> {
+  if (consumeSkipSessionRestore()) {
+    return null;
+  }
+  const token = getAccessToken();
+  if (token) {
+    return getStoredUser();
+  }
+  try {
+    const payload = await refreshAuthSession();
+    return payload.user ?? getStoredUser();
+  } catch (error) {
+    if (error instanceof ApiError && error.code === "network_error") {
+      throw error;
+    }
+    return null;
+  }
+}
+
+function shouldAttemptRefresh(path: string) {
+  return !path.includes(REFRESH_PATH) && !path.includes(LOGOUT_PATH);
+}
+
+async function fetchWithAuth(path: string, init: RequestInit, retryOnUnauthorized: boolean): Promise<Response> {
   const token = getAccessToken();
   const headers = new Headers(init.headers);
 
@@ -201,15 +360,26 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     response = await fetch(normalizeUrl(API_ROOT, path), {
       ...init,
       headers,
+      credentials: init.credentials ?? "include",
     });
   } catch {
     throw new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error");
   }
 
+  if (response.status === 401 && retryOnUnauthorized && shouldAttemptRefresh(path)) {
+    await refreshAuthSession();
+    return fetchWithAuth(path, init, false);
+  }
+  return response;
+}
+
+export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetchWithAuth(path, init, true);
+
   if (!response.ok) {
     if (response.status === 401) {
-      clearAuthSession();
-      throw new ApiError("Your session has expired. Please sign in again.", response.status, {}, "session_expired");
+      clearAuthSession({ notifyServer: false, reason: "expired" });
+      throw new ApiError(SESSION_EXPIRED_MESSAGE, response.status, {}, "session_expired");
     }
     throw await parseApiError(response);
   }
@@ -221,26 +391,12 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 export async function apiDownload(path: string, init: RequestInit = {}): Promise<Blob> {
-  const token = getAccessToken();
-  const headers = new Headers(init.headers);
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
-
-  let response: Response;
-  try {
-    response = await fetch(normalizeUrl(API_ROOT, path), {
-      ...init,
-      headers,
-    });
-  } catch {
-    throw new ApiError("We couldn't reach the server. Check your connection and try again.", 0, {}, "network_error");
-  }
+  const response = await fetchWithAuth(path, init, true);
 
   if (!response.ok) {
     if (response.status === 401) {
-      clearAuthSession();
-      throw new ApiError("Your session has expired. Please sign in again.", response.status, {}, "session_expired");
+      clearAuthSession({ notifyServer: false, reason: "expired" });
+      throw new ApiError(SESSION_EXPIRED_MESSAGE, response.status, {}, "session_expired");
     }
     throw await parseApiError(response);
   }
@@ -256,11 +412,11 @@ export async function apiUpload<T>(
     onProgress?: UploadProgressHandler;
   } = {},
 ): Promise<T> {
-  const token = getAccessToken();
-
-  return new Promise<T>((resolve, reject) => {
+  const sendUpload = (retryOnUnauthorized: boolean): Promise<T> => new Promise<T>((resolve, reject) => {
+    const token = getAccessToken();
     const request = new XMLHttpRequest();
     request.open(options.method ?? "POST", normalizeUrl(API_ROOT, path));
+    request.withCredentials = true;
 
     if (token) {
       request.setRequestHeader("Authorization", `Bearer ${token}`);
@@ -302,8 +458,14 @@ export async function apiUpload<T>(
       }
 
       if (request.status === 401) {
-        clearAuthSession();
-        reject(new ApiError("Your session has expired. Please sign in again.", request.status, {}, "session_expired"));
+        if (retryOnUnauthorized) {
+          refreshAuthSession()
+            .then(() => sendUpload(false).then(resolve).catch(reject))
+            .catch(reject);
+          return;
+        }
+        clearAuthSession({ notifyServer: false, reason: "expired" });
+        reject(new ApiError(SESSION_EXPIRED_MESSAGE, request.status, {}, "session_expired"));
         return;
       }
 
@@ -312,6 +474,8 @@ export async function apiUpload<T>(
 
     request.send(formData);
   });
+
+  return sendUpload(true);
 }
 
 export async function loginWithEmailPassword(email: string, password: string): Promise<AuthSessionPayload> {
@@ -320,6 +484,7 @@ export async function loginWithEmailPassword(email: string, password: string): P
     headers: {
       "Content-Type": "application/json",
     },
+    credentials: "include",
     body: JSON.stringify({ email: email.trim(), password }),
   });
 
@@ -332,4 +497,32 @@ export async function loginWithEmailPassword(email: string, password: string): P
 
 export async function fetchCurrentUser(): Promise<AuthUser> {
   return apiFetch<AuthUser>("users/auth/me/");
+}
+
+if (isBrowser()) {
+  window.addEventListener("storage", (event) => {
+    if (event.key !== AUTH_EVENT_KEY || !event.newValue) {
+      return;
+    }
+    try {
+      const payload = JSON.parse(event.newValue) as { type?: string };
+      if (payload.type === "session_cleared") {
+        memoryAccessToken = null;
+      }
+    } catch {
+      memoryAccessToken = null;
+    }
+  });
+  if ("BroadcastChannel" in window) {
+    try {
+      const channel = new BroadcastChannel("omms-auth");
+      channel.onmessage = (event) => {
+        if (event.data?.type === "session_cleared") {
+          memoryAccessToken = null;
+        }
+      };
+    } catch {
+      // Storage events are enough for unsupported environments.
+    }
+  }
 }

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import User
+from .models import AuthRefreshSession, User
 
 
 @admin.register(User)
@@ -38,3 +38,11 @@ class UserAdmin(DjangoUserAdmin):
         ),
     )
     readonly_fields = ("setup_sent_at", "created_at", "updated_at")
+
+
+@admin.register(AuthRefreshSession)
+class AuthRefreshSessionAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "last_activity_at", "revoked_at", "created_at")
+    list_filter = ("revoked_at", "created_at", "last_activity_at")
+    search_fields = ("user__email", "user__username")
+    readonly_fields = ("id", "user", "token_hash", "user_agent", "ip_address", "created_at", "updated_at")

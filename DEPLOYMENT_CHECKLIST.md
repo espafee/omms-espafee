@@ -24,6 +24,8 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [x] Confirm `DJANGO_ALLOWED_HOSTS` includes the backend domain. Public backend responds on `https://omms-backend.onrender.com`.
 - [x] Confirm `DJANGO_CORS_ALLOWED_ORIGINS` includes the required trusted beta frontend origin. `https://omms.vercel.app` is allowed; `https://www.vistaaitech.com` is not required for OMMS API traffic after the redirect fix.
 - [ ] Confirm `DJANGO_CSRF_TRUSTED_ORIGINS` includes trusted backend/admin origins. Requires Render/env dashboard access.
+- [ ] Confirm persistent session env vars are set for production: `ACCESS_TOKEN_LIFETIME_MINUTES=20`, `SESSION_INACTIVITY_TIMEOUT_HOURS=72`, `REFRESH_COOKIE_MAX_AGE_SECONDS=259200`, `AUTH_REFRESH_COOKIE_SAMESITE=None`, and `AUTH_REFRESH_COOKIE_SECURE=True`.
+- [ ] Confirm the backend response to login sets the HttpOnly refresh-session cookie for the production frontend/API domain combination.
 - [x] Confirm `NEXT_PUBLIC_API_ROOT` points to the production backend `/api/v1`. `https://omms.vercel.app` is correctly wired to `https://omms-backend.onrender.com/api/v1`; the VistaAi `/omms/login` path redirects to the canonical app instead of making API calls.
 - [ ] Confirm `FRONTEND_PUBLIC_BASE_URL` points to the production frontend. Requires backend env/diagnostics access.
 - [ ] Confirm `OMMS_BACKEND_PUBLIC_BASE_URL` points to the production backend. Requires backend env/diagnostics access.
@@ -33,6 +35,7 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
 - [x] Run `python manage.py check`.
 - [x] Run `python manage.py migrate --plan`.
+- [ ] Deploy backend session changes before the matching frontend so `/users/auth/token/refresh/` can use the HttpOnly refresh-session cookie.
 - [x] Apply migrations locally with `python manage.py migrate` where needed.
 - [x] Confirm local `python manage.py migrate --check` exits successfully.
 - [ ] Run production `python manage.py collectstatic --noinput` during backend deploy.
