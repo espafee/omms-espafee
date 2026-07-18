@@ -1136,3 +1136,14 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - The inventory publish action writes the same `MediaUnit.is_publicly_listed` field that the public planner reads.
 - Parent `MediaSite` has no separate public-publication requirement in this phase; tenant ownership and unit publication remain the public visibility gates.
 - Internal users can request a safe eligible-inventory preview for a planner link, including pipeline counts and grouped exclusion reasons, without exposing private diagnostics publicly.
+
+## Secure Media Planner Production Diagnostics
+
+- Added a temporary, disabled-by-default platform diagnostics surface for production-only Live Media Planner visibility debugging when Render Shell is unavailable.
+- Backend route: `GET /api/v1/platform/diagnostics/media-planner/`. It requires authentication, `ENABLE_PLATFORM_DIAGNOSTICS=True`, and a verified platform superadmin. Company admins and normal users are forbidden.
+- Supported safe query parameters: `planner_link_id`, `planner_title`, `unit_code`, `requested_start_date`, and `requested_end_date`. A planner link id or title is required; raw planner tokens are never accepted.
+- The diagnostic service reports safe build identity, non-reversible database fingerprint, selected migration status, planner link safe metadata, exact public-planner pipeline counts, grouped exclusions, and up to 25 safe unit rows.
+- Deliberately excluded: raw planner tokens, token hashes, database URLs, passwords, secret keys, private costs/margins, private notes, and personal contact data.
+- Frontend route: `/platform/diagnostics/media-planner`. It is not linked in normal navigation and is intended only for temporary platform-superadmin use during production diagnosis.
+- Production use: enable `ENABLE_PLATFORM_DIAGNOSTICS=True` on the backend, log in as platform superadmin, run diagnostics for the active planner link with `ESPA-001`, `ESPA-002_1`, `ESPA-002_2`, and `ESPA-003`, compare no-date and campaign-date runs, then disable the flag after evidence is captured.
+- Cleanup plan: turn `ENABLE_PLATFORM_DIAGNOSTICS` back off after the production exclusion stage is confirmed; remove any temporary access workflow if introduced later; retain only safe health/version metadata unless the platform team chooses to keep diagnostics disabled-by-default for future incidents.

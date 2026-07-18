@@ -303,3 +303,9 @@ Inventory publication remains opt-in. Existing units are not exposed automatical
 The planner now handles older allowed-city configurations as safely as newly generated links. A link that stores `Jammu`, `jammu`, ` Jammu `, or comma-separated city values still finds the same tenant-owned published Jammu inventory. This keeps existing client links live when operators publish units after creating the link.
 
 Internal teams also have a lightweight eligible-inventory preview, so a zero-unit link can be explained by a practical reason such as unpublished units, city restrictions, inactive units, or date availability rather than guesswork.
+
+## Production Diagnostics Discipline
+
+OMMS now has a controlled way to collect production evidence for Live Media Planner visibility issues without Render Shell access. A disabled-by-default platform diagnostics route lets a platform superadmin inspect safe pipeline counts, migration checks, build identity, and a non-reversible database fingerprint while avoiding raw tokens, secrets, contact data, and financial internals.
+
+This keeps beta stabilization practical: when a production-only planner link shows zero units, the team can identify the exact exclusion stage, prove whether publishing and public reads use the same database, and disable the tool again after diagnosis.

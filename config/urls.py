@@ -7,6 +7,7 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, Spec
 from apps.billing.views import PublicEstimateApproveView, PublicEstimateDetailView, PublicEstimateRejectView
 from apps.issues.views import PublicIssueReportView
 from apps.observability.views import HealthView
+from apps.planner.diagnostics_views import MediaPlannerPlatformDiagnosticsView
 from core.images import is_local_media_storage_backend
 
 urlpatterns = [
@@ -28,6 +29,11 @@ urlpatterns = [
     path("api/v1/public/estimates/<str:token>/approve/", PublicEstimateApproveView.as_view(), name="public-estimate-approve"),
     path("api/v1/public/estimates/<str:token>/reject/", PublicEstimateRejectView.as_view(), name="public-estimate-reject"),
     path("public/issue-report/<str:token>/", PublicIssueReportView.as_view(), name="public-issue-report-legacy"),
+    path(
+        "api/v1/platform/diagnostics/media-planner/",
+        MediaPlannerPlatformDiagnosticsView.as_view(),
+        name="platform-media-planner-diagnostics",
+    ),
     path("api/v1/billing/", include("apps.billing.urls")),
     path("api/v1/notifications/", include("apps.notifications.urls")),
     path("api/v1/observability/", include("apps.observability.urls")),
