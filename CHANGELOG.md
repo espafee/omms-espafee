@@ -11,6 +11,7 @@
 - Closed, revoked, expired, and unavailable planner links no longer show the Recent links copy action.
 - Active planner links without a public URL now render the copy action disabled instead of attempting an invalid clipboard write.
 - Moved planner diagnostics warnings into full-width secondary table rows so warnings do not crowd narrow action cells.
+- Fixed Inventory Add/Edit modal stacking so global search and filter controls stay behind the backdrop and cannot overlap the dialog.
 
 ### Documentation
 - Documented Live Media Planner recent-link copy behavior and manual smoke-test steps.
