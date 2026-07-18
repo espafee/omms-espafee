@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026-07-18
+
+### Added
+- Added a `Copy Link` action to active Recent planner link cards on `/sales/proposals`, placed before Diagnostics and Revoke.
+- Recent planner links now copy their complete public `/media-planner/{token}` URL when a safe public path is available, show `Planner link copied`, and briefly switch the button label to `Copied`.
+
+### Fixed
+- Closed, revoked, expired, and unavailable planner links no longer show the Recent links copy action.
+- Active planner links without a public URL now render the copy action disabled instead of attempting an invalid clipboard write.
+
+### Documentation
+- Documented Live Media Planner recent-link copy behavior and manual smoke-test steps.
+
 ## 2026-07-17
 
 ### Added
