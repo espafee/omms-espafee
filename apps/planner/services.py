@@ -4,7 +4,8 @@ from datetime import date
 from decimal import Decimal
 
 from django.db import transaction
-from django.db.models import Prefetch, Q
+from django.db.models import F, Prefetch, Q
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -157,6 +158,25 @@ def resolve_planner_link(raw_token, *, mark_access=False):
     return link
 
 
+def _normalized_allowed_values(values):
+    normalized = []
+    seen = set()
+    for value in values or []:
+        text = str(value).strip()
+        key = text.casefold()
+        if text and key not in seen:
+            normalized.append(key)
+            seen.add(key)
+    return normalized
+
+
+def _filter_normalized_text(queryset, field_name, values, alias):
+    normalized = _normalized_allowed_values(values)
+    if not normalized:
+        return queryset
+    return queryset.annotate(**{alias: Lower(Trim(F(field_name)))}).filter(**{f"{alias}__in": normalized})
+
+
 def planner_unit_queryset(link, *, start_date=None, end_date=None):
     queryset = (
         MediaUnit.objects.select_related("site")
@@ -165,7 +185,7 @@ def planner_unit_queryset(link, *, start_date=None, end_date=None):
         .exclude(status=MediaUnit.Status.RETIRED)
     )
     if link.allowed_cities:
-        queryset = queryset.filter(site__city__in=link.allowed_cities)
+        queryset = _filter_normalized_text(queryset, "site__city", link.allowed_cities, "_planner_city")
     if link.allowed_regions:
         queryset = queryset.filter(site__state__in=link.allowed_regions)
     if link.allowed_inventory_types:

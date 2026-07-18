@@ -41,7 +41,16 @@ export type PublicPlannerPayload = {
     allow_image_download: boolean;
     client_rate_card_available: boolean;
   };
-  filters: { cities: string[]; locations: string[] };
+  filters: {
+    cities: string[];
+    locations: string[];
+    formats: string[];
+    facing_directions: string[];
+    illumination: Array<{ value: string; label: string }>;
+    availability_statuses: string[];
+    rate_bounds: { min: string | null; max: string | null };
+  };
+  meta: { eligible_unit_count: number; has_campaign_dates: boolean };
 };
 export type PlannerProposalLine = {
   id: number;
@@ -88,12 +97,14 @@ export type PlannerLink = {
   allowed_inventory_types: string[];
   show_rates: boolean;
   pricing_mode: string;
+  effective_show_rates?: boolean;
   allow_proposal_submission: boolean;
   allow_image_download: boolean;
   allow_map_data: boolean;
   expires_at: string | null;
   revoked_at: string | null;
   is_available: boolean;
+  eligible_unit_count?: number;
   public_path?: string;
   token?: string;
 };

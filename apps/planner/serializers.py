@@ -17,6 +17,7 @@ class MediaPlannerShareLinkSerializer(serializers.ModelSerializer):
     created_by_name = serializers.SerializerMethodField()
     is_available = serializers.BooleanField(read_only=True)
     effective_show_rates = serializers.BooleanField(read_only=True)
+    eligible_unit_count = serializers.SerializerMethodField()
 
     class Meta:
         model = MediaPlannerShareLink
@@ -33,6 +34,7 @@ class MediaPlannerShareLinkSerializer(serializers.ModelSerializer):
             "show_rates",
             "pricing_mode",
             "effective_show_rates",
+            "eligible_unit_count",
             "allow_proposal_submission",
             "allow_image_download",
             "allow_map_data",
@@ -50,6 +52,7 @@ class MediaPlannerShareLinkSerializer(serializers.ModelSerializer):
             "tenant_name",
             "client_name",
             "effective_show_rates",
+            "eligible_unit_count",
             "revoked_at",
             "last_accessed_at",
             "token_prefix",
@@ -101,6 +104,11 @@ class MediaPlannerShareLinkSerializer(serializers.ModelSerializer):
         if not obj.created_by:
             return ""
         return obj.created_by.get_full_name() or obj.created_by.email
+
+    def get_eligible_unit_count(self, obj):
+        from .services import planner_unit_queryset
+
+        return planner_unit_queryset(obj).count()
 
 
 class CampaignProposalLineSerializer(serializers.ModelSerializer):

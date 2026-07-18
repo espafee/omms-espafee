@@ -344,3 +344,16 @@ export async function updateMediaUnit(unitId: number, payload: InventoryUnitMuta
     body: JSON.stringify(payload),
   });
 }
+
+export async function updateMediaUnitPublication(unitIds: number[], isPubliclyListed: boolean) {
+  return apiFetch<{ updated_count: number; is_publicly_listed: boolean }>(
+    "inventory/units/bulk-publication/",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        unit_ids: unitIds,
+        is_publicly_listed: isPubliclyListed,
+      }),
+    },
+  );
+}

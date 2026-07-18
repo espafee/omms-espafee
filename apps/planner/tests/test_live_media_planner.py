@@ -83,12 +83,92 @@ class LiveMediaPlannerTests(TestCase):
     def test_public_token_exposes_only_published_tenant_inventory_and_safe_fields(self):
         response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["meta"]["eligible_unit_count"], 1)
         self.assertEqual([row["unit_code"] for row in response.data["results"]], [self.unit.unit_code])
         serialized = response.data["results"][0]
         self.assertNotIn("id", serialized)
         self.assertNotIn("acquisition_cost", serialized)
         self.assertNotIn("margin", serialized)
         self.assertIsNone(serialized["monthly_rate"])
+
+    def test_allowed_city_matching_is_trimmed_and_case_insensitive(self):
+        self.link.allowed_cities = [" jAMMu "]
+        self.link.save(update_fields=["allowed_cities"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["filters"]["cities"], ["Jammu"])
+
+    def test_public_facets_are_tenant_scoped_and_exclude_unpublished_units(self):
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["filters"]["cities"], ["Jammu"])
+        self.assertEqual(response.data["filters"]["locations"], ["Central Junction"])
+        self.assertEqual(response.data["filters"]["formats"], [MediaUnit.SiteType.SINGLE_SIDE])
+        self.assertEqual(response.data["filters"]["facing_directions"], ["North"])
+        self.assertNotIn("Delhi", response.data["filters"]["cities"])
+        self.assertNotIn(self.private_unit.unit_code, str(response.data["filters"]))
+
+    def test_valid_link_with_zero_eligible_units_reports_zero_count(self):
+        self.link.allowed_cities = ["No Published City"]
+        self.link.save(update_fields=["allowed_cities"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 0)
+        self.assertEqual(response.data["meta"]["eligible_unit_count"], 0)
+        self.assertEqual(response.data["results"], [])
+
+    def test_public_filter_names_match_endpoint_and_remain_tenant_scoped(self):
+        response = self.api.get(
+            f"/api/v1/public/media-planner/{self.raw_token}/",
+            {
+                "city": " jammu ",
+                "location": "central junction",
+                "display_format": MediaUnit.SiteType.SINGLE_SIDE.value,
+                "facing": "north",
+                "illumination": "false",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertEqual(response.data["results"][0]["unit_code"], self.unit.unit_code)
+
+    def test_date_and_availability_filters_return_correct_results(self):
+        campaign = Campaign.objects.create(
+            tenant=self.tenant, client=self.client_user, account_manager=self.admin, name="Booked", code="BOOKED-FILTER",
+            start_date=self.start, end_date=self.end, budget=Decimal("50000"), status=Campaign.Status.ACTIVE,
+        )
+        Booking.objects.create(
+            campaign=campaign, media_unit=self.unit, start_date=self.start, end_date=self.end,
+            booked_rate=Decimal("50000"), status=Booking.Status.CONFIRMED,
+        )
+        available_response = self.api.get(
+            f"/api/v1/public/media-planner/{self.raw_token}/",
+            {"start_date": self.start.isoformat(), "end_date": self.end.isoformat(), "availability": "available"},
+        )
+        booked_response = self.api.get(
+            f"/api/v1/public/media-planner/{self.raw_token}/",
+            {"start_date": self.start.isoformat(), "end_date": self.end.isoformat(), "availability": "booked"},
+        )
+        self.assertEqual(available_response.status_code, 200)
+        self.assertEqual(available_response.data["count"], 0)
+        self.assertEqual(booked_response.status_code, 200)
+        self.assertEqual(booked_response.data["count"], 1)
+
+    def test_internal_link_creation_reports_eligible_unit_count(self):
+        self.api.force_authenticate(self.admin)
+        response = self.api.post(
+            "/api/v1/planner/links/",
+            {
+                "title": "Zero Link",
+                "pricing_mode": MediaPlannerShareLink.PricingMode.HIDDEN,
+                "show_rates": False,
+                "allowed_cities": ["No Published City"],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["eligible_unit_count"], 0)
 
     def test_revoked_and_expired_links_fail_safely(self):
         self.link.revoked_at = timezone.now()
