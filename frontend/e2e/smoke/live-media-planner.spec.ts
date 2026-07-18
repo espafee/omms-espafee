@@ -18,6 +18,15 @@ async function seedPlatformAdmin(page: Page) {
   }, platformAdmin);
 }
 
+async function fillCampaignDates(page: Page, start: string, end: string) {
+  const startInput = page.getByLabel("Start date");
+  const endInput = page.getByLabel("End date");
+  await startInput.fill(start);
+  await expect(startInput).toHaveValue(start);
+  await endInput.fill(end);
+  await expect(endInput).toHaveValue(end);
+}
+
 function publicPayload(showRates = false) {
   return {
     count: 1, next: null, previous: null,
@@ -48,9 +57,12 @@ function emptyPayload(eligibleUnitCount: number, availability = false) {
 
 test("public client selects dates, opens gallery, builds basket and submits proposal", async ({ page }) => {
   const requests: string[] = [];
+  let postCount = 0;
   await page.route("**/api/v1/public/media-planner/demo-token/**", async (route) => {
     requests.push(route.request().url());
     if (route.request().method() === "POST") {
+      postCount += 1;
+      await new Promise((resolve) => setTimeout(resolve, 250));
       await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "PRP-DEMO123", status: "submitted", message: "Proposal submitted" }) });
       return;
     }
@@ -62,9 +74,6 @@ test("public client selects dates, opens gallery, builds basket and submits prop
   expect(requests[0]).not.toContain("All+availability");
   expect(requests[0]).not.toContain("city=");
   expect(requests[0]).not.toContain("facing=");
-  await page.getByLabel("Start date").fill("2026-08-01");
-  await page.getByLabel("End date").fill("2026-08-31");
-  await expect.poll(() => requests.some((url) => url.includes("start_date=2026-08-01") && url.includes("end_date=2026-08-31"))).toBeTruthy();
   await page.getByLabel("City").selectOption("Jammu");
   await page.getByLabel("Location").selectOption("Central Junction");
   await page.getByLabel("Availability").selectOption("available");
@@ -84,12 +93,65 @@ test("public client selects dates, opens gallery, builds basket and submits prop
   await page.getByRole("button", { name: "Clear filters" }).click();
   await expect(page.getByText("1 selected")).toBeVisible();
   await page.getByRole("button", { name: "Request formal estimate" }).click();
+  await expect(
+    page.getByLabel("Campaign dates").getByText("Select campaign start and end dates before requesting a formal estimate."),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Create campaign proposal" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe("planner-start-date");
+
+  await fillCampaignDates(page, "2026-08-31", "2026-08-01");
+  await page.getByRole("button", { name: "Request formal estimate" }).click();
+  await expect(page.getByLabel("Campaign dates").getByText("Campaign end date must be on or after the start date.")).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Create campaign proposal" })).toHaveCount(0);
+  await expect.poll(() => page.evaluate(() => document.activeElement?.id)).toBe("planner-end-date");
+
+  await fillCampaignDates(page, "2026-08-01", "2026-08-31");
+  await expect.poll(() => requests.some((url) => url.includes("start_date=2026-08-01") && url.includes("end_date=2026-08-31"))).toBeTruthy();
+  await page.getByRole("button", { name: "Request formal estimate" }).click();
+  const dialog = page.getByRole("dialog", { name: "Create campaign proposal" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("1 selected unit")).toBeVisible();
+  await expect(dialog.getByText("Campaign dates: 1 Aug 2026 - 31 Aug 2026")).toBeVisible();
+  await dialog.getByRole("button", { name: "Submit proposal" }).click();
+  await expect(dialog.getByText("Enter a campaign name.")).toBeVisible();
+  await expect(dialog.getByText("Enter the brand or company name.")).toBeVisible();
+  expect(postCount).toBe(0);
+  await dialog.getByLabel("Campaign name").fill("Summer Launch");
+  await dialog.getByLabel("Brand / company").fill("Acme India");
+  await dialog.getByLabel("Contact name").fill("Asha Client");
+  await dialog.getByLabel("Email").fill("asha@acme.test");
+  const submitButton = dialog.locator('button[type="submit"]');
+  await submitButton.dblclick();
+  await expect(submitButton).toHaveText("Submitting...");
+  await expect(page.getByText("Reference PRP-DEMO123")).toBeVisible();
+  expect(postCount).toBe(1);
+  await expect(page.getByText("0 selected")).toBeVisible();
+});
+
+test("public proposal submission failure preserves form values and basket", async ({ page }) => {
+  await page.route("**/api/v1/public/media-planner/failure-token/**", async (route) => {
+    if (route.request().method() === "POST") {
+      await route.fulfill({ status: 400, contentType: "application/json", body: JSON.stringify({ unit_public_ids: ["One or more selected units are unavailable through this planner link."] }) });
+      return;
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(false)) });
+  });
+
+  await page.goto("/media-planner/failure-token");
+  await expect(page.getByRole("heading", { name: "Acme Live Media Planner" })).toBeVisible();
+  await fillCampaignDates(page, "2026-08-01", "2026-08-31");
+  await page.getByRole("button", { name: "Add to campaign" }).click();
+  await page.getByRole("button", { name: "Request formal estimate" }).click();
   const dialog = page.getByRole("dialog", { name: "Create campaign proposal" });
   await dialog.getByLabel("Campaign name").fill("Summer Launch");
+  await dialog.getByLabel("Brand / company").fill("Acme India");
   await dialog.getByLabel("Contact name").fill("Asha Client");
   await dialog.getByLabel("Email").fill("asha@acme.test");
   await dialog.getByRole("button", { name: "Submit proposal" }).click();
-  await expect(page.getByText("Reference PRP-DEMO123")).toBeVisible();
+  await expect(dialog.getByText("One or more selected units are unavailable through this planner link.")).toBeVisible();
+  await expect(dialog.getByLabel("Campaign name")).toHaveValue("Summer Launch");
+  await expect(dialog.getByLabel("Brand / company")).toHaveValue("Acme India");
+  await expect(page.getByLabel("Campaign proposal basket").getByText("1 selected", { exact: true })).toBeVisible();
 });
 
 test("public planner shows distinct empty and API failure states", async ({ page }) => {
@@ -104,8 +166,7 @@ test("public planner shows distinct empty and API failure states", async ({ page
 
   await page.route("**/api/v1/public/media-planner/dates-token/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(emptyPayload(1, true)) }));
   await page.goto("/media-planner/dates-token");
-  await page.getByLabel("Start date").fill("2026-08-01");
-  await page.getByLabel("End date").fill("2026-08-31");
+  await fillCampaignDates(page, "2026-08-01", "2026-08-31");
   await page.getByLabel("Availability").selectOption("available");
   await expect(page.getByRole("heading", { name: "No units are available for these dates" })).toBeVisible();
 
@@ -122,6 +183,23 @@ test("public planner exposes rates only when the link permits them and remains u
   await expect(page.getByText("INR 50,000 / month")).toBeVisible();
   await expect(page.locator(".planner-unit-card")).toHaveCount(1);
   await expect(page.locator(".planner-basket-bar")).toBeVisible();
+});
+
+test("public planner proposal validation remains reachable on mobile widths", async ({ page }) => {
+  await page.route("**/api/v1/public/media-planner/mobile-token-*/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(false)) }));
+  for (const width of [320, 360, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`/media-planner/mobile-token-${width}`);
+    await page.getByRole("button", { name: "Add to campaign" }).click();
+    await page.getByRole("button", { name: "Request formal estimate" }).click();
+    await expect(page.getByLabel("Campaign dates").getByText("Select campaign start and end dates before requesting a formal estimate.")).toBeVisible();
+    await fillCampaignDates(page, "2026-08-01", "2026-08-31");
+    await page.getByRole("button", { name: "Request formal estimate" }).click();
+    const dialog = page.getByRole("dialog", { name: "Create campaign proposal" });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole("button", { name: "Submit proposal" })).toBeVisible();
+    await dialog.getByRole("button", { name: "Close" }).click();
+  }
 });
 
 test("internal inventory thumbnail opens the reusable viewer and restores focus", async ({ page }) => {

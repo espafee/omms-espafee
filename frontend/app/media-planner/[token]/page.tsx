@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 
 import { ImageLightbox } from "@/components/image-lightbox";
@@ -37,6 +37,14 @@ const EMPTY_FILTERS: Filters = {
   min_price: "",
   max_price: "",
 };
+const DATE_REQUIRED_MESSAGE = "Select campaign start and end dates before requesting a formal estimate.";
+const DATE_RANGE_MESSAGE = "Campaign end date must be on or after the start date.";
+const UNIT_REQUIRED_MESSAGE = "Select at least one advertising unit.";
+
+type ProposalFieldErrors = Partial<Record<
+  "campaign_name" | "brand_company" | "contact_name" | "contact_email" | "dates" | "units",
+  string
+>>;
 
 export default function PublicMediaPlannerPage() {
   const { token } = useParams<{ token: string }>();
@@ -51,6 +59,11 @@ export default function PublicMediaPlannerPage() {
   const [showProposal, setShowProposal] = useState(false);
   const [reference, setReference] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [dateError, setDateError] = useState("");
+  const [proposalErrors, setProposalErrors] = useState<ProposalFieldErrors>({});
+  const [submissionError, setSubmissionError] = useState("");
+  const startDateRef = useRef<HTMLInputElement | null>(null);
+  const endDateRef = useRef<HTMLInputElement | null>(null);
 
   const storageKey = useMemo(
     () => `omms-planner-basket:${token.slice(0, 18)}`,
@@ -124,25 +137,105 @@ export default function PublicMediaPlannerPage() {
     hasDates: Boolean(startDate && endDate),
     availability: filters.availability,
   });
+  const hasValidCampaignDates = Boolean(startDate && endDate && startDate <= endDate);
+
+  function focusDateField(field: "start" | "end") {
+    const target = field === "start" ? startDateRef.current : endDateRef.current;
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    target?.focus({ preventScroll: true });
+  }
+
+  function validateCampaignDates({ focus = false } = {}) {
+    if (!startDate || !endDate) {
+      setDateError(DATE_REQUIRED_MESSAGE);
+      if (focus) focusDateField(!startDate ? "start" : "end");
+      return false;
+    }
+    if (startDate > endDate) {
+      setDateError(DATE_RANGE_MESSAGE);
+      if (focus) focusDateField("end");
+      return false;
+    }
+    setDateError("");
+    return true;
+  }
+
+  function openProposalRequest() {
+    if (!selected.length) {
+      setDateError(UNIT_REQUIRED_MESSAGE);
+      return;
+    }
+    if (!validateCampaignDates({ focus: true })) {
+      return;
+    }
+    setProposalErrors({});
+    setSubmissionError("");
+    setReference("");
+    setShowProposal(true);
+  }
+
+  function closeProposalAndFocusDates() {
+    setShowProposal(false);
+    window.setTimeout(() => focusDateField(!startDate ? "start" : "end"), 0);
+  }
+
+  function clearProposalError(field: keyof ProposalFieldErrors) {
+    setProposalErrors((current) => {
+      if (!current[field]) return current;
+      const next = { ...current };
+      delete next[field];
+      return next;
+    });
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!startDate || !endDate || !selected.length) {
-      setError("Select campaign dates and at least one advertising unit.");
+    if (isSubmitting) return;
+    const nextErrors: ProposalFieldErrors = {};
+    if (!validateCampaignDates()) {
+      nextErrors.dates = !startDate || !endDate ? DATE_REQUIRED_MESSAGE : DATE_RANGE_MESSAGE;
+    }
+    if (!selected.length) {
+      nextErrors.units = UNIT_REQUIRED_MESSAGE;
+    }
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const campaignName = String(form.get("campaign_name") || "").trim();
+    const brandCompany = String(form.get("brand_company") || "").trim();
+    const contactName = String(form.get("contact_name") || "").trim();
+    const contactEmail = String(form.get("contact_email") || "").trim();
+    const emailInput = formElement.elements.namedItem("contact_email") as HTMLInputElement | null;
+    if (!campaignName) nextErrors.campaign_name = "Enter a campaign name.";
+    if (!brandCompany) nextErrors.brand_company = "Enter the brand or company name.";
+    if (!contactName) nextErrors.contact_name = "Enter a contact name.";
+    if (!contactEmail) {
+      nextErrors.contact_email = "Enter a contact email.";
+    } else if (emailInput && !emailInput.validity.valid) {
+      nextErrors.contact_email = "Enter a valid email address.";
+    }
+    if (Object.keys(nextErrors).length) {
+      setProposalErrors(nextErrors);
+      const firstErrorField = Object.keys(nextErrors)[0];
+      if (firstErrorField === "dates") {
+        focusDateField(!startDate ? "start" : "end");
+      } else {
+        const input = formElement.elements.namedItem(firstErrorField) as HTMLElement | null;
+        input?.focus();
+      }
       return;
     }
     setIsSubmitting(true);
-    setError("");
-    const form = new FormData(event.currentTarget);
+    setSubmissionError("");
+    setProposalErrors({});
     try {
       const result = await submitPublicProposal(token, {
-        campaign_name: form.get("campaign_name"),
-        brand_company: form.get("brand_company"),
+        campaign_name: campaignName,
+        brand_company: brandCompany,
         objective: form.get("objective"),
         requested_start_date: startDate,
         requested_end_date: endDate,
-        contact_name: form.get("contact_name"),
-        contact_email: form.get("contact_email"),
+        contact_name: contactName,
+        contact_email: contactEmail,
         contact_phone: form.get("contact_phone"),
         billing_gstin: form.get("billing_gstin"),
         billing_details: form.get("billing_details"),
@@ -154,10 +247,10 @@ export default function PublicMediaPlannerPage() {
       setSelected([]);
       setShowProposal(false);
     } catch (submitError) {
-      setError(
+      setSubmissionError(
         submitError instanceof Error
           ? submitError.message
-          : "Proposal submission failed.",
+          : "We could not submit the proposal. Please check your connection and try again.",
       );
     } finally {
       setIsSubmitting(false);
@@ -213,21 +306,40 @@ export default function PublicMediaPlannerPage() {
         <label>
           <span>Start date</span>
           <input
+            ref={startDateRef}
+            id="planner-start-date"
             type="date"
             value={startDate}
-            onChange={(event) => setStartDate(event.target.value)}
+            aria-invalid={Boolean(dateError && !startDate)}
+            aria-describedby={dateError ? "planner-date-error" : undefined}
+            className={dateError && !startDate ? "field-error-input" : ""}
+            onChange={(event) => {
+              setStartDate(event.target.value);
+              setDateError("");
+            }}
           />
         </label>
         <label>
           <span>End date</span>
           <input
+            ref={endDateRef}
+            id="planner-end-date"
             type="date"
             min={startDate}
             value={endDate}
-            onChange={(event) => setEndDate(event.target.value)}
+            aria-invalid={Boolean(dateError && (!endDate || startDate > endDate))}
+            aria-describedby={dateError ? "planner-date-error" : undefined}
+            className={dateError && (!endDate || startDate > endDate) ? "field-error-input" : ""}
+            onChange={(event) => {
+              setEndDate(event.target.value);
+              setDateError("");
+            }}
           />
         </label>
         <span className="planner-live-indicator">Live availability</span>
+        <p id="planner-date-error" className="planner-date-validation" aria-live="polite">
+          {dateError || (selected.length ? "Select dates before requesting a formal estimate." : "")}
+        </p>
       </section>
 
       <details className="planner-filter-panel" open>
@@ -561,17 +673,21 @@ export default function PublicMediaPlannerPage() {
           disabled={
             !selected.length || !payload?.planner.allow_proposal_submission
           }
-          onClick={() => setShowProposal(true)}
+          aria-describedby="planner-basket-help"
+          onClick={openProposalRequest}
         >
           Request formal estimate
         </button>
+        <span id="planner-basket-help" className="planner-basket-help" aria-live="polite">
+          {!selected.length ? UNIT_REQUIRED_MESSAGE : dateError || "Dates are required before formal review."}
+        </span>
       </aside>
       {reference ? (
         <div className="planner-success" role="status">
-          <strong>Proposal received</strong>
+          <strong>Proposal submitted successfully</strong>
           <span>
-            Reference {reference}. Your selection is awaiting formal
-            availability and pricing review.
+            Reference {reference}. The media owner will review availability and
+            prepare a formal estimate.
           </span>
         </div>
       ) : null}
@@ -615,10 +731,18 @@ export default function PublicMediaPlannerPage() {
               <div>
                 <p className="site-code">FORMAL REVIEW REQUEST</p>
                 <h2 id="proposal-title">Create campaign proposal</h2>
-                <p>
-                  {selected.length} selected units ·{" "}
-                  {startDate || "Start pending"} to {endDate || "End pending"}
-                </p>
+                <div className="planner-proposal-summary">
+                  <span>
+                    {selected.length} selected unit{selected.length === 1 ? "" : "s"}
+                  </span>
+                  {hasValidCampaignDates ? (
+                    <span>
+                      Campaign dates: {formatPlannerDate(startDate)} - {formatPlannerDate(endDate)}
+                    </span>
+                  ) : (
+                    <span>Campaign dates have not been selected.</span>
+                  )}
+                </div>
               </div>
               <button
                 className="ghost"
@@ -628,14 +752,34 @@ export default function PublicMediaPlannerPage() {
                 Close
               </button>
             </header>
-            <form className="planner-proposal-form" onSubmit={submit}>
+            <form className="planner-proposal-form" onSubmit={submit} noValidate>
               <label>
                 <span>Campaign name</span>
-                <input name="campaign_name" required />
+                <input
+                  name="campaign_name"
+                  aria-invalid={Boolean(proposalErrors.campaign_name)}
+                  aria-describedby={proposalErrors.campaign_name ? "campaign-name-error" : undefined}
+                  onChange={() => clearProposalError("campaign_name")}
+                />
+                {proposalErrors.campaign_name ? (
+                  <small id="campaign-name-error" className="field-error-text">
+                    {proposalErrors.campaign_name}
+                  </small>
+                ) : null}
               </label>
               <label>
                 <span>Brand / company</span>
-                <input name="brand_company" />
+                <input
+                  name="brand_company"
+                  aria-invalid={Boolean(proposalErrors.brand_company)}
+                  aria-describedby={proposalErrors.brand_company ? "brand-company-error" : undefined}
+                  onChange={() => clearProposalError("brand_company")}
+                />
+                {proposalErrors.brand_company ? (
+                  <small id="brand-company-error" className="field-error-text">
+                    {proposalErrors.brand_company}
+                  </small>
+                ) : null}
               </label>
               <label className="field-full">
                 <span>Objective</span>
@@ -643,11 +787,32 @@ export default function PublicMediaPlannerPage() {
               </label>
               <label>
                 <span>Contact name</span>
-                <input name="contact_name" required />
+                <input
+                  name="contact_name"
+                  aria-invalid={Boolean(proposalErrors.contact_name)}
+                  aria-describedby={proposalErrors.contact_name ? "contact-name-error" : undefined}
+                  onChange={() => clearProposalError("contact_name")}
+                />
+                {proposalErrors.contact_name ? (
+                  <small id="contact-name-error" className="field-error-text">
+                    {proposalErrors.contact_name}
+                  </small>
+                ) : null}
               </label>
               <label>
                 <span>Email</span>
-                <input name="contact_email" type="email" required />
+                <input
+                  name="contact_email"
+                  type="email"
+                  aria-invalid={Boolean(proposalErrors.contact_email)}
+                  aria-describedby={proposalErrors.contact_email ? "contact-email-error" : undefined}
+                  onChange={() => clearProposalError("contact_email")}
+                />
+                {proposalErrors.contact_email ? (
+                  <small id="contact-email-error" className="field-error-text">
+                    {proposalErrors.contact_email}
+                  </small>
+                ) : null}
               </label>
               <label>
                 <span>Phone</span>
@@ -670,10 +835,25 @@ export default function PublicMediaPlannerPage() {
                 pricing, taxes, production, printing, and mounting remain
                 subject to formal confirmation.
               </p>
+              {proposalErrors.dates || proposalErrors.units ? (
+                <p className="field-full planner-inline-error" role="alert">
+                  {proposalErrors.dates || proposalErrors.units}
+                </p>
+              ) : null}
+              {submissionError ? (
+                <p className="field-full planner-inline-error" role="alert">
+                  {submissionError}
+                </p>
+              ) : null}
+              {!hasValidCampaignDates ? (
+                <button className="ghost field-full" type="button" onClick={closeProposalAndFocusDates}>
+                  Return to planner
+                </button>
+              ) : null}
               <button
                 className="submit field-full"
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !hasValidCampaignDates}
               >
                 {isSubmitting ? "Submitting..." : "Submit proposal"}
               </button>
@@ -687,6 +867,15 @@ export default function PublicMediaPlannerPage() {
 
 function formatFacetLabel(value: string) {
   return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function formatPlannerDate(value: string) {
+  if (!value) return "";
+  return new Date(`${value}T00:00:00`).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }
 
 function getEmptyState({
