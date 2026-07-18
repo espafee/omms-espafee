@@ -291,3 +291,9 @@ Removing access now means deactivation, not deletion. Campaign ownership, review
 Clients can now explore a controlled, date-aware media selection prepared specifically for them instead of receiving an unrestricted inventory spreadsheet. They see client-safe photos and facts, build a campaign shortlist on mobile or desktop, and submit it for formal availability and pricing review without reserving media.
 
 Sales, operations, and finance receive the request in a shared pipeline. OMMS preserves what the client saw, rechecks availability, reuses the existing estimate approval journey, and converts only after authorized approval. The experience is polished while operational control remains inside OMMS.
+
+## Planner Publishing And Filter Clarity
+
+The Live Media Planner now makes its safety model clearer for both internal teams and clients. Internal users get direct confirmation when a secure link is generated, a visible warning if the link has no eligible published units, and a clear copy confirmation for the one-time URL.
+
+Inventory publication remains opt-in. Existing units are not exposed automatically; authorized operators publish or unpublish advertising units from the inventory workspace when they are ready for client planning. On the public planner, filter controls now use tenant-safe options and empty states explain whether the owner has not published units, filters are too narrow, or selected dates exclude availability.

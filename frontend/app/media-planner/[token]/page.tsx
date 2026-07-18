@@ -113,6 +113,16 @@ export default function PublicMediaPlannerPage() {
         ? current.filter((value) => value !== id)
         : [...current, id],
     );
+  const clearFilters = () => setFilters(EMPTY_FILTERS);
+  const hasActiveFilters = Object.values(filters).some(Boolean);
+  const emptyState = getEmptyState({
+    isLoading,
+    eligibleCount: payload?.meta?.eligible_unit_count ?? 0,
+    resultCount: payload?.count ?? 0,
+    hasActiveFilters,
+    hasDates: Boolean(startDate && endDate),
+    availability: filters.availability,
+  });
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -158,8 +168,11 @@ export default function PublicMediaPlannerPage() {
       <main className="planner-public-shell">
         <section className="planner-public-state">
           <p className="site-code">LIVE MEDIA PLANNER</p>
-          <h1>Planner unavailable</h1>
+          <h1>Unable to load media units</h1>
           <p>{error}</p>
+          <button className="submit" type="button" onClick={() => void load()}>
+            Retry
+          </button>
         </section>
       </main>
     );
@@ -241,7 +254,7 @@ export default function PublicMediaPlannerPage() {
               }
             >
               <option value="">All cities</option>
-              {payload?.filters.cities.map((city) => (
+              {(payload?.filters.cities ?? []).map((city) => (
                 <option key={city}>{city}</option>
               ))}
             </select>
@@ -258,7 +271,7 @@ export default function PublicMediaPlannerPage() {
               }
             >
               <option value="">All locations</option>
-              {payload?.filters.locations.map((location) => (
+              {(payload?.filters.locations ?? []).map((location) => (
                 <option key={location}>{location}</option>
               ))}
             </select>
@@ -274,8 +287,19 @@ export default function PublicMediaPlannerPage() {
                 }))
               }
             >
-              <option value="">Any status</option>
-              <option value="available">Available</option>
+              <option value="">All availability</option>
+              {[
+                "available",
+                "partially_available",
+                "booked",
+                "on_hold",
+                "under_maintenance",
+                "unavailable",
+              ].map((value) => (
+                <option key={value} value={value}>
+                  {formatFacetLabel(value)}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -290,13 +314,18 @@ export default function PublicMediaPlannerPage() {
               }
             >
               <option value="">All formats</option>
-              <option value="single_side">Single side</option>
-              <option value="both_side">Both side</option>
+              {(payload?.filters.formats ?? ["single_side", "both_side"]).map(
+                (format) => (
+                  <option key={format} value={format}>
+                    {formatFacetLabel(format)}
+                  </option>
+                ),
+              )}
             </select>
           </label>
           <label>
             <span>Facing</span>
-            <input
+            <select
               value={filters.facing}
               onChange={(event) =>
                 setFilters((value) => ({
@@ -304,8 +333,14 @@ export default function PublicMediaPlannerPage() {
                   facing: event.target.value,
                 }))
               }
-              placeholder="North"
-            />
+            >
+              <option value="">All directions</option>
+              {(payload?.filters.facing_directions ?? []).map((direction) => (
+                <option key={direction} value={direction}>
+                  {direction}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             <span>Illumination</span>
@@ -319,8 +354,14 @@ export default function PublicMediaPlannerPage() {
               }
             >
               <option value="">Any</option>
-              <option value="true">Illuminated</option>
-              <option value="false">Standard</option>
+              {(payload?.filters.illumination ?? [
+                { value: "true", label: "Illuminated" },
+                { value: "false", label: "Standard" },
+              ]).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>
@@ -383,16 +424,19 @@ export default function PublicMediaPlannerPage() {
           <button
             className="ghost"
             type="button"
-            onClick={() => setFilters(EMPTY_FILTERS)}
+            onClick={clearFilters}
           >
             Clear filters
           </button>
         </div>
       </details>
 
-      {error ? (
+      {error && payload ? (
         <p className="planner-inline-error" role="alert">
-          {error}
+          Unable to load media units. Showing the last available results.{" "}
+          <button className="ghost" type="button" onClick={() => void load()}>
+            Retry
+          </button>
         </p>
       ) : null}
       <section className="planner-results-head">
@@ -407,6 +451,20 @@ export default function PublicMediaPlannerPage() {
         <p>Availability and pricing are subject to final confirmation.</p>
       </section>
       <section className="planner-unit-grid" aria-busy={isLoading}>
+        {isLoading && !payload ? (
+          <p className="planner-empty-state">Loading media units...</p>
+        ) : null}
+        {!isLoading && emptyState ? (
+          <div className="planner-empty-state">
+            <h2>{emptyState.title}</h2>
+            <p>{emptyState.message}</p>
+            {emptyState.showClear ? (
+              <button className="ghost" type="button" onClick={clearFilters}>
+                Clear filters
+              </button>
+            ) : null}
+          </div>
+        ) : null}
         {(payload?.results ?? []).map((unit) => {
           const isSelected = selected.includes(unit.public_id);
           return (
@@ -624,4 +682,50 @@ export default function PublicMediaPlannerPage() {
       ) : null}
     </main>
   );
+}
+
+function formatFacetLabel(value: string) {
+  return value.replaceAll("_", " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function getEmptyState({
+  isLoading,
+  eligibleCount,
+  resultCount,
+  hasActiveFilters,
+  hasDates,
+  availability,
+}: {
+  isLoading: boolean;
+  eligibleCount: number;
+  resultCount: number;
+  hasActiveFilters: boolean;
+  hasDates: boolean;
+  availability: string;
+}) {
+  if (isLoading || resultCount > 0) return null;
+  if (eligibleCount === 0) {
+    return {
+      title: "No media units are available in this planner",
+      message:
+        "Ask the media owner to publish or include advertising units in this planner link.",
+      showClear: false,
+    };
+  }
+  if (hasDates && availability === "available") {
+    return {
+      title: "No units are available for these dates",
+      message:
+        "Try a different campaign period or view all availability statuses.",
+      showClear: true,
+    };
+  }
+  if (hasActiveFilters) {
+    return {
+      title: "No media units match these filters",
+      message: "Clear or adjust the filters to see more options.",
+      showClear: true,
+    };
+  }
+  return null;
 }

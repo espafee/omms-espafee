@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from django.db.models import Q
+from django.db.models import F, Max, Min, Q
+from django.db.models.functions import Lower, Trim
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -71,6 +72,7 @@ class MediaPlannerShareLinkViewSet(
         payload = MediaPlannerShareLinkSerializer(link, context=self.get_serializer_context()).data
         payload["public_path"] = f"/media-planner/{raw_token}"
         payload["token"] = raw_token
+        payload["eligible_unit_count"] = planner_unit_queryset(link).count()
         return Response(payload, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"])
@@ -198,8 +200,10 @@ class PublicMediaPlannerView(APIView):
             InventoryAvailabilityService().validate_dates(start_date, end_date)
         except ValidationError as exc:
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
-        queryset = planner_unit_queryset(link, start_date=start_date, end_date=end_date)
-        queryset = _filter_public_units(queryset, request, link)
+        eligible_queryset = planner_unit_queryset(link, start_date=start_date, end_date=end_date)
+        eligible_count = eligible_queryset.count()
+        facets = _public_facets(eligible_queryset, link, start_date=start_date, end_date=end_date)
+        queryset = _filter_public_units(eligible_queryset, request, link)
         paginator = DefaultPageNumberPagination()
         page = paginator.paginate_queryset(queryset, request)
         units = page if page is not None else list(queryset)
@@ -227,8 +231,11 @@ class PublicMediaPlannerView(APIView):
                 "client_rate_card_available": False,
             },
             "filters": {
-                "cities": list(queryset.order_by().values_list("site__city", flat=True).distinct()[:100]),
-                "locations": list(queryset.order_by().values_list("site__name", flat=True).distinct()[:100]),
+                **facets,
+            },
+            "meta": {
+                "eligible_unit_count": eligible_count,
+                "has_campaign_dates": bool(start_date and end_date),
             },
             "results": results,
         }
@@ -287,13 +294,13 @@ def _filter_public_units(queryset, request, link):
             | Q(site__city__icontains=search)
         )
     if params.get("city"):
-        queryset = queryset.filter(site__city=params["city"])
+        queryset = _filter_text_value(queryset, "site__city", params["city"], "_filter_city")
     if params.get("location"):
-        queryset = queryset.filter(site__name=params["location"])
+        queryset = _filter_text_value(queryset, "site__name", params["location"], "_filter_location")
     if params.get("display_format"):
         queryset = queryset.filter(site_type=params["display_format"])
     if params.get("facing"):
-        queryset = queryset.filter(facing_direction__iexact=params["facing"])
+        queryset = _filter_text_value(queryset, "facing_direction", params["facing"], "_filter_facing")
     if params.get("illumination") in {"true", "false"}:
         queryset = queryset.filter(is_illuminated=params["illumination"] == "true")
     if params.get("width"):
@@ -306,15 +313,68 @@ def _filter_public_units(queryset, request, link):
         if params.get("max_price"):
             queryset = queryset.filter(monthly_rate__lte=params["max_price"])
     availability = params.get("availability")
-    if availability and availability == AvailabilityStatus.AVAILABLE:
+    if availability in {
+        AvailabilityStatus.AVAILABLE,
+        AvailabilityStatus.PARTIALLY_AVAILABLE,
+        AvailabilityStatus.BOOKED,
+        AvailabilityStatus.ON_HOLD,
+        AvailabilityStatus.UNDER_MAINTENANCE,
+        AvailabilityStatus.UNAVAILABLE,
+    }:
         start_date = _parse_date(params.get("start_date"))
         end_date = _parse_date(params.get("end_date"))
-        if start_date and end_date:
-            blocked_ids = [
-                unit.id
-                for unit in queryset
-                if InventoryAvailabilityService().resolve(unit, start_date=start_date, end_date=end_date)["status"]
-                != AvailabilityStatus.AVAILABLE
-            ]
-            queryset = queryset.exclude(id__in=blocked_ids)
+        matching_ids = [
+            unit.id
+            for unit in queryset
+            if InventoryAvailabilityService().resolve(unit, start_date=start_date, end_date=end_date)["status"] == availability
+        ]
+        queryset = queryset.filter(id__in=matching_ids)
     return queryset.order_by("site__city", "site__name", "unit_code", "id")
+
+
+def _filter_text_value(queryset, field_name, value, alias):
+    normalized = str(value or "").strip().casefold()
+    if not normalized:
+        return queryset
+    return queryset.annotate(**{alias: Lower(Trim(F(field_name)))}).filter(**{alias: normalized})
+
+
+def _public_facets(queryset, link, *, start_date=None, end_date=None):
+    units = list(queryset)
+    rate_bounds = queryset.aggregate(min=Min("monthly_rate"), max=Max("monthly_rate")) if link.effective_show_rates else {"min": None, "max": None}
+    availability_service = InventoryAvailabilityService()
+    availability_statuses = []
+    for unit in units:
+        status_value = availability_service.resolve(unit, start_date=start_date, end_date=end_date)["status"]
+        if status_value not in availability_statuses:
+            availability_statuses.append(status_value)
+    return {
+        "cities": _unique_values(unit.site.city for unit in units),
+        "locations": _unique_values(unit.site.name for unit in units),
+        "formats": _unique_values(unit.site_type for unit in units),
+        "facing_directions": _unique_values(unit.facing_direction for unit in units),
+        "illumination": [
+            {"value": "true", "label": "Illuminated"}
+            for unit in units
+            if unit.is_illuminated
+        ][:1]
+        + [
+            {"value": "false", "label": "Standard"}
+            for unit in units
+            if not unit.is_illuminated
+        ][:1],
+        "availability_statuses": availability_statuses,
+        "rate_bounds": rate_bounds,
+    }
+
+
+def _unique_values(values):
+    seen = set()
+    output = []
+    for value in values:
+        text = str(value or "").strip()
+        key = text.casefold()
+        if text and key not in seen:
+            output.append(text)
+            seen.add(key)
+    return sorted(output, key=str.casefold)

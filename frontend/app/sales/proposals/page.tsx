@@ -28,7 +28,11 @@ export default function ProposalsWorkspacePage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState("");
+  const [generatedLink, setGeneratedLink] = useState<PlannerLink | null>(null);
+  const [linkFeedback, setLinkFeedback] = useState("");
+  const [copyFeedback, setCopyFeedback] = useState("");
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -61,7 +65,11 @@ export default function ProposalsWorkspacePage() {
 
   async function generateLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isGenerating) return;
+    setIsGenerating(true);
     setError("");
+    setLinkFeedback("");
+    setCopyFeedback("");
     const form = new FormData(event.currentTarget);
     try {
       const link = await createPlannerLink({
@@ -79,13 +87,29 @@ export default function ProposalsWorkspacePage() {
       });
       const url = `${window.location.origin}${link.public_path}`;
       setGeneratedUrl(url);
+      setGeneratedLink(link);
+      setLinkFeedback("Link generated");
       await load();
     } catch (createError) {
+      setLinkFeedback("");
       setError(
         createError instanceof Error
           ? createError.message
           : "Unable to create media planner link.",
       );
+    } finally {
+      setIsGenerating(false);
+    }
+  }
+
+  async function copyGeneratedLink() {
+    if (!generatedUrl) return;
+    setCopyFeedback("");
+    try {
+      await navigator.clipboard.writeText(generatedUrl);
+      setCopyFeedback("Link copied");
+    } catch {
+      setCopyFeedback("Unable to copy link. Select the URL and copy it manually.");
     }
   }
 
@@ -140,13 +164,55 @@ export default function ProposalsWorkspacePage() {
               <input name="allow_image_download" type="checkbox" />
               <span>Allow photo downloads</span>
             </label>
-            <button className="submit" type="submit">
-              Generate secure link
+            <button className="submit" type="submit" disabled={isGenerating}>
+              {isGenerating
+                ? "Generating..."
+                : linkFeedback === "Link generated"
+                  ? "Link generated"
+                  : "Generate secure link"}
             </button>
           </form>
+          <div className="planner-action-feedback" aria-live="polite">
+            {copyFeedback || linkFeedback}
+          </div>
           {generatedUrl ? (
             <div className="planner-generated-link" role="status">
               <strong>Copy this link now</strong>
+              <div className="planner-generated-summary">
+                <span>
+                  {generatedLink?.allowed_cities?.length
+                    ? `Cities: ${generatedLink.allowed_cities.join(", ")}`
+                    : "Cities: all permitted cities"}
+                </span>
+                <span>
+                  {generatedLink?.eligible_unit_count ?? 0} published eligible
+                  unit
+                  {(generatedLink?.eligible_unit_count ?? 0) === 1 ? "" : "s"}
+                </span>
+                <span>
+                  Pricing:{" "}
+                  {generatedLink?.effective_show_rates
+                    ? "standard rates visible"
+                    : "rates hidden"}
+                </span>
+                <span>
+                  Expiry:{" "}
+                  {generatedLink?.expires_at
+                    ? new Date(generatedLink.expires_at).toLocaleString()
+                    : "no expiry set"}
+                </span>
+                <span>
+                  Proposals:{" "}
+                  {generatedLink?.allow_proposal_submission
+                    ? "enabled"
+                    : "disabled"}
+                </span>
+              </div>
+              {generatedLink?.eligible_unit_count === 0 ? (
+                <p className="planner-link-warning">
+                  This link currently contains no published media units.
+                </p>
+              ) : null}
               <input
                 readOnly
                 value={generatedUrl}
@@ -155,7 +221,7 @@ export default function ProposalsWorkspacePage() {
               <button
                 className="ghost"
                 type="button"
-                onClick={() => navigator.clipboard.writeText(generatedUrl)}
+                onClick={() => void copyGeneratedLink()}
               >
                 Copy link
               </button>
