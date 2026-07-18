@@ -5323,6 +5323,14 @@ body.modal-open { overflow: hidden; }
 .planner-generated-summary { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; }
 .planner-generated-summary span { padding: 4px 7px; border: 1px solid #d3e2dc; border-radius: 4px; background: white; color: #496258; font-size: 11px; font-weight: 750; }
 .planner-link-warning { grid-column: 1 / -1; margin: 0; padding: 9px 10px; border: 1px solid #e6d4a1; border-radius: 5px; background: #fffbeb; color: #765b08; font-size: 12px; font-weight: 750; }
+.planner-eligibility-preview { grid-column: 1 / -1; display: grid; gap: 10px; padding: 10px; border: 1px solid #d8e5df; border-radius: 5px; background: white; }
+.planner-eligibility-preview > div:first-child { display: grid; gap: 2px; color: #526b61; font-size: 12px; }
+.planner-eligibility-preview > div:first-child strong { color: #10251e; }
+.planner-eligibility-preview > .ghost { justify-self: start; }
+.planner-eligibility-preview dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.planner-eligibility-preview dl div { display: grid; gap: 2px; min-width: 0; }
+.planner-eligibility-preview dt { color: #6b7f76; font-size: 9px; font-weight: 850; text-transform: uppercase; }
+.planner-eligibility-preview dd { margin: 0; color: #10251e; font-size: 12px; font-weight: 800; overflow-wrap: anywhere; text-transform: capitalize; }
 .planner-link-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
 .planner-link-row div { display: grid; gap: 2px; }
 .planner-link-row div span { color: #64776f; font-size: 12px; text-transform: capitalize; }

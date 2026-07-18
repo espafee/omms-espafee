@@ -13,9 +13,11 @@ import {
 } from "@/lib/auth";
 import {
   createPlannerLink,
+  fetchPlannerLinkEligibility,
   fetchPlannerLinks,
   fetchPlannerProposals,
   revokePlannerLink,
+  type PlannerEligibilityPreview,
   type PlannerLink,
   type PlannerProposal,
 } from "@/lib/planner";
@@ -31,6 +33,9 @@ export default function ProposalsWorkspacePage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatedUrl, setGeneratedUrl] = useState("");
   const [generatedLink, setGeneratedLink] = useState<PlannerLink | null>(null);
+  const [eligibilityPreview, setEligibilityPreview] =
+    useState<PlannerEligibilityPreview | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
 
@@ -89,6 +94,7 @@ export default function ProposalsWorkspacePage() {
       setGeneratedUrl(url);
       setGeneratedLink(link);
       setLinkFeedback("Link generated");
+      void loadEligibilityPreview(link.id);
       await load();
     } catch (createError) {
       setLinkFeedback("");
@@ -99,6 +105,18 @@ export default function ProposalsWorkspacePage() {
       );
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function loadEligibilityPreview(linkId = generatedLink?.id) {
+    if (!linkId) return;
+    setIsPreviewLoading(true);
+    try {
+      setEligibilityPreview(await fetchPlannerLinkEligibility(linkId));
+    } catch {
+      setEligibilityPreview(null);
+    } finally {
+      setIsPreviewLoading(false);
     }
   }
 
@@ -210,9 +228,64 @@ export default function ProposalsWorkspacePage() {
               </div>
               {generatedLink?.eligible_unit_count === 0 ? (
                 <p className="planner-link-warning">
-                  This link currently contains no published media units.
+                  This planner link currently contains no eligible media units.
                 </p>
               ) : null}
+              <div className="planner-eligibility-preview">
+                <div>
+                  <strong>Eligible inventory preview</strong>
+                  <span>
+                    {eligibilityPreview
+                      ? `${eligibilityPreview.counts.eligible} published eligible unit${
+                          eligibilityPreview.counts.eligible === 1 ? "" : "s"
+                        }`
+                      : isPreviewLoading
+                        ? "Checking eligible inventory..."
+                        : "Preview eligible inventory before sharing."}
+                  </span>
+                </div>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={isPreviewLoading}
+                  onClick={() => void loadEligibilityPreview()}
+                >
+                  Preview eligible inventory
+                </button>
+                {eligibilityPreview ? (
+                  <dl>
+                    <div>
+                      <dt>Published eligible units</dt>
+                      <dd>{eligibilityPreview.counts.eligible}</dd>
+                    </div>
+                    <div>
+                      <dt>Excluded units</dt>
+                      <dd>
+                        {Object.values(eligibilityPreview.excluded).reduce(
+                          (sum, value) => sum + value,
+                          0,
+                        )}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Allowed cities</dt>
+                      <dd>
+                        {generatedLink?.allowed_cities?.length
+                          ? generatedLink.allowed_cities.join(", ")
+                          : "All permitted cities"}
+                      </dd>
+                    </div>
+                    {Object.entries(eligibilityPreview.excluded)
+                      .filter(([, value]) => value > 0)
+                      .map(([key, value]) => (
+                        <div key={key}>
+                          <dt>{key.replaceAll("_", " ")}</dt>
+                          <dd>{value}</dd>
+                        </div>
+                      ))}
+                  </dl>
+                ) : null}
+              </div>
               <input
                 readOnly
                 value={generatedUrl}

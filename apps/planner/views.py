@@ -34,6 +34,7 @@ from .services import (
     convert_proposal_to_campaign,
     create_estimate_from_proposal,
     create_planner_link,
+    planner_inventory_diagnostics,
     planner_unit_queryset,
     recheck_proposal_availability,
     resolve_planner_link,
@@ -79,6 +80,17 @@ class MediaPlannerShareLinkViewSet(
     def revoke(self, request, pk=None):
         link = revoke_planner_link(actor=request.user, link=self.get_object())
         return Response(self.get_serializer(link).data)
+
+    @action(detail=True, methods=["get"], url_path="eligible-inventory")
+    def eligible_inventory(self, request, pk=None):
+        start_date = _parse_date(request.query_params.get("start_date"))
+        end_date = _parse_date(request.query_params.get("end_date"))
+        try:
+            InventoryAvailabilityService().validate_dates(start_date, end_date)
+        except ValidationError as exc:
+            return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
+        link = self.get_object()
+        return Response(planner_inventory_diagnostics(link, start_date=start_date, end_date=end_date))
 
 
 class CampaignProposalViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):

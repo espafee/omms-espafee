@@ -92,12 +92,66 @@ class LiveMediaPlannerTests(TestCase):
         self.assertIsNone(serialized["monthly_rate"])
 
     def test_allowed_city_matching_is_trimmed_and_case_insensitive(self):
-        self.link.allowed_cities = [" jAMMu "]
+        for value in (["Jammu"], ["jammu"], [" Jammu "], "Jammu", "jammu", " Jammu ", "Jammu, Delhi"):
+            with self.subTest(value=value):
+                self.link.allowed_cities = value
+                self.link.save(update_fields=["allowed_cities"])
+                response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["count"], 1)
+                self.assertEqual(response.data["filters"]["cities"], ["Jammu"])
+
+    def test_existing_link_reflects_unpublished_to_published_transition(self):
+        self.link.allowed_cities = "Jammu"
         self.link.save(update_fields=["allowed_cities"])
-        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        initial_response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual([row["unit_code"] for row in initial_response.data["results"]], [self.unit.unit_code])
+        self.assertNotIn(self.private_unit.unit_code, [row["unit_code"] for row in initial_response.data["results"]])
+
+        self.api.force_authenticate(self.admin)
+        publish_response = self.api.post(
+            "/api/v1/inventory/units/bulk-publication/",
+            {"unit_ids": [self.private_unit.id], "is_publicly_listed": True},
+            format="json",
+        )
+        self.assertEqual(publish_response.status_code, 200)
+        self.private_unit.refresh_from_db()
+        self.assertTrue(self.private_unit.is_publicly_listed)
+
+        self.api.force_authenticate(user=None)
+        published_response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(published_response.status_code, 200)
+        self.assertEqual(
+            sorted(row["unit_code"] for row in published_response.data["results"]),
+            sorted([self.unit.unit_code, self.private_unit.unit_code]),
+        )
+
+        self.api.force_authenticate(self.admin)
+        unpublish_response = self.api.post(
+            "/api/v1/inventory/units/bulk-publication/",
+            {"unit_ids": [self.private_unit.id], "is_publicly_listed": False},
+            format="json",
+        )
+        self.assertEqual(unpublish_response.status_code, 200)
+        self.private_unit.refresh_from_db()
+        self.assertFalse(self.private_unit.is_publicly_listed)
+
+        self.api.force_authenticate(user=None)
+        final_response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual([row["unit_code"] for row in final_response.data["results"]], [self.unit.unit_code])
+
+    def test_internal_eligible_inventory_preview_reports_pipeline_counts(self):
+        self.link.allowed_cities = "Jammu"
+        self.link.save(update_fields=["allowed_cities"])
+        self.api.force_authenticate(self.admin)
+        response = self.api.get(f"/api/v1/planner/links/{self.link.id}/eligible-inventory/")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["count"], 1)
-        self.assertEqual(response.data["filters"]["cities"], ["Jammu"])
+        self.assertGreaterEqual(response.data["counts"]["base_media_units"], 3)
+        self.assertEqual(response.data["counts"]["tenant_scoped"], 2)
+        self.assertEqual(response.data["counts"]["publicly_listed"], 1)
+        self.assertEqual(response.data["counts"]["allowed_city"], 1)
+        self.assertEqual(response.data["counts"]["eligible"], 1)
+        self.assertEqual(response.data["excluded"]["not_published"], 1)
 
     def test_public_facets_are_tenant_scoped_and_exclude_unpublished_units(self):
         response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")

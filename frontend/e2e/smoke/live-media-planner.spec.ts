@@ -50,6 +50,10 @@ test("public client selects dates, opens gallery, builds basket and submits prop
   });
   await page.goto("/media-planner/demo-token");
   await expect(page.getByRole("heading", { name: "Acme Live Media Planner" })).toBeVisible();
+  expect(requests[0]).not.toContain("All+cities");
+  expect(requests[0]).not.toContain("All+availability");
+  expect(requests[0]).not.toContain("city=");
+  expect(requests[0]).not.toContain("facing=");
   await page.getByLabel("Start date").fill("2026-08-01");
   await page.getByLabel("End date").fill("2026-08-31");
   await expect.poll(() => requests.some((url) => url.includes("start_date=2026-08-01") && url.includes("end_date=2026-08-31"))).toBeTruthy();
@@ -145,6 +149,7 @@ test("admin generates a one-time secure planner link and sees submitted proposal
     if (path === "users/auth/me/") return route.fulfill({ contentType: "application/json", body: JSON.stringify(admin) });
     if (path === "observability/operational-mode/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
     if (path === "planner/links/" && request.method() === "POST") return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: 2, title: "Client Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/one-time-secret", token: "one-time-secret" }) });
+    if (path === "planner/links/2/eligible-inventory/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ counts: { base_media_units: 2, tenant_scoped: 2, publicly_listed: 1, operational: 1, allowed_city: 1, date_available: 1, eligible: 1 }, excluded: { not_published: 1, city_not_allowed: 0, inactive: 0, unavailable_for_dates: 0, missing_public_information: 0 }, allowed_cities: [] }) });
     if (path === "planner/links/") return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
     if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 4, reference: "PRP-001", client_name: "Acme India", campaign_name: "Summer Launch", brand_company: "Acme", requested_start_date: "2026-08-01", requested_end_date: "2026-08-31", contact_name: "Asha", contact_email: "asha@acme.test", contact_phone: "", billing_gstin: "", notes: "", status: "submitted", submitted_at: "2026-07-18T10:00:00Z", preliminary_subtotal: "0.00", selected_unit_count: 2, availability_conflict_count: 0, assigned_to_name: "Unassigned", estimate_number: null, converted_campaign_code: null, lines: [] }]) });
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
@@ -157,7 +162,8 @@ test("admin generates a one-time secure planner link and sees submitted proposal
   await expect(page.getByRole("button", { name: "Link generated" })).toBeVisible();
   await expect(page.locator(".planner-action-feedback")).toHaveText("Link generated");
   await expect(page.locator(".planner-generated-link input")).toHaveValue(/one-time-secret/);
-  await expect(page.getByText("1 published eligible unit")).toBeVisible();
+  await expect(page.getByText("1 published eligible unit", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("not published")).toBeVisible();
   await expect(page.getByText("The full token is shown once")).toBeVisible();
   await page.getByRole("button", { name: "Copy link" }).click();
   await expect(page.getByText("Link copied")).toBeVisible();

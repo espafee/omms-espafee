@@ -108,6 +108,25 @@ export type PlannerLink = {
   public_path?: string;
   token?: string;
 };
+export type PlannerEligibilityPreview = {
+  counts: {
+    base_media_units: number;
+    tenant_scoped: number;
+    publicly_listed: number;
+    operational: number;
+    allowed_city: number;
+    date_available: number;
+    eligible: number;
+  };
+  excluded: {
+    not_published: number;
+    city_not_allowed: number;
+    inactive: number;
+    unavailable_for_dates: number;
+    missing_public_information: number;
+  };
+  allowed_cities: string[];
+};
 
 function queryString(values: Record<string, string | number | boolean | undefined | null>) {
   const query = new URLSearchParams();
@@ -149,6 +168,9 @@ export function createPlannerLink(payload: Record<string, unknown>) {
 }
 export function revokePlannerLink(id: number) {
   return apiFetch<PlannerLink>(`planner/links/${id}/revoke/`, { method: "POST", body: "{}" });
+}
+export function fetchPlannerLinkEligibility(id: number) {
+  return apiFetch<PlannerEligibilityPreview>(`planner/links/${id}/eligible-inventory/`);
 }
 export async function fetchPlannerProposals(filters: Record<string, string> = {}) {
   const payload = await apiFetch<{ results: PlannerProposal[] } | PlannerProposal[]>(`planner/proposals/?${queryString(filters)}`);
