@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 const pixel = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
-const admin = { id: 1, email: "admin@example.com", username: "admin", role: "admin", is_company_admin: true };
-const platformAdmin = { id: 2, email: "platform@example.com", username: "platform", role: "admin", is_platform_admin: true, is_superuser: true };
+const admin = { id: 1, email: "admin@example.com", username: "admin", role: "admin", tenant: 1, tenant_name: "Alpha Outdoor", is_company_admin: true };
+const platformAdmin = { id: 2, email: "platform@example.com", username: "platform", role: "admin", tenant: 99, tenant_name: "OMMS Platform", tenant_type: "platform", is_platform_admin: true, is_superuser: true };
 
 async function seedAdmin(page: Page) {
   await page.addInitScript((profile) => {
@@ -156,7 +156,11 @@ test("admin generates a one-time secure planner link and sees submitted proposal
     const request = route.request(); const path = new URL(request.url()).pathname.replace("/api/v1/", "");
     if (path === "users/auth/me/") return route.fulfill({ contentType: "application/json", body: JSON.stringify(admin) });
     if (path === "observability/operational-mode/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
-    if (path === "planner/links/" && request.method() === "POST") return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: 2, title: "Client Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/one-time-secret", token: "one-time-secret" }) });
+    if (path === "planner/links/" && request.method() === "POST") {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      expect(body).not.toHaveProperty("tenant");
+      return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: 2, tenant: 1, tenant_name: "Alpha Outdoor", title: "Client Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/one-time-secret", token: "one-time-secret" }) });
+    }
     if (path === "planner/links/2/eligible-inventory/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ counts: { base_media_units: 2, tenant_scoped: 2, publicly_listed: 1, operational: 1, allowed_city: 1, date_available: 1, eligible: 1 }, excluded: { not_published: 1, city_not_allowed: 0, inactive: 0, unavailable_for_dates: 0, missing_public_information: 0 }, allowed_cities: [] }) });
     if (path === "planner/links/") return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
     if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 4, reference: "PRP-001", client_name: "Acme India", campaign_name: "Summer Launch", brand_company: "Acme", requested_start_date: "2026-08-01", requested_end_date: "2026-08-31", contact_name: "Asha", contact_email: "asha@acme.test", contact_phone: "", billing_gstin: "", notes: "", status: "submitted", submitted_at: "2026-07-18T10:00:00Z", preliminary_subtotal: "0.00", selected_unit_count: 2, availability_conflict_count: 0, assigned_to_name: "Unassigned", estimate_number: null, converted_campaign_code: null, lines: [] }]) });
@@ -164,6 +168,9 @@ test("admin generates a one-time secure planner link and sees submitted proposal
   });
   await page.goto("/sales/proposals");
   await expect(page.getByText("PRP-001")).toBeVisible();
+  await expect(page.getByLabel("Select company")).toHaveCount(0);
+  await expect(page.getByText("Company")).toBeVisible();
+  await expect(page.getByText("Alpha Outdoor")).toBeVisible();
   await page.getByLabel("Link title").fill("Client Planner");
   const generateButton = page.getByRole("button", { name: "Generate secure link" });
   await generateButton.click();
@@ -178,12 +185,68 @@ test("admin generates a one-time secure planner link and sees submitted proposal
   await expect(page.getByText("Link copied")).toBeVisible();
 });
 
+test("platform superadmin selects a tenant before generating a planner link", async ({ page }) => {
+  await seedPlatformAdmin(page);
+  let generated = false;
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    if (path === "users/auth/me/") return route.fulfill({ contentType: "application/json", body: JSON.stringify(platformAdmin) });
+    if (path === "observability/operational-mode/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
+    if (path === "team/roles/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ roles: [], tenants: [{ id: 2, name: "ESPA FEE", slug: "espa-fee" }], can_select_tenant: true }) });
+    if (path === "planner/links/" && request.method() === "POST") {
+      const body = request.postDataJSON() as Record<string, unknown>;
+      expect(body.tenant).toBe(2);
+      generated = true;
+      return route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ id: 8, tenant: 2, tenant_name: "ESPA FEE", title: "ESPA Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/tenant-secret", token: "tenant-secret" }) });
+    }
+    if (path === "planner/links/8/eligible-inventory/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ counts: { base_media_units: 11, tenant_scoped: 11, publicly_listed: 11, operational: 11, allowed_city: 11, date_available: 11, eligible: 11 }, excluded: { not_published: 0, city_not_allowed: 0, inactive: 0, unavailable_for_dates: 0, missing_public_information: 0 }, allowed_cities: ["jammu"] }) });
+    if (path.startsWith("planner/links/8/eligibility-diagnostics/")) {
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
+          database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "inventory.0009_mediaunit_is_publicly_listed_and_more": true, "planner.0001_initial": true } },
+          link: { id: 8, title: "ESPA Planner", tenant_id: 2, tenant_name: "ESPA FEE", active: true, revoked: false, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 11, published_count: 11, excluded_count: 0 },
+          pipeline: { all_units: 11, tenant_units: 11, published_units: 11, active_units: 11, operational_units: 11, city_eligible_units: 11, link_restriction_units: 11, date_eligible_units: 11, serializer_eligible_units: 11, final_units: 11 },
+          exclusions: { wrong_tenant: 0, unpublished: 0, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
+          sample_units: [{ code: "ESPA-001", tenant_id: 2, published: true, public_id_present: true, status: "available", city_raw: "Jammu", city_normalized: "jammu", parent_active: true, eligible: true, exclusion_reason: null }],
+        }),
+      });
+    }
+    if (path === "planner/links/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(generated ? [{ id: 8, tenant: 2, tenant_name: "ESPA FEE", title: "ESPA Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 11 }] : []) });
+    }
+    if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+    if (path.startsWith("public/media-planner/tenant-secret/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(false)) });
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
+  });
+
+  await page.goto("/sales/proposals");
+  const generateButton = page.getByRole("button", { name: "Generate secure link" });
+  await expect(page.getByLabel("Select company")).toBeVisible();
+  await expect(generateButton).toBeDisabled();
+  await page.getByLabel("Select company").selectOption("2");
+  await expect(generateButton).toBeEnabled();
+  await page.getByLabel("Link title").fill("ESPA Planner");
+  await generateButton.click();
+  await expect(page.getByText("Company: ESPA FEE")).toBeVisible();
+  await expect(page.getByText("11 published eligible units")).toBeVisible();
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  const diagnosticsModal = page.getByRole("dialog", { name: "Media planner eligibility diagnostics" });
+  await expect(diagnosticsModal).toBeVisible();
+  await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-001" }).first()).toBeVisible();
+  await page.goto("/media-planner/tenant-secret");
+  await expect(page.getByRole("heading", { name: "Acme Live Media Planner" })).toBeVisible();
+  await expect(page.getByText("JMU-001-A")).toBeVisible();
+});
+
 test("platform superadmin opens planner diagnostics inside media proposals", async ({ page }) => {
   await seedPlatformAdmin(page);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
-      value: { writeText: async () => undefined },
+      value: { writeText: async (value: string) => localStorage.setItem("planner_diagnostics_clipboard", value) },
     });
   });
   await page.route("**/api/v1/**", async (route) => {
@@ -217,12 +280,64 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
   await expect(page.getByText("Eligible units: 1")).toBeVisible();
   await expect(page.getByText("Published units: 1")).toBeVisible();
   await page.getByRole("button", { name: "Diagnostics" }).click();
-  await expect(page.getByRole("dialog", { name: "Media planner eligibility diagnostics" })).toBeVisible();
+  const diagnosticsModal = page.getByRole("dialog", { name: "Media planner eligibility diagnostics" });
+  await expect(diagnosticsModal).toBeVisible();
   await expect(page.getByText("final units")).toBeVisible();
-  await expect(page.getByText("ESPA-001")).toBeVisible();
+  await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-001" }).first()).toBeVisible();
   await expect(page.getByText("DATABASE_URL")).toHaveCount(0);
   await page.getByRole("button", { name: "Copy diagnostic report" }).click();
   await expect(page.getByText("Diagnostic report copied")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_diagnostics_clipboard"))).toContain("ESPA-001");
+});
+
+test("platform diagnostics warns on tenant mismatch and keeps modal open when copy fails", async ({ page }) => {
+  await seedPlatformAdmin(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("Denied"); } },
+    });
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    if (path === "observability/operational-mode/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
+    }
+    if (path === "team/roles/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify({ roles: [], tenants: [{ id: 2, name: "ESPA FEE", slug: "espa-fee" }], can_select_tenant: true }) });
+    }
+    if (path === "planner/links/") {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 9, tenant: 99, tenant_name: "OMMS Platform", title: "Wrong Tenant Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 0 }]) });
+    }
+    if (path.startsWith("planner/links/9/eligibility-diagnostics/")) {
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
+          database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "inventory.0009_mediaunit_is_publicly_listed_and_more": true, "planner.0001_initial": true } },
+          link: { id: 9, title: "Wrong Tenant Planner", tenant_id: 99, tenant_name: "OMMS Platform", active: true, revoked: false, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 0, published_count: 0, excluded_count: 11 },
+          pipeline: { all_units: 11, tenant_units: 0, published_units: 0, active_units: 0, operational_units: 0, city_eligible_units: 0, link_restriction_units: 0, date_eligible_units: 0, serializer_eligible_units: 0, final_units: 0 },
+          exclusions: { wrong_tenant: 11, unpublished: 0, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
+          sample_units: [{ code: "ESPA-001", tenant_id: 2, published: true, public_id_present: true, status: "available", city_raw: "Jammu", city_normalized: "jammu", parent_active: true, eligible: false, exclusion_reason: "wrong_tenant" }],
+        }),
+      });
+    }
+    if (path.startsWith("planner/proposals/")) {
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+    }
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
+  });
+
+  await page.goto("/sales/proposals");
+  await expect(page.getByText("Planner tenant does not match published inventory.")).toBeVisible();
+  await page.getByRole("button", { name: "Diagnostics" }).click();
+  const modal = page.getByRole("dialog", { name: "Media planner eligibility diagnostics" });
+  await expect(modal).toBeVisible();
+  await expect(modal.getByText("Planner tenant does not match published inventory.")).toBeVisible();
+  await page.getByRole("button", { name: "Copy diagnostic report" }).click();
+  await expect(page.getByText("Unable to copy diagnostic report. Select the JSON and copy it manually.")).toBeVisible();
+  await expect(modal).toBeVisible();
 });
 
 test("platform superadmin runs safe media planner diagnostics", async ({ page }) => {

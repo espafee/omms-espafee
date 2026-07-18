@@ -83,7 +83,20 @@ class MediaPlannerShareLinkSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         attrs = super().validate(attrs)
         request = self.context.get("request")
-        tenant = attrs.get("tenant") or get_user_tenant(getattr(request, "user", None))
+        actor = getattr(request, "user", None)
+        submitted_tenant = attrs.get("tenant")
+        if is_platform_super_admin(actor):
+            if self.instance is None and not submitted_tenant:
+                raise serializers.ValidationError({"tenant": ["Select a client company for this planner link."]})
+            tenant = submitted_tenant or getattr(self.instance, "tenant", None)
+            if tenant and tenant.tenant_type != Tenant.TenantType.CLIENT:
+                raise serializers.ValidationError({"tenant": ["Select a client company, not the platform tenant."]})
+        else:
+            tenant = get_user_tenant(actor)
+            if submitted_tenant and submitted_tenant != tenant:
+                raise serializers.ValidationError({"tenant": ["You can only create planner links for your own company."]})
+            if tenant:
+                attrs["tenant"] = tenant
         client = attrs.get("client")
         if client and client.tenant_id != getattr(tenant, "id", None):
             raise serializers.ValidationError({"client": ["Client must belong to the selected company."]})

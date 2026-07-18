@@ -311,3 +311,11 @@ OMMS now has a controlled way to collect production evidence for Live Media Plan
 This keeps beta stabilization practical: when a production-only planner link shows zero units, the team can identify the exact exclusion stage, prove whether publishing and public reads use the same database, and disable the tool again after diagnosis.
 
 The diagnostic evidence is now also available inside the existing Media Proposals workspace for platform admins. Each recent planner link can show eligible, published, and excluded unit counts, with a safe report for the ESPA units currently under investigation. Public clients only receive simple empty-state metadata, never internal exclusion details.
+
+## Live Planner Tenant Safety
+
+The Live Media Planner now protects platform operators from accidentally generating a client-facing link under the OMMS platform tenant. Company admins continue to work simply inside their own company, while platform admins must choose the client company before creating a secure planner link.
+
+This resolves the confirmed production mismatch where published ESPA inventory existed under tenant ID 2, but the active planner link had zero tenant units and only `wrong_tenant` exclusions. Existing incorrect links are not silently repaired; they should be revoked and regenerated under the correct company, preserving audit clarity and tenant ownership discipline.
+
+The diagnostics workspace also became more operator-friendly: it flags tenant mismatch clearly and copies the safe report reliably without closing the modal or disrupting the page.
