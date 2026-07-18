@@ -100,6 +100,52 @@ class MediaPlannerDiagnosticsService:
             end_date=end_date,
         )
 
+        final_count = final_queryset.count()
+        published_count = public_units.count()
+        excluded_count = sum(exclusions.values())
+        link_payload = {
+            "id": link.id,
+            "title": link.title,
+            "tenant_id": link.tenant_id,
+            "tenant_name": link.tenant.name,
+            "active": link.is_available,
+            "revoked": link.is_revoked,
+            "expired": link.is_expired,
+            "allowed_cities_type": type(link.allowed_cities).__name__ if link.allowed_cities is not None else "null",
+            "allowed_cities": _coerced_allowed_values(link.allowed_cities),
+            "pricing_mode": link.pricing_mode,
+            "expires_at": link.expires_at.isoformat() if link.expires_at else None,
+            "eligible_count": final_count,
+            "published_count": published_count,
+            "excluded_count": excluded_count,
+        }
+        pipeline = {
+            "all_units": all_units.count(),
+            "tenant_units": tenant_units.count(),
+            "publicly_listed": published_count,
+            "published_units": published_count,
+            "active_units": active_units.count(),
+            "operationally_eligible": operational_units.count(),
+            "operational_units": operational_units.count(),
+            "parent_location_eligible": parent_location_units.count(),
+            "parent_active_units": parent_location_units.count(),
+            "allowed_city_eligible": city_units.count(),
+            "city_eligible_units": city_units.count(),
+            "allowed_region_eligible": region_units.count(),
+            "inventory_type_eligible": type_units.count(),
+            "link_restriction_eligible": type_units.count(),
+            "link_restriction_units": type_units.count(),
+            "available_for_requested_dates": available_for_dates,
+            "date_eligible": available_for_dates,
+            "date_eligible_units": available_for_dates,
+            "public_serializer_eligible": max(final_count - serialization_error_count, 0),
+            "serializer_eligible_units": max(final_count - serialization_error_count, 0),
+            "final_serialized": final_count,
+            "final_units": final_count,
+        }
+        exclusions["parent_inactive"] = 0
+        exclusions["date_unavailable"] = exclusions.get("unavailable_for_dates", 0)
+
         return {
             "service": self._service_identity(),
             "database": {
@@ -107,6 +153,7 @@ class MediaPlannerDiagnosticsService:
                 "database_fingerprint": self._database_fingerprint(),
                 "migration_status": self._migration_status(),
             },
+            "link": link_payload,
             "planner_link": {
                 "id": link.id,
                 "title": link.title,
@@ -120,25 +167,13 @@ class MediaPlannerDiagnosticsService:
                 "allowed_cities_normalized": _normalized_allowed_values(link.allowed_cities),
                 "pricing_mode": link.pricing_mode,
                 "expires_at": link.expires_at.isoformat() if link.expires_at else None,
-                "eligible_count": final_queryset.count(),
+                "eligible_count": final_count,
+                "published_count": published_count,
+                "excluded_count": excluded_count,
             },
-            "pipeline": {
-                "all_units": all_units.count(),
-                "tenant_units": tenant_units.count(),
-                "publicly_listed": public_units.count(),
-                "active_units": active_units.count(),
-                "operationally_eligible": operational_units.count(),
-                "parent_location_eligible": parent_location_units.count(),
-                "allowed_city_eligible": city_units.count(),
-                "allowed_region_eligible": region_units.count(),
-                "inventory_type_eligible": type_units.count(),
-                "link_restriction_eligible": type_units.count(),
-                "available_for_requested_dates": available_for_dates,
-                "date_eligible": final_queryset.count(),
-                "public_serializer_eligible": max(final_queryset.count() - serialization_error_count, 0),
-                "final_serialized": final_queryset.count(),
-            },
+            "pipeline": pipeline,
             "exclusions": exclusions,
+            "sample_units": sampled_units,
             "units": sampled_units,
         }
 

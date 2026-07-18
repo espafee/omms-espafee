@@ -50,7 +50,13 @@ export type PublicPlannerPayload = {
     availability_statuses: string[];
     rate_bounds: { min: string | null; max: string | null };
   };
-  meta: { eligible_unit_count: number; has_campaign_dates: boolean };
+  meta: {
+    eligible_unit_count: number;
+    eligible_count_before_filters?: number;
+    results_count?: number;
+    empty_reason?: "no_eligible_inventory" | "no_date_availability" | "no_filter_matches" | null;
+    has_campaign_dates: boolean;
+  };
 };
 export type PlannerProposalLine = {
   id: number;
@@ -127,6 +133,48 @@ export type PlannerEligibilityPreview = {
   };
   allowed_cities: string[];
 };
+export type PlannerLinkEligibilityDiagnostics = {
+  service: {
+    git_sha: string;
+    build_timestamp: string;
+    environment: string;
+  };
+  database: {
+    engine: string;
+    database_fingerprint: string;
+    migration_status: Record<string, boolean>;
+  };
+  link: {
+    id: number;
+    title: string;
+    tenant_id: number;
+    tenant_name: string;
+    active: boolean;
+    revoked: boolean;
+    expired: boolean;
+    allowed_cities_type: string;
+    allowed_cities: string[];
+    pricing_mode: string;
+    expires_at: string | null;
+    eligible_count: number;
+    published_count: number;
+    excluded_count: number;
+  };
+  pipeline: Record<string, number>;
+  exclusions: Record<string, number>;
+  sample_units: Array<{
+    code: string;
+    tenant_id: number | null;
+    published: boolean;
+    status: string;
+    public_id_present: boolean;
+    city_raw: string;
+    city_normalized: string;
+    parent_active: boolean;
+    eligible: boolean;
+    exclusion_reason: string | null;
+  }>;
+};
 
 function queryString(values: Record<string, string | number | boolean | undefined | null>) {
   const query = new URLSearchParams();
@@ -171,6 +219,12 @@ export function revokePlannerLink(id: number) {
 }
 export function fetchPlannerLinkEligibility(id: number) {
   return apiFetch<PlannerEligibilityPreview>(`planner/links/${id}/eligible-inventory/`);
+}
+export function fetchPlannerLinkEligibilityDiagnostics(id: number, params: Record<string, string> = {}) {
+  const query = queryString(params);
+  return apiFetch<PlannerLinkEligibilityDiagnostics>(
+    `planner/links/${id}/eligibility-diagnostics/${query ? `?${query}` : ""}`,
+  );
 }
 export async function fetchPlannerProposals(filters: Record<string, string> = {}) {
   const payload = await apiFetch<{ results: PlannerProposal[] } | PlannerProposal[]>(`planner/proposals/?${queryString(filters)}`);

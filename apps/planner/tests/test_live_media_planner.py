@@ -170,7 +170,36 @@ class LiveMediaPlannerTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["count"], 0)
         self.assertEqual(response.data["meta"]["eligible_unit_count"], 0)
+        self.assertEqual(response.data["meta"]["eligible_count_before_filters"], 0)
+        self.assertEqual(response.data["meta"]["results_count"], 0)
+        self.assertEqual(response.data["meta"]["empty_reason"], "no_eligible_inventory")
         self.assertEqual(response.data["results"], [])
+
+    def test_blank_allowed_cities_are_unrestricted(self):
+        for value in ([], "", "   ", " , "):
+            with self.subTest(value=value):
+                self.link.allowed_cities = value
+                self.link.save(update_fields=["allowed_cities"])
+                response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.data["count"], 1)
+                self.assertEqual(response.data["results"][0]["unit_code"], self.unit.unit_code)
+
+    def test_hidden_pricing_does_not_exclude_public_units(self):
+        self.link.pricing_mode = MediaPlannerShareLink.PricingMode.HIDDEN
+        self.link.show_rates = False
+        self.link.save(update_fields=["pricing_mode", "show_rates"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 1)
+        self.assertIsNone(response.data["results"][0]["monthly_rate"])
+
+    def test_blank_dates_do_not_exclude_published_units(self):
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["meta"]["has_campaign_dates"], False)
+        self.assertEqual(response.data["meta"]["eligible_unit_count"], 1)
+        self.assertEqual(response.data["count"], 1)
 
     def test_public_filter_names_match_endpoint_and_remain_tenant_scoped(self):
         response = self.api.get(
@@ -206,8 +235,12 @@ class LiveMediaPlannerTests(TestCase):
         )
         self.assertEqual(available_response.status_code, 200)
         self.assertEqual(available_response.data["count"], 0)
+        self.assertEqual(available_response.data["meta"]["eligible_unit_count"], 1)
+        self.assertEqual(available_response.data["meta"]["results_count"], 0)
+        self.assertEqual(available_response.data["meta"]["empty_reason"], "no_date_availability")
         self.assertEqual(booked_response.status_code, 200)
         self.assertEqual(booked_response.data["count"], 1)
+        self.assertIsNone(booked_response.data["meta"]["empty_reason"])
 
     def test_internal_link_creation_reports_eligible_unit_count(self):
         self.api.force_authenticate(self.admin)
@@ -504,14 +537,22 @@ class MediaPlannerPlatformDiagnosticsTests(TestCase):
         payload = response.data
         self.assertEqual(payload["service"]["git_sha"], "abcdef123456")
         self.assertEqual(payload["service"]["environment"], "test")
+        self.assertEqual(payload["link"]["allowed_cities_type"], "str")
+        self.assertEqual(payload["link"]["allowed_cities"], ["Jammu"])
+        self.assertEqual(payload["link"]["published_count"], 1)
+        self.assertEqual(payload["link"]["eligible_count"], 1)
         self.assertEqual(payload["planner_link"]["allowed_cities_raw_type"], "str")
         self.assertEqual(payload["planner_link"]["allowed_cities_safe_summary"], ["Jammu"])
         self.assertEqual(payload["pipeline"]["tenant_units"], 2)
         self.assertEqual(payload["pipeline"]["publicly_listed"], 1)
+        self.assertEqual(payload["pipeline"]["published_units"], 1)
         self.assertEqual(payload["pipeline"]["allowed_city_eligible"], 1)
+        self.assertEqual(payload["pipeline"]["city_eligible_units"], 1)
         self.assertEqual(payload["pipeline"]["final_serialized"], 1)
+        self.assertEqual(payload["pipeline"]["final_units"], 1)
         self.assertEqual(payload["exclusions"]["unpublished"], 1)
         self.assertEqual(payload["exclusions"]["wrong_tenant"], 1)
+        self.assertEqual(payload["sample_units"][0]["code"], "ESPA-001")
         self.assertTrue(payload["database"]["migration_status"]["inventory.0009_mediaunit_is_publicly_listed_and_more"])
         self.assertTrue(payload["database"]["migration_status"]["planner.0001_initial"])
         self.assertRegex(payload["database"]["database_fingerprint"], r"^[a-f0-9]{16}$")
@@ -537,3 +578,29 @@ class MediaPlannerPlatformDiagnosticsTests(TestCase):
         response = self.api.get(self.endpoint, {"planner_link_id": self.link.id})
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(len(response.data["units"]), 25)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_link_level_diagnostics_endpoint_is_platform_only(self):
+        endpoint = f"/api/v1/planner/links/{self.link.id}/eligibility-diagnostics/"
+        self.api.force_authenticate(self.company_admin)
+        company_response = self.api.get(endpoint)
+        self.assertEqual(company_response.status_code, 403)
+
+        self.api.force_authenticate(self.platform_admin)
+        platform_response = self.api.get(endpoint)
+        self.assertEqual(platform_response.status_code, 200)
+        self.assertEqual(platform_response.data["link"]["id"], self.link.id)
+        self.assertEqual(platform_response.data["pipeline"]["final_units"], 1)
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_link_level_diagnostics_reports_default_espa_units_when_present(self):
+        self.make_unit(self.site, "ESPA-002_2", public=True)
+        self.make_unit(self.site, "ESPA-003", public=True, status=MediaUnit.Status.RETIRED)
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(f"/api/v1/planner/links/{self.link.id}/eligibility-diagnostics/")
+        self.assertEqual(response.status_code, 200)
+        rows = {row["code"]: row for row in response.data["sample_units"]}
+        self.assertEqual(rows["ESPA-001"]["eligible"], True)
+        self.assertEqual(rows["ESPA-002_1"]["exclusion_reason"], "unpublished")
+        self.assertEqual(rows["ESPA-002_2"]["eligible"], True)
+        self.assertEqual(rows["ESPA-003"]["exclusion_reason"], "retired")

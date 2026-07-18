@@ -309,3 +309,5 @@ Internal teams also have a lightweight eligible-inventory preview, so a zero-uni
 OMMS now has a controlled way to collect production evidence for Live Media Planner visibility issues without Render Shell access. A disabled-by-default platform diagnostics route lets a platform superadmin inspect safe pipeline counts, migration checks, build identity, and a non-reversible database fingerprint while avoiding raw tokens, secrets, contact data, and financial internals.
 
 This keeps beta stabilization practical: when a production-only planner link shows zero units, the team can identify the exact exclusion stage, prove whether publishing and public reads use the same database, and disable the tool again after diagnosis.
+
+The diagnostic evidence is now also available inside the existing Media Proposals workspace for platform admins. Each recent planner link can show eligible, published, and excluded unit counts, with a safe report for the ESPA units currently under investigation. Public clients only receive simple empty-state metadata, never internal exclusion details.
