@@ -190,7 +190,15 @@ test.describe("Team and access", () => {
   });
 
   test("unauthorized roles do not see Team navigation", async ({ page }) => {
-    const financeProfile = { id: 7, email: "finance@example.com", username: "finance", role: "finance" };
+    const financeProfile = {
+      id: 7,
+      email: "finance@example.com",
+      username: "finance",
+      role: "finance",
+      organization_name: "Alpha Outdoor",
+      is_company_admin: false,
+      is_platform_admin: false,
+    };
     await seedSession(page, financeProfile);
     await page.route("**/api/v1/**", async (route) => {
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Mock unavailable" }) });
@@ -200,7 +208,15 @@ test.describe("Team and access", () => {
   });
 
   test("specialist navigation matches backend role boundaries", async ({ page }) => {
-    const inventoryProfile = { id: 8, email: "inventory@example.com", username: "inventory", role: "inventory_manager" };
+    const inventoryProfile = {
+      id: 8,
+      email: "inventory@example.com",
+      username: "inventory",
+      role: "inventory_manager",
+      organization_name: "Alpha Outdoor",
+      is_company_admin: false,
+      is_platform_admin: false,
+    };
     await seedSession(page, inventoryProfile);
     await page.route("**/api/v1/**", async (route) => {
       await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ detail: "Mock unavailable" }) });

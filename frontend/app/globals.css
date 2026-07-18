@@ -5352,10 +5352,14 @@ body.modal-open { overflow: hidden; }
 .diagnostics-migrations { display: flex; flex-wrap: wrap; gap: 8px; }
 .diagnostics-table-wrap { overflow-x: auto; }
 .diagnostics-table { min-width: 760px; }
-.planner-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
-.planner-link-row div { display: grid; gap: 2px; }
-.planner-link-row div span { color: #64776f; font-size: 12px; text-transform: capitalize; }
+.planner-link-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid #e2ebe7; }
+.planner-link-main { display: grid; gap: 2px; }
+.planner-link-main span { color: #64776f; font-size: 12px; text-transform: capitalize; }
 .planner-link-row .planner-link-metrics { color: #244f40; font-weight: 800; text-transform: none; }
+.planner-link-row .planner-link-warning { grid-column: 1 / -1; }
+.planner-link-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.planner-copy-link-button { display: inline-flex; align-items: center; gap: 6px; }
+.planner-copy-link-button svg { width: 15px; height: 15px; flex: 0 0 15px; }
 .planner-diagnostics-modal { width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
 .diagnostics-json-source { width: 100%; min-height: 96px; margin-top: 8px; padding: 10px; border: 1px solid #dce9e3; border-radius: 6px; background: #f8fbfa; color: #526b61; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }
@@ -5398,6 +5402,8 @@ body.modal-open { overflow: hidden; }
   .planner-filter-panel:not([open]) .planner-filter-grid { display: none; }
   .planner-filter-grid, .planner-proposal-form, .planner-link-form { grid-template-columns: 1fr; }
   .planner-unit-grid, .planner-internal-grid, .planner-detail-grid, .planner-line-grid { grid-template-columns: 1fr; }
+  .planner-link-row { grid-template-columns: 1fr; align-items: start; }
+  .planner-link-actions { justify-content: flex-start; }
   .planner-unit-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .planner-basket-bar { right: 12px; bottom: 12px; gap: 10px; }
   .planner-basket-help { grid-column: 1 / -1; max-width: none; }

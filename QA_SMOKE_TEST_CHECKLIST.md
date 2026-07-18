@@ -100,6 +100,12 @@ Use this checklist after every production deployment or major workflow change.
 ## 13. Public Links
 - Test campaign public link, estimate public link, and issue report link in an incognito/logged-out state.
 - Expected: stale local JWT or no JWT does not break public flows.
+- Open Sales Proposals and create a Live Media Planner link.
+- Expected: the new active link appears under Recent planner links with `Copy Link`, Diagnostics, and Revoke actions in order when available.
+- Click `Copy Link`.
+- Expected: the full public planner URL is copied, the button temporarily reads `Copied`, and `Planner link copied` appears.
+- Revoke or close a planner link.
+- Expected: closed/revoked/expired planner links do not show `Copy Link`; active links with no public URL show the copy action disabled.
 
 ## 14. Finance Dashboard
 - Open Dashboard.

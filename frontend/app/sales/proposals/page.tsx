@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -48,6 +48,19 @@ async function copyText(value: string) {
   }
 }
 
+function buildPlannerPublicUrl(publicPath?: string) {
+  const path = publicPath?.trim();
+  if (!path) return "";
+  if (/^https?:\/\//i.test(path)) return path;
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  if (typeof window === "undefined") return normalizedPath;
+  return `${window.location.origin}${normalizedPath}`;
+}
+
+function isCopyablePlannerLink(link: PlannerLink) {
+  return Boolean(link.id && link.is_available && !link.revoked_at);
+}
+
 function hasTenantMismatch(report?: PlannerLinkEligibilityDiagnostics | null) {
   if (!report) return false;
   return (
@@ -77,9 +90,12 @@ export default function ProposalsWorkspacePage() {
   const [isDiagnosticsLoading, setIsDiagnosticsLoading] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
+  const [historyCopyFeedback, setHistoryCopyFeedback] = useState("");
+  const [copiedPlannerLinkId, setCopiedPlannerLinkId] = useState<number | null>(null);
   const [tenantOptions, setTenantOptions] = useState<TeamTenant[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [tenantFeedback, setTenantFeedback] = useState("");
+  const historyCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isPlatformAdmin = Boolean(user?.is_platform_admin);
   const userCompanyName = user?.tenant_name || user?.organization_name || "Your company";
 
@@ -111,6 +127,14 @@ export default function ProposalsWorkspacePage() {
     setUser(getStoredUser());
     void load();
   }, [load, router]);
+
+  useEffect(() => {
+    return () => {
+      if (historyCopyTimer.current) {
+        clearTimeout(historyCopyTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isPlatformAdmin || !links.length) {
@@ -200,6 +224,7 @@ export default function ProposalsWorkspacePage() {
       setLinkFeedback("Link generated");
       void loadEligibilityPreview(link.id);
       await load();
+      setLinks((current) => [link, ...current.filter((item) => item.id !== link.id)]);
     } catch (createError) {
       setLinkFeedback("");
       setError(
@@ -232,6 +257,28 @@ export default function ProposalsWorkspacePage() {
       setCopyFeedback("Link copied");
     } catch {
       setCopyFeedback("Unable to copy link. Select the URL and copy it manually.");
+    }
+  }
+
+  async function copyPlannerHistoryLink(link: PlannerLink) {
+    if (!isCopyablePlannerLink(link)) return;
+    const url = buildPlannerPublicUrl(link.public_path);
+    if (!url) return;
+    setHistoryCopyFeedback("");
+    try {
+      await copyText(url);
+      setCopiedPlannerLinkId(link.id);
+      setHistoryCopyFeedback("Planner link copied");
+      if (historyCopyTimer.current) {
+        clearTimeout(historyCopyTimer.current);
+      }
+      historyCopyTimer.current = setTimeout(() => {
+        setCopiedPlannerLinkId(null);
+        setHistoryCopyFeedback("");
+      }, 2000);
+    } catch {
+      setCopiedPlannerLinkId(null);
+      setHistoryCopyFeedback("Unable to copy planner link. Select the URL and copy it manually.");
     }
   }
 
@@ -476,9 +523,12 @@ export default function ProposalsWorkspacePage() {
           {links.length ? (
             links.slice(0, 8).map((link) => {
               const diagnostics = diagnosticsByLink[link.id];
+              const canCopyPlannerLink = isCopyablePlannerLink(link);
+              const hasPlannerUrl = Boolean(buildPlannerPublicUrl(link.public_path));
+              const isCopied = copiedPlannerLinkId === link.id;
               return (
               <div className="planner-link-row" key={link.id}>
-                <div>
+                <div className="planner-link-main">
                   <strong>{link.title}</strong>
                   <span>
                     {link.client_name || "General client link"} ·{" "}
@@ -498,40 +548,55 @@ export default function ProposalsWorkspacePage() {
                 {hasTenantMismatch(diagnostics) ? (
                   <p className="planner-link-warning">{TENANT_MISMATCH_MESSAGE}</p>
                 ) : null}
-                <span
-                  className={`status-pill ${link.is_available ? "status-active" : "status-failed"}`}
-                >
-                  {link.is_available ? "Active" : "Closed"}
-                </span>
-                {isPlatformAdmin ? (
-                  <button
-                    className="ghost"
-                    type="button"
-                    disabled={isDiagnosticsLoading}
-                    onClick={() => void openDiagnostics(link)}
+                <div className="planner-link-actions">
+                  <span
+                    className={`status-pill ${link.is_available ? "status-active" : "status-failed"}`}
                   >
-                    Diagnostics
-                  </button>
-                ) : null}
-                {link.is_available &&
-                ["admin", "sales"].includes(user?.role || "") ? (
-                  <button
-                    className="ghost"
-                    type="button"
-                    onClick={async () => {
-                      await revokePlannerLink(link.id);
-                      await load();
-                    }}
-                  >
-                    Revoke
-                  </button>
-                ) : null}
+                    {link.is_available ? "Active" : "Closed"}
+                  </span>
+                  {canCopyPlannerLink ? (
+                    <button
+                      className="ghost planner-copy-link-button"
+                      type="button"
+                      aria-label="Copy Live Media Planner link"
+                      disabled={!hasPlannerUrl}
+                      onClick={() => void copyPlannerHistoryLink(link)}
+                    >
+                      <CopyLinkIcon />
+                      {isCopied ? "Copied" : "Copy Link"}
+                    </button>
+                  ) : null}
+                  {isPlatformAdmin ? (
+                    <button
+                      className="ghost"
+                      type="button"
+                      disabled={isDiagnosticsLoading}
+                      onClick={() => void openDiagnostics(link)}
+                    >
+                      Diagnostics
+                    </button>
+                  ) : null}
+                  {link.is_available &&
+                  ["admin", "sales"].includes(user?.role || "") ? (
+                    <button
+                      className="ghost"
+                      type="button"
+                      onClick={async () => {
+                        await revokePlannerLink(link.id);
+                        await load();
+                      }}
+                    >
+                      Revoke
+                    </button>
+                  ) : null}
+                </div>
               </div>
               );
             })
           ) : (
             <p className="empty-state">No client planner links yet.</p>
           )}
+          {historyCopyFeedback ? <p className="planner-action-feedback" aria-live="polite">{historyCopyFeedback}</p> : null}
           {diagnosticsFeedback && !activeDiagnostics ? <p className="planner-action-feedback">{diagnosticsFeedback}</p> : null}
         </article>
       </section>
@@ -744,6 +809,15 @@ export default function ProposalsWorkspacePage() {
         )}
       </section>
     </AppShell>
+  );
+}
+
+function CopyLinkIcon() {
+  return (
+    <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
+      <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M4 13V5.8C4 4.8 4.8 4 5.8 4H13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
   );
 }
 
