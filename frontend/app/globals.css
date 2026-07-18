@@ -5269,6 +5269,9 @@ body.modal-open { overflow: hidden; }
 .planner-date-bar { position: sticky; z-index: 10; top: 0; display: grid; grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(160px, 220px)) auto; align-items: end; gap: 14px; max-width: 1440px; margin: 0 auto 16px; padding: 14px 16px; border: 1px solid #c9dbd3; border-radius: 7px; background: rgba(255,255,255,.96); box-shadow: 0 8px 24px rgba(10,57,43,.07); backdrop-filter: blur(12px); }
 .planner-date-bar label, .planner-filter-grid label, .planner-proposal-form label, .planner-link-form label, .planner-review-actions label { display: grid; gap: 6px; color: #526b61; font-size: 11px; font-weight: 800; text-transform: uppercase; }
 .planner-date-bar input, .planner-filter-grid input, .planner-filter-grid select, .planner-proposal-form input, .planner-proposal-form textarea, .planner-link-form input, .planner-link-form select, .planner-review-actions input { min-height: 42px; padding: 9px 11px; border: 1px solid #cbdad4; border-radius: 5px; background: white; color: #10251e; font: inherit; text-transform: none; }
+.planner-date-validation { grid-column: 1 / -1; min-height: 18px; margin: 0; color: #765b08; font-size: 12px; font-weight: 750; }
+.field-error-input { border-color: #c75f3f !important; box-shadow: 0 0 0 2px rgba(199,95,63,.12); }
+.field-error-text { color: #9b2e2e; font-size: 11px; font-weight: 800; text-transform: none; }
 .planner-live-indicator { align-self: center; color: #0b6b4b; font-size: 12px; font-weight: 850; }
 .planner-live-indicator::before { display: inline-block; width: 7px; height: 7px; margin-right: 7px; border-radius: 50%; background: #1a9b6c; content: ""; }
 .planner-filter-panel { max-width: 1440px; margin: 0 auto 22px; border: 1px solid #d6e2dd; border-radius: 7px; background: white; }
@@ -5297,13 +5300,15 @@ body.modal-open { overflow: hidden; }
 .planner-unit-body > p { margin: 0; color: #63776f; font-size: 13px; line-height: 1.5; }
 .planner-unit-actions { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-top: 1px solid #e2ebe7; padding-top: 12px; }
 .planner-unit-actions strong { font-size: 13px; }
-.planner-basket-bar { position: fixed; z-index: 20; right: max(18px, 4vw); bottom: 18px; display: flex; align-items: center; gap: 20px; min-width: min(520px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid #296b54; border-radius: 7px; background: #0e513b; color: white; box-shadow: 0 14px 34px rgba(6,45,33,.25); }
+.planner-basket-bar { position: fixed; z-index: 20; right: max(18px, 4vw); bottom: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; min-width: min(560px, calc(100vw - 32px)); padding: 12px 14px; border: 1px solid #296b54; border-radius: 7px; background: #0e513b; color: white; box-shadow: 0 14px 34px rgba(6,45,33,.25); }
 .planner-basket-bar > div { display: grid; flex: 1; font-size: 12px; }
 .planner-basket-bar .submit { background: white; color: #0e513b; }
+.planner-basket-help { max-width: 210px; color: rgba(255,255,255,.82); font-size: 11px; font-weight: 700; line-height: 1.35; }
 .planner-modal-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(7,30,23,.68); }
 .planner-proposal-modal { width: min(760px, 100%); max-height: calc(100vh - 36px); overflow: auto; padding: 20px; border-radius: 8px; background: white; }
 .planner-proposal-modal > header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
 .planner-proposal-modal h2 { margin: 4px 0; }
+.planner-proposal-summary { display: grid; gap: 3px; margin-top: 4px; color: #526b61; font-size: 13px; }
 .planner-proposal-form, .planner-link-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
 .planner-proposal-form .field-full, .planner-link-form .field-full { grid-column: 1 / -1; }
 .planner-disclaimer { margin: 0; padding: 10px; border-left: 3px solid #d09e2d; color: #6b5b31; background: #fffbeb; font-size: 12px; }
@@ -5395,6 +5400,7 @@ body.modal-open { overflow: hidden; }
   .planner-unit-grid, .planner-internal-grid, .planner-detail-grid, .planner-line-grid { grid-template-columns: 1fr; }
   .planner-unit-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .planner-basket-bar { right: 12px; bottom: 12px; gap: 10px; }
+  .planner-basket-help { grid-column: 1 / -1; max-width: none; }
   .planner-proposal-modal { max-height: 100vh; border-radius: 0; }
   .planner-proposal-modal > header { align-items: flex-start; }
   .planner-proposal-form .field-full, .planner-link-form .field-full { grid-column: auto; }
