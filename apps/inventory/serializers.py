@@ -212,6 +212,7 @@ class MediaUnitSerializer(serializers.ModelSerializer):
         model = MediaUnit
         fields = [
             "id",
+            "public_id",
             "site",
             "unit_code",
             "face_count",
@@ -222,12 +223,15 @@ class MediaUnitSerializer(serializers.ModelSerializer):
             "monthly_rate",
             "facing_direction",
             "site_type",
+            "is_publicly_listed",
+            "public_description",
+            "public_features",
             "primary_image",
             "image_gallery",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "primary_image", "image_gallery", "created_at", "updated_at"]
+        read_only_fields = ["id", "public_id", "primary_image", "image_gallery", "created_at", "updated_at"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -379,6 +383,7 @@ class InventoryUnitListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
         model = MediaUnit
         fields = [
             "id",
+            "public_id",
             "unit_code",
             "location_id",
             "location_name",
@@ -394,6 +399,7 @@ class InventoryUnitListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
             "monthly_rate",
             "facing_direction",
             "site_type",
+            "is_publicly_listed",
             "thumbnail_url",
             "image_count",
             "created_at",

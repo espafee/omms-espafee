@@ -29,6 +29,8 @@ const EMPTY_FORM: TeamUserInput = {
   send_setup: true,
 };
 
+const EMPTY_FILTERS = { search: "", role: "", is_active: "", region: "" };
+
 function formatDateTime(value: string | null) {
   if (!value) {
     return "Never";
@@ -54,7 +56,7 @@ export default function TeamAccessPage() {
   const [profile, setProfile] = useState<AuthUser | null>(null);
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [directory, setDirectory] = useState<TeamRoleDirectory | null>(null);
-  const [filters, setFilters] = useState({ search: "", role: "", is_active: "", region: "" });
+  const [filters, setFilters] = useState(EMPTY_FILTERS);
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -70,7 +72,7 @@ export default function TeamAccessPage() {
     profile?.role === "admin" || profile?.is_company_admin || profile?.is_platform_admin,
   );
 
-  const loadTeam = useCallback(async (nextFilters = filters) => {
+  const loadTeam = useCallback(async (nextFilters: Record<string, string>) => {
     setIsLoading(true);
     setPageError("");
     try {
@@ -91,7 +93,7 @@ export default function TeamAccessPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [filters, router]);
+  }, [router]);
 
   useEffect(() => {
     if (!getAccessToken()) {
@@ -99,7 +101,7 @@ export default function TeamAccessPage() {
       return;
     }
     setProfile(getStoredUser());
-    void loadTeam();
+    void loadTeam(EMPTY_FILTERS);
   }, [loadTeam, router]);
 
   const regions = useMemo(
@@ -363,7 +365,7 @@ export default function TeamAccessPage() {
               <label><span>Phone</span><input value={form.phone_number} onChange={(event) => updateForm("phone_number", event.target.value)} /></label>
               <label><span>Region / location</span><input value={form.region} onChange={(event) => updateForm("region", event.target.value)} placeholder="Jammu, North region" /></label>
               {directory?.can_select_tenant ? <label className="team-form-span"><span>Company</span><select value={form.tenant ?? ""} onChange={(event) => updateForm("tenant", Number(event.target.value))} disabled={Boolean(editingUser)} required><option value="" disabled>Select company</option>{directory.tenants.map((tenant) => <option key={tenant.id} value={tenant.id}>{tenant.name}</option>)}</select></label> : null}
-              <label><span>Role</span><select value={form.role} onChange={(event) => updateForm("role", event.target.value)} required>{directory?.roles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select>{fieldErrors.role?.map((message) => <small className="field-error" key={message}>{message}</small>)}</label>
+              <label><span>Role</span><select value={form.role} onChange={(event) => updateForm("role", event.target.value)} required>{editingUser && !directory?.roles.some((role) => role.value === editingUser.role) ? <option value={editingUser.role}>{editingUser.role_label} (legacy)</option> : null}{directory?.roles.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select>{fieldErrors.role?.map((message) => <small className="field-error" key={message}>{message}</small>)}</label>
               <label><span>Reporting manager</span><select value={form.reports_to ?? ""} onChange={(event) => updateForm("reports_to", event.target.value ? Number(event.target.value) : null)}><option value="">Not assigned</option>{managerOptions.map((manager) => <option key={manager.id} value={manager.id}>{manager.full_name}</option>)}</select></label>
               {!editingUser ? <label className="team-form-check team-form-span"><input type="checkbox" checked={Boolean(form.send_setup)} onChange={(event) => updateForm("send_setup", event.target.checked)} /><span>Send secure account setup invitation now</span></label> : null}
               {formError ? <p className="error team-form-span">{formError}</p> : null}

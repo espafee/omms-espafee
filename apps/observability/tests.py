@@ -489,6 +489,29 @@ class ObservabilityFoundationTests(TestCase):
         self.assertIn("import_export_jobs", operations_profile["active_widgets"])
         self.assertNotIn("billing_risk", operations_profile["active_widgets"])
 
+    def test_dashboard_profile_restricts_specialist_roles(self):
+        poe_reviewer = User.objects.create_user(
+            email="reviewer-dashboard@example.com",
+            username="reviewer_dashboard",
+            password=self.password,
+            role=User.Role.POE_REVIEWER,
+        )
+        inventory_manager = User.objects.create_user(
+            email="inventory-dashboard@example.com",
+            username="inventory_dashboard",
+            password=self.password,
+            role=User.Role.INVENTORY_MANAGER,
+        )
+
+        reviewer_profile = build_dashboard_profile(poe_reviewer)
+        inventory_profile = build_dashboard_profile(inventory_manager)
+
+        self.assertIn("poe_sla", reviewer_profile["active_widgets"])
+        self.assertNotIn("billing_risk", {widget["key"] for widget in reviewer_profile["available_widgets"]})
+        self.assertIn("campaign_performance", inventory_profile["active_widgets"])
+        self.assertNotIn("client_invoices", {widget["key"] for widget in inventory_profile["available_widgets"]})
+        self.assertFalse(inventory_profile["can_view_finance"])
+
     def test_dashboard_profile_protects_finance_widgets_for_field_staff(self):
         field_staff = User.objects.create_user(
             email="field-dashboard@example.com",

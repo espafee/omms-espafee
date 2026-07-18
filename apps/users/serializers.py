@@ -52,6 +52,7 @@ class UserSerializer(serializers.ModelSerializer):
             "is_company_admin",
             "is_staff",
             "is_superuser",
+            "role",
             "created_at",
             "updated_at",
         ]

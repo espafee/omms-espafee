@@ -41,6 +41,7 @@ export type InventorySite = {
 
 export type InventoryUnit = {
   id: number;
+  public_id: string;
   site: number;
   unit_code: string;
   face_count: number;
@@ -51,6 +52,9 @@ export type InventoryUnit = {
   monthly_rate: string;
   facing_direction: string;
   site_type: string;
+  is_publicly_listed: boolean;
+  public_description: string;
+  public_features: string[];
   primary_image: InventoryImage | null;
   image_gallery: InventoryImage[];
   created_at: string;
@@ -83,6 +87,7 @@ export type InventorySiteListItem = {
 
 export type InventoryUnitListItem = {
   id: number;
+  public_id: string;
   unit_code: string;
   location_id: number;
   location_name: string;
@@ -98,6 +103,7 @@ export type InventoryUnitListItem = {
   monthly_rate: string;
   facing_direction: string;
   site_type: string;
+  is_publicly_listed: boolean;
   thumbnail_url: string | null;
   image_count: number;
   created_at: string;
@@ -156,6 +162,9 @@ export type InventoryUnitMutationInput = {
   monthly_rate: string;
   facing_direction: string;
   site_type: string;
+  is_publicly_listed: boolean;
+  public_description: string;
+  public_features: string[];
 };
 
 export const MEDIA_UNIT_SITE_TYPE_OPTIONS = [

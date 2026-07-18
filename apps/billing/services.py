@@ -6,6 +6,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.db.models import Count, DecimalField, Q, Sum
@@ -1037,6 +1038,7 @@ class CampaignEstimateService(BaseService):
                 "updated_at",
             ]
         )
+        self._sync_planner_proposal(instance, "sent_to_client", actor=actor)
         return instance
 
     def approve(self, instance, actor=None, comment=""):
@@ -1046,6 +1048,7 @@ class CampaignEstimateService(BaseService):
         instance.approved_at = instance.approved_at or timezone.now()
         instance.client_response_comment = comment or instance.client_response_comment
         instance.save(update_fields=["status", "approved_at", "client_response_comment", "updated_at"])
+        self._sync_planner_proposal(instance, "client_approved", actor=actor)
         return instance
 
     def reject(self, instance, actor=None, comment=""):
@@ -1055,7 +1058,33 @@ class CampaignEstimateService(BaseService):
         instance.rejected_at = timezone.now()
         instance.client_response_comment = comment or instance.client_response_comment
         instance.save(update_fields=["status", "rejected_at", "client_response_comment", "updated_at"])
+        self._sync_planner_proposal(instance, "client_rejected", actor=actor)
         return instance
+
+    def _sync_planner_proposal(self, instance, status_value, actor=None):
+        """Keep the optional planner workflow aligned without coupling billing to it."""
+        from apps.observability.services import record_audit_event
+
+        try:
+            proposal = instance.planner_proposal
+        except ObjectDoesNotExist:
+            return
+        if proposal.status == status_value:
+            return
+        previous = proposal.status
+        proposal.status = status_value
+        proposal.reviewed_by = actor or proposal.reviewed_by
+        proposal.reviewed_at = timezone.now()
+        proposal.save(update_fields=["status", "reviewed_by", "reviewed_at", "updated_at"])
+        record_audit_event(
+            event_type="planner.proposal.status_changed",
+            entity_type="campaignproposal",
+            entity_id=proposal.id,
+            actor=actor,
+            summary="A client proposal status followed its estimate response.",
+            metadata={"tenant_id": proposal.tenant_id, "from_status": previous, "to_status": status_value},
+            client_reference=proposal.reference,
+        )
 
     def resolve_public(self, raw_token: str) -> CampaignEstimate:
         return resolve_public_estimate(raw_token)

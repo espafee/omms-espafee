@@ -56,6 +56,7 @@ LOCAL_APPS = [
     "apps.observability",
     "apps.setup",
     "apps.mobile",
+    "apps.planner",
 ]
 
 MIDDLEWARE = [
@@ -259,6 +260,8 @@ REST_FRAMEWORK = {
         "public_estimate_action": get_env("DRF_PUBLIC_ESTIMATE_ACTION_THROTTLE_RATE", "20/hour"),
         "public_campaign": get_env("DRF_PUBLIC_CAMPAIGN_THROTTLE_RATE", "240/hour"),
         "public_issue_report": get_env("DRF_PUBLIC_ISSUE_REPORT_THROTTLE_RATE", "60/hour"),
+        "public_media_planner": get_env("DRF_PUBLIC_MEDIA_PLANNER_THROTTLE_RATE", "240/hour"),
+        "public_media_proposal": get_env("DRF_PUBLIC_MEDIA_PROPOSAL_THROTTLE_RATE", "20/hour"),
         "uploads": get_env("DRF_UPLOAD_THROTTLE_RATE", "120/hour"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

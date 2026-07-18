@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.permissions import RoleBasedPermission
-from core.roles import ADMIN, ALL_ROLES, FINANCE, OPERATIONS
+from core.roles import ADMIN, ALL_ROLES, FINANCE, INVENTORY_MANAGER, OPERATIONS, POE_REVIEWER
 from core.viewsets import ServiceModelViewSet
 
 from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, ImportExportJob, SavedOperationalView
@@ -59,6 +59,7 @@ from .services import (
 
 
 OBSERVABILITY_ROLES = (ADMIN, OPERATIONS, FINANCE)
+TENANT_MEMBER_ROLES = ALL_ROLES + (POE_REVIEWER, INVENTORY_MANAGER)
 logger = logging.getLogger(__name__)
 
 
@@ -242,7 +243,7 @@ class HealthView(APIView):
 
 class OperationalModeView(APIView):
     permission_classes = [RoleBasedPermission]
-    allowed_roles = ALL_ROLES
+    allowed_roles = TENANT_MEMBER_ROLES
     write_roles = (ADMIN,)
 
     def get(self, request):
@@ -286,7 +287,7 @@ class OperationsSummaryView(APIView):
 
 class DashboardProfileView(APIView):
     permission_classes = [RoleBasedPermission]
-    allowed_roles = ALL_ROLES
+    allowed_roles = TENANT_MEMBER_ROLES
 
     def get(self, request):
         return Response(DashboardProfileSerializer(build_dashboard_profile(request.user)).data)

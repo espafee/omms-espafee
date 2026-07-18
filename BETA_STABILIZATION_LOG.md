@@ -229,3 +229,30 @@ Status: **implemented and locally validated / not deployed**
 - Copy uses a non-submit button and component-local feedback, with no navigation, refresh, regeneration, or scroll loss.
 - No model constraint, identifier, invoice/estimate numbering, campaign code, POE upload-id, or tenant uniqueness behavior changed.
 - Local gate passed: Django checks, 319 backend tests, frontend lint/build, and 11 Playwright tests.
+
+## Tenant Team And Access Stabilization
+
+Date: 2026-07-17
+
+Status: **implemented and locally validated / not deployed**
+
+- Added tenant-isolated Team APIs and the `/settings/team` administration workspace.
+- Account creation is transactional, globally duplicate-safe under the current unique email model, and starts with an unusable password.
+- Secure setup uses a signed one-time token delivered through the configured Django email backend. Delivery failure returns a safe status and does not expose transport details.
+- Remove/restore access uses user activation state; destructive deletion and tenant moves are blocked.
+- Added audit coverage for successful lifecycle changes and prohibited cross-tenant/privilege operations.
+- Added role-safe navigation/dashboard treatment for POE Reviewer and Inventory Manager, with finance explicitly excluded.
+- Regression gate passed: Django system/migration checks, all 336 backend tests, frontend lint/build, 4 focused Team Playwright tests, and all 15 Playwright smoke tests.
+- Production prerequisites: apply users migration `0005`; verify email sender/backend and `FRONTEND_PUBLIC_BASE_URL`; run authenticated company-admin and platform-admin smoke tests before beta enablement.
+
+## Live Media Planner Foundation
+
+Date: 2026-07-18
+
+Status: **implemented locally / not committed or deployed**
+
+- Public inventory is opt-in and tenant/token scoped.
+- Public proposals preserve snapshots and create no holds or bookings.
+- Availability shares one backend authority with booking validation.
+- Focused backend and browser tests cover token, pricing, GPS, download, tenant, and private-field boundaries.
+- Production requires additive inventory/planner migrations and authenticated role smoke testing before client links are issued.

@@ -17,6 +17,7 @@ type AppShellProps = {
     | "poe"
     | "notifications"
     | "operations"
+    | "proposals"
     | "team"
     | "training"
     | "setup";
@@ -43,12 +44,14 @@ export function AppShell({
 }: AppShellProps) {
   const [operationalMode, setOperationalMode] = useState<OperationalMode | null>(null);
   const [canManageTeam, setCanManageTeam] = useState(roleLabel === "admin");
+  const [currentRole, setCurrentRole] = useState(roleLabel);
 
   useEffect(() => {
     if (!getAccessToken()) {
       return;
     }
     const storedUser = getStoredUser();
+    setCurrentRole(storedUser?.role ?? roleLabel);
     setCanManageTeam(Boolean(storedUser?.is_platform_admin || storedUser?.is_company_admin || storedUser?.role === "admin"));
     let isMounted = true;
     fetchOperationalMode()
@@ -65,7 +68,14 @@ export function AppShell({
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [roleLabel]);
+
+  const specialistNavigation: Record<string, Set<AppShellProps["active"]>> = {
+    poe_reviewer: new Set(["dashboard", "inventory", "campaigns", "bookings", "poe", "notifications", "training"]),
+    inventory_manager: new Set(["dashboard", "inventory", "campaigns", "bookings", "notifications", "training"]),
+  };
+  const canShowNavigation = (key: AppShellProps["active"]) => specialistNavigation[currentRole]?.has(key) ?? true;
+  const canUsePlanner = ["admin", "sales", "operations", "finance"].includes(currentRole);
 
   const showModeBanner = operationalMode && operationalMode.mode !== "normal";
   const modeBannerClass = operationalMode?.mode === "degraded" ? "mode-banner mode-banner-warning" : "mode-banner";
@@ -85,38 +95,41 @@ export function AppShell({
           <Link data-testid="sidebar-dashboard" className={`nav-item ${active === "dashboard" ? "nav-item-active" : ""}`} href="/dashboard">
             Dashboard
           </Link>
-          <Link data-testid="sidebar-inventory" className={`nav-item ${active === "inventory" ? "nav-item-active" : ""}`} href="/inventory">
+          {canShowNavigation("inventory") ? <Link data-testid="sidebar-inventory" className={`nav-item ${active === "inventory" ? "nav-item-active" : ""}`} href="/inventory">
             Inventory
-          </Link>
-          <Link data-testid="sidebar-campaigns" className={`nav-item ${active === "campaigns" ? "nav-item-active" : ""}`} href="/campaigns">
+          </Link> : null}
+          {canShowNavigation("campaigns") ? <Link data-testid="sidebar-campaigns" className={`nav-item ${active === "campaigns" ? "nav-item-active" : ""}`} href="/campaigns">
             Campaigns
-          </Link>
-          <Link data-testid="sidebar-bookings" className={`nav-item ${active === "bookings" ? "nav-item-active" : ""}`} href="/bookings">
+          </Link> : null}
+          {canUsePlanner ? <Link data-testid="sidebar-proposals" className={`nav-item ${active === "proposals" ? "nav-item-active" : ""}`} href="/sales/proposals">
+            Media proposals
+          </Link> : null}
+          {canShowNavigation("bookings") ? <Link data-testid="sidebar-bookings" className={`nav-item ${active === "bookings" ? "nav-item-active" : ""}`} href="/bookings">
             Bookings
-          </Link>
-          <Link data-testid="sidebar-poe" className={`nav-item ${active === "poe" ? "nav-item-active" : ""}`} href="/poe">
+          </Link> : null}
+          {canShowNavigation("poe") ? <Link data-testid="sidebar-poe" className={`nav-item ${active === "poe" ? "nav-item-active" : ""}`} href="/poe">
             POE
-          </Link>
-          <Link data-testid="sidebar-billing" className={`nav-item ${active === "billing" ? "nav-item-active" : ""}`} href="/billing">
+          </Link> : null}
+          {canShowNavigation("billing") ? <Link data-testid="sidebar-billing" className={`nav-item ${active === "billing" ? "nav-item-active" : ""}`} href="/billing">
             Billing
-          </Link>
-          <Link data-testid="sidebar-notifications" className={`nav-item ${active === "notifications" ? "nav-item-active" : ""}`} href="/notifications">
+          </Link> : null}
+          {canShowNavigation("notifications") ? <Link data-testid="sidebar-notifications" className={`nav-item ${active === "notifications" ? "nav-item-active" : ""}`} href="/notifications">
             Notifications
-          </Link>
-          <Link data-testid="sidebar-operations" className={`nav-item ${active === "operations" ? "nav-item-active" : ""}`} href="/operations">
+          </Link> : null}
+          {canShowNavigation("operations") ? <Link data-testid="sidebar-operations" className={`nav-item ${active === "operations" ? "nav-item-active" : ""}`} href="/operations">
             Operations
-          </Link>
+          </Link> : null}
           {canManageTeam ? (
             <Link data-testid="sidebar-team" className={`nav-item ${active === "team" ? "nav-item-active" : ""}`} href="/settings/team">
               Team &amp; access
             </Link>
           ) : null}
-          <Link data-testid="sidebar-training" className={`nav-item ${active === "training" ? "nav-item-active" : ""}`} href="/training">
+          {canShowNavigation("training") ? <Link data-testid="sidebar-training" className={`nav-item ${active === "training" ? "nav-item-active" : ""}`} href="/training">
             Training
-          </Link>
-          <Link data-testid="sidebar-setup" className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
+          </Link> : null}
+          {canShowNavigation("setup") ? <Link data-testid="sidebar-setup" className={`nav-item ${active === "setup" ? "nav-item-active" : ""}`} href="/setup">
             Setup
-          </Link>
+          </Link> : null}
         </nav>
 
         <div className="sidebar-foot">

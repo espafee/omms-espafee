@@ -123,3 +123,13 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [ ] Confirm production non-superusers are assigned to `vistaai-omms-beta`.
 - [ ] Run authenticated user-directory smoke for platform super admin and company admin.
 - [!] Do not alter global business-record uniqueness constraints until tenant data ownership is audited.
+
+## Live Media Planner Deployment
+
+- [ ] Apply `inventory.0009_mediaunit_is_publicly_listed_and_more`.
+- [ ] Apply `planner.0001_initial`.
+- [ ] Confirm existing units remain unpublished after migration.
+- [ ] Verify production media URLs and cache-backed public throttles.
+- [ ] Smoke Admin/Sales/Operations/Finance proposal access.
+- [ ] Submit one beta proposal and confirm no booking is created.
+- [ ] Verify approved conversion creates pending, never confirmed, bookings.

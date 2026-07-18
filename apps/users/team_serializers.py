@@ -101,9 +101,11 @@ class TeamUserWriteSerializer(serializers.Serializer):
 
         tenant = attrs.get("tenant", getattr(instance, "tenant", None))
         if not is_platform_super_admin(request.user):
-            if tenant is not None and tenant != request.user.tenant:
+            if instance is not None and tenant is not None and tenant != request.user.tenant:
                 raise serializers.ValidationError({"tenant": ["You can only manage users inside your own company."]})
-            attrs["tenant"] = request.user.tenant
+            if tenant is None:
+                attrs["tenant"] = request.user.tenant
+                tenant = request.user.tenant
         if instance is not None and tenant is not None and tenant != instance.tenant:
             raise serializers.ValidationError({"tenant": ["Moving an existing user between companies is not supported."]})
 

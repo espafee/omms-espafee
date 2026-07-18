@@ -17,7 +17,7 @@ class UserAdmin(DjangoUserAdmin):
         "is_staff",
     )
     list_filter = ("role", "tenant", "is_active", "is_staff", "is_superuser")
-    search_fields = ("email", "username", "first_name", "last_name", "organization_name")
+    search_fields = ("email", "username", "first_name", "last_name", "organization_name", "region")
     ordering = ("email",)
     fieldsets = DjangoUserAdmin.fieldsets + (
         (
@@ -27,11 +27,14 @@ class UserAdmin(DjangoUserAdmin):
                     "phone_number",
                     "role",
                     "organization_name",
+                    "region",
+                    "reports_to",
                     "tenant",
+                    "setup_sent_at",
                     "created_at",
                     "updated_at",
                 )
             },
         ),
     )
-    readonly_fields = ("created_at", "updated_at")
+    readonly_fields = ("setup_sent_at", "created_at", "updated_at")
