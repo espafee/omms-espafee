@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Fragment, FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, FormEvent, MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { AppShell } from "@/components/app-shell";
@@ -28,22 +28,45 @@ import { fetchTeamRoles, type TeamTenant } from "@/lib/team";
 const DEFAULT_DIAGNOSTIC_UNITS = "ESPA-001,ESPA-002_1,ESPA-002_2,ESPA-003";
 const TENANT_MISMATCH_MESSAGE = "Planner tenant does not match published inventory.";
 
-async function copyText(value: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
+const configuredPlannerOrigin =
+  process.env.NEXT_PUBLIC_FRONTEND_ORIGIN ||
+  process.env.NEXT_PUBLIC_APP_ORIGIN ||
+  process.env.NEXT_PUBLIC_APP_URL ||
+  process.env.NEXT_PUBLIC_SITE_URL ||
+  "";
+
+function copyWithTextareaFallback(value: string) {
   const textarea = document.createElement("textarea");
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   textarea.value = value;
   textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
   textarea.style.top = "-1000px";
   textarea.style.left = "-1000px";
+  textarea.style.opacity = "0";
   document.body.appendChild(textarea);
+  textarea.focus();
   textarea.select();
-  const copied = document.execCommand("copy");
-  document.body.removeChild(textarea);
-  if (!copied) {
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+    activeElement?.focus();
+  }
+  return copied;
+}
+
+async function copyText(value: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Fall back for browsers that expose the API but reject clipboard writes.
+    }
+  }
+  if (!copyWithTextareaFallback(value)) {
     throw new Error("Clipboard copy failed.");
   }
 }
@@ -53,12 +76,20 @@ function buildPlannerPublicUrl(publicPath?: string) {
   if (!path) return "";
   if (/^https?:\/\//i.test(path)) return path;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
-  if (typeof window === "undefined") return normalizedPath;
-  return `${window.location.origin}${normalizedPath}`;
+  const rawOrigin = configuredPlannerOrigin || (typeof window !== "undefined" ? window.location.origin : "");
+  const trimmedOrigin = rawOrigin.trim().replace(/\/+$/, "");
+  const origin = trimmedOrigin && /^https?:\/\//i.test(trimmedOrigin) ? trimmedOrigin : trimmedOrigin ? `https://${trimmedOrigin}` : "";
+  if (!origin) return normalizedPath;
+  try {
+    return new URL(normalizedPath, origin).toString();
+  } catch {
+    return normalizedPath;
+  }
 }
 
 function isCopyablePlannerLink(link: PlannerLink) {
-  return Boolean(link.id && link.is_available && !link.revoked_at);
+  if (!link.id || !link.is_available || link.revoked_at) return false;
+  return !link.expires_at || new Date(link.expires_at).getTime() > Date.now();
 }
 
 function formatPlannerPricing(value: string) {
@@ -114,11 +145,14 @@ export default function ProposalsWorkspacePage() {
   const [linkFeedback, setLinkFeedback] = useState("");
   const [copyFeedback, setCopyFeedback] = useState("");
   const [historyCopyFeedback, setHistoryCopyFeedback] = useState("");
+  const [historyCopyError, setHistoryCopyError] = useState("");
   const [copiedPlannerLinkId, setCopiedPlannerLinkId] = useState<number | null>(null);
+  const [copyingPlannerLinkId, setCopyingPlannerLinkId] = useState<number | null>(null);
   const [tenantOptions, setTenantOptions] = useState<TeamTenant[]>([]);
   const [selectedTenantId, setSelectedTenantId] = useState("");
   const [tenantFeedback, setTenantFeedback] = useState("");
   const historyCopyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyingPlannerLinkRef = useRef<number | null>(null);
   const isPlatformAdmin = Boolean(user?.is_platform_admin);
   const userCompanyName = user?.tenant_name || user?.organization_name || "Your company";
   const recentPlannerLinks = links.slice(0, 8);
@@ -286,25 +320,39 @@ export default function ProposalsWorkspacePage() {
     }
   }
 
-  async function copyPlannerHistoryLink(link: PlannerLink) {
-    if (!isCopyablePlannerLink(link)) return;
+  async function copyPlannerHistoryLink(event: MouseEvent<HTMLButtonElement>, link: PlannerLink) {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isCopyablePlannerLink(link) || copyingPlannerLinkRef.current === link.id) return;
     const url = buildPlannerPublicUrl(link.public_path);
     if (!url) return;
+    copyingPlannerLinkRef.current = link.id;
+    setCopyingPlannerLinkId(link.id);
     setHistoryCopyFeedback("");
+    setHistoryCopyError("");
+    if (historyCopyTimer.current) {
+      clearTimeout(historyCopyTimer.current);
+    }
     try {
       await copyText(url);
       setCopiedPlannerLinkId(link.id);
-      setHistoryCopyFeedback("Planner link copied");
-      if (historyCopyTimer.current) {
-        clearTimeout(historyCopyTimer.current);
-      }
+      setHistoryCopyFeedback("Link copied");
       historyCopyTimer.current = setTimeout(() => {
-        setCopiedPlannerLinkId(null);
+        setCopiedPlannerLinkId((current) => (current === link.id ? null : current));
         setHistoryCopyFeedback("");
       }, 2000);
-    } catch {
+    } catch (copyError) {
       setCopiedPlannerLinkId(null);
-      setHistoryCopyFeedback("Unable to copy planner link. Select the URL and copy it manually.");
+      setHistoryCopyError("Unable to copy link. Please try again.");
+      console.warn(
+        "Planner link copy failed",
+        copyError instanceof Error ? copyError.message : "Unknown clipboard failure",
+      );
+    } finally {
+      if (copyingPlannerLinkRef.current === link.id) {
+        copyingPlannerLinkRef.current = null;
+        setCopyingPlannerLinkId((current) => (current === link.id ? null : current));
+      }
     }
   }
 
@@ -565,6 +613,7 @@ export default function ProposalsWorkspacePage() {
                     const canCopyPlannerLink = isCopyablePlannerLink(link);
                     const hasPlannerUrl = Boolean(buildPlannerPublicUrl(link.public_path));
                     const isCopied = copiedPlannerLinkId === link.id;
+                    const isCopying = copyingPlannerLinkId === link.id;
                     const status = getPlannerLinkStatus(link);
                     const clientPrimary = link.client_name || link.tenant_name || userCompanyName;
                     const clientSecondary = link.client_name && link.tenant_name ? link.tenant_name : "";
@@ -621,13 +670,13 @@ export default function ProposalsWorkspacePage() {
                             <div className="planner-link-actions">
                               {canCopyPlannerLink ? (
                                 <button
-                                  className="ghost planner-copy-link-button"
+                                  className={`ghost planner-copy-link-button${isCopied ? " is-copied" : ""}`}
                                   type="button"
                                   aria-label="Copy Live Media Planner link"
-                                  disabled={!hasPlannerUrl}
-                                  onClick={() => void copyPlannerHistoryLink(link)}
+                                  disabled={!hasPlannerUrl || isCopying}
+                                  onClick={(event) => void copyPlannerHistoryLink(event, link)}
                                 >
-                                  <CopyLinkIcon />
+                                  {isCopied ? <CheckIcon /> : <CopyLinkIcon />}
                                   {isCopied ? "Copied" : "Copy Link"}
                                 </button>
                               ) : null}
@@ -674,6 +723,7 @@ export default function ProposalsWorkspacePage() {
             <p className="empty-state">No client planner links yet.</p>
           )}
           {historyCopyFeedback ? <p className="planner-action-feedback" aria-live="polite">{historyCopyFeedback}</p> : null}
+          {historyCopyError ? <p className="planner-action-feedback planner-action-feedback-error" aria-live="polite">{historyCopyError}</p> : null}
           {diagnosticsFeedback && !activeDiagnostics ? <p className="planner-action-feedback">{diagnosticsFeedback}</p> : null}
         </article>
       </section>
@@ -894,6 +944,14 @@ function CopyLinkIcon() {
     <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20">
       <rect x="7" y="7" width="9" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
       <path d="M4 13V5.8C4 4.8 4.8 4 5.8 4H13" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg aria-hidden="true" data-testid="planner-copy-check-icon" focusable="false" viewBox="0 0 20 20">
+      <path d="M16.3 5.7 8.7 13.3 4.5 9.1" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
