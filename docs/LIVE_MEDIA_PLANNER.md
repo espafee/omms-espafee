@@ -11,9 +11,11 @@ Live Media Planner is a controlled client-planning surface, not a public invento
 
 ## Recent Planner Links
 
-The `Recent planner links` section on `/sales/proposals` shows each generated planner link with its title, client/company context, pricing visibility, eligibility counts, status, and available actions.
+The `Recent planner links` section on `/sales/proposals` shows generated planner links in a compact responsive table. Columns cover planner title/type/pricing, client or company context, eligible/published/excluded inventory counts, status, created/expiry dates when the API provides them, and available actions.
 
 Active links include a `Copy Link` action before Diagnostics and Revoke when the frontend has a safe `public_path` for that link. The action copies the complete public planner URL, shows `Planner link copied`, and briefly changes to `Copied`. Closed, revoked, expired, or otherwise unavailable links do not show the copy action. Active links without a public URL keep the copy action disabled.
+
+Diagnostic warning messages render as a secondary full-width row directly below the affected planner link. On narrow screens, the table stacks each planner row so the title and status remain first, details stay visible, and actions wrap in a full-width footer area.
 
 ## Workflow
 
@@ -34,6 +36,8 @@ Active links include a `Copy Link` action before Diagnostics and Revoke when the
 2. Create a new secure client link and confirm it appears in `Recent planner links`.
 3. On an active link with a public URL, click `Copy Link` and confirm the button changes to `Copied` and the page shows `Planner link copied`.
 4. Paste the copied value into a new browser tab and confirm it opens the matching `/media-planner/{token}` public planner.
-5. Confirm the `Copy Link`, `Diagnostics`, and `Revoke` actions stay in one row on desktop and wrap cleanly on a narrow/mobile viewport.
-6. Revoke or close a link and confirm the copy action no longer appears for that link.
-7. Confirm any active link without a public URL shows the copy action disabled.
+5. Confirm the Recent planner links table has Planner Link, Client / Company, Inventory, Status, Created / Expiry when available, and Actions columns on desktop/tablet.
+6. Confirm the `Copy Link`, `Diagnostics`, and `Revoke` actions stay compact on desktop and wrap cleanly in the mobile stacked row without horizontal overflow.
+7. Confirm any tenant mismatch warning appears in a secondary row below the affected planner link.
+8. Revoke or close a link and confirm the copy action no longer appears for that link.
+9. Confirm any active link without a public URL shows the copy action disabled.

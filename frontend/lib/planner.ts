@@ -115,6 +115,8 @@ export type PlannerLink = {
   eligible_unit_count?: number;
   public_path?: string;
   token?: string;
+  created_at?: string;
+  updated_at?: string;
 };
 export type PlannerEligibilityPreview = {
   counts: {

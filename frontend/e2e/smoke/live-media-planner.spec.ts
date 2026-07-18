@@ -339,10 +339,36 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
       return route.fulfill({
         contentType: "application/json",
         body: JSON.stringify([
-          { id: 10, tenant: 2, tenant_name: "ESPA FEE", title: "Active Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 4, public_path: "/media-planner/active-secret" },
-          { id: 11, tenant: 2, tenant_name: "ESPA FEE", title: "Active Missing Url", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 0 },
-          { id: 12, tenant: 2, tenant_name: "ESPA FEE", title: "Closed Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: "2026-07-18T10:00:00Z", is_available: false, eligible_unit_count: 0, public_path: "/media-planner/closed-secret" },
+          { id: 10, tenant: 2, tenant_name: "ESPA FEE", title: "Active Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 4, public_path: "/media-planner/active-secret", created_at: "2026-07-18T09:00:00Z", updated_at: "2026-07-18T09:00:00Z" },
+          { id: 11, tenant: 2, tenant_name: "ESPA FEE", title: "Active Missing Url", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 0, created_at: "2026-07-18T09:30:00Z", updated_at: "2026-07-18T09:30:00Z" },
+          { id: 12, tenant: 2, tenant_name: "ESPA FEE", title: "Closed Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: "2026-07-18T10:00:00Z", is_available: false, eligible_unit_count: 0, public_path: "/media-planner/closed-secret", created_at: "2026-07-18T10:00:00Z", updated_at: "2026-07-18T10:00:00Z" },
         ]),
+      });
+    }
+    if (path.startsWith("planner/links/10/eligibility-diagnostics/")) {
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
+          database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "planner.0001_initial": true } },
+          link: { id: 10, title: "Active Planner", tenant_id: 2, tenant_name: "ESPA FEE", active: true, revoked: false, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 11, published_count: 11, excluded_count: 0 },
+          pipeline: { all_units: 11, tenant_units: 11, published_units: 11, active_units: 11, operational_units: 11, city_eligible_units: 11, link_restriction_units: 11, date_eligible_units: 11, serializer_eligible_units: 11, final_units: 11 },
+          exclusions: { wrong_tenant: 0, unpublished: 0, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
+          sample_units: [],
+        }),
+      });
+    }
+    if (path.startsWith("planner/links/12/eligibility-diagnostics/")) {
+      return route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({
+          service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
+          database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "planner.0001_initial": true } },
+          link: { id: 12, title: "Closed Planner", tenant_id: 99, tenant_name: "OMMS Platform", active: false, revoked: true, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 0, published_count: 0, excluded_count: 11 },
+          pipeline: { all_units: 11, tenant_units: 0, published_units: 0, active_units: 0, operational_units: 0, city_eligible_units: 0, link_restriction_units: 0, date_eligible_units: 0, serializer_eligible_units: 0, final_units: 0 },
+          exclusions: { wrong_tenant: 11, unpublished: 0, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
+          sample_units: [],
+        }),
       });
     }
     if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
@@ -350,11 +376,27 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   });
 
   await page.goto("/sales/proposals");
-  const activeRow = page.locator(".planner-link-row").filter({ hasText: "Active Planner" });
-  const missingUrlRow = page.locator(".planner-link-row").filter({ hasText: "Active Missing Url" });
-  const closedRow = page.locator(".planner-link-row").filter({ hasText: "Closed Planner" });
+  const table = page.getByRole("table", { name: "Recent planner links" });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Planner Link" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Client / Company" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Inventory" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Status" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Created / Expiry" })).toBeVisible();
+  await expect(table.getByRole("columnheader", { name: "Actions" })).toBeVisible();
+  const activeRow = table.locator(".planner-link-row").filter({ hasText: "Active Planner" });
+  const missingUrlRow = table.locator(".planner-link-row").filter({ hasText: "Active Missing Url" });
+  const closedRow = table.locator(".planner-link-row").filter({ hasText: "Closed Planner" });
   const copyButton = activeRow.getByRole("button", { name: "Copy Live Media Planner link" });
   await expect(copyButton).toBeEnabled();
+  await expect(activeRow).toContainText("General client link");
+  await expect(activeRow).toContainText("Rates hidden");
+  await expect(activeRow).toContainText("ESPA FEE");
+  await expect(activeRow).toContainText(/Eligible\s*11/);
+  await expect(activeRow).toContainText(/Published\s*11/);
+  await expect(activeRow).toContainText(/Excluded\s*0/);
+  await expect(activeRow).toContainText("ACTIVE");
+  await expect(activeRow).toContainText("No expiry");
   await expect(activeRow.locator(".planner-link-actions button").nth(0)).toHaveText("Copy Link");
   await expect(activeRow.locator(".planner-link-actions button").nth(1)).toHaveText("Diagnostics");
   await expect(activeRow.locator(".planner-link-actions button").nth(2)).toHaveText("Revoke");
@@ -365,6 +407,24 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toContain("/media-planner/active-secret");
   await expect(missingUrlRow.getByRole("button", { name: "Copy Live Media Planner link" })).toBeDisabled();
   await expect(closedRow.getByRole("button", { name: "Copy Live Media Planner link" })).toHaveCount(0);
+  await expect(closedRow.getByRole("button", { name: "Revoke" })).toHaveCount(0);
+  await expect(closedRow.getByRole("button", { name: "Diagnostics" })).toBeVisible();
+  await expect(closedRow).toContainText("REVOKED");
+  const warningRow = closedRow.locator("xpath=following-sibling::tr[1]");
+  await expect(warningRow).toHaveClass(/planner-link-warning-row/);
+  await expect(warningRow).toContainText("Planner tenant does not match published inventory.");
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(activeRow.getByText("Active Planner")).toBeVisible();
+  await expect(activeRow.locator(".status-pill", { hasText: "ACTIVE" })).toBeVisible();
+  await expect(activeRow.getByText("ESPA FEE")).toBeVisible();
+  await expect(activeRow.getByText("Eligible")).toBeVisible();
+  await expect(activeRow.getByText("Published")).toBeVisible();
+  await expect(activeRow.getByText("Excluded")).toBeVisible();
+  await expect(activeRow.getByRole("button", { name: "Copy Live Media Planner link" })).toBeVisible();
+  await expect.poll(() =>
+    page.locator(".planner-link-history").evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+  ).toBeTruthy();
 });
 
 test("platform superadmin opens planner diagnostics inside media proposals", async ({ page }) => {
@@ -403,8 +463,10 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
     await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
   });
   await page.goto("/sales/proposals");
-  await expect(page.getByText("Eligible units: 1")).toBeVisible();
-  await expect(page.getByText("Published units: 1")).toBeVisible();
+  const table = page.getByRole("table", { name: "Recent planner links" });
+  const linkRow = table.locator(".planner-link-row").filter({ hasText: "Live Media Planner" });
+  await expect(linkRow).toContainText(/Eligible\s*1/);
+  await expect(linkRow).toContainText(/Published\s*1/);
   await page.getByRole("button", { name: "Diagnostics" }).click();
   const diagnosticsModal = page.getByRole("dialog", { name: "Media planner eligibility diagnostics" });
   await expect(diagnosticsModal).toBeVisible();
