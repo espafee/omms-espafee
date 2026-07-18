@@ -1,5 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.core.mail import BadHeaderError
 from django.http import Http404
 from rest_framework import status
 from rest_framework.decorators import action
@@ -23,6 +22,7 @@ from .team_services import (
     set_team_user_active,
     team_user_queryset,
     update_team_user,
+    TeamSetupDeliveryError,
 )
 
 User = get_user_model()
@@ -75,7 +75,7 @@ class TeamUserViewSet(ModelViewSet):
             try:
                 send_team_setup_email(actor=request.user, target=user)
                 setup_delivery = "sent"
-            except (BadHeaderError, OSError, RuntimeError, ConnectionError):
+            except TeamSetupDeliveryError:
                 setup_delivery = "failed"
         payload = TeamUserSerializer(user).data
         payload["setup_delivery"] = setup_delivery
@@ -116,7 +116,7 @@ class TeamUserViewSet(ModelViewSet):
         target = self.get_object()
         try:
             updated = send_team_setup_email(actor=request.user, target=target)
-        except (BadHeaderError, OSError, RuntimeError, ConnectionError):
+        except TeamSetupDeliveryError:
             return Response(
                 {"detail": "Account setup could not be sent. Check email configuration and try again."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,

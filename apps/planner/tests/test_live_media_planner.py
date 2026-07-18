@@ -1,0 +1,249 @@
+from datetime import date, timedelta
+from decimal import Decimal
+from unittest.mock import patch
+
+from django.test import TestCase
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
+from rest_framework.test import APIClient
+
+from apps.billing.models import CampaignEstimate
+from apps.bookings.models import Booking
+from apps.campaigns.models import Campaign
+from apps.inventory.models import MediaSite, MediaUnit
+from apps.observability.models import AuditEvent
+from apps.tenants.models import Tenant
+from apps.users.models import User
+
+from ..models import CampaignProposal, CampaignProposalLine, MediaPlannerShareLink
+from ..services import (
+    AvailabilityStatus,
+    InventoryAvailabilityService,
+    convert_proposal_to_campaign,
+    create_estimate_from_proposal,
+    submit_proposal,
+)
+
+
+class LiveMediaPlannerTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="North Media", slug="north-media", status=Tenant.Status.ACTIVE)
+        self.other_tenant = Tenant.objects.create(name="South Media", slug="south-media", status=Tenant.Status.ACTIVE)
+        self.admin = User.objects.create_user(
+            email="admin@north.test", username="north-admin", password="secret", role=User.Role.ADMIN, tenant=self.tenant
+        )
+        self.client_user = User.objects.create_user(
+            email="client@north.test", username="north-client", password="secret", role=User.Role.CLIENT,
+            tenant=self.tenant, organization_name="Acme India",
+        )
+        self.other_client = User.objects.create_user(
+            email="client@south.test", username="south-client", password="secret", role=User.Role.CLIENT,
+            tenant=self.other_tenant,
+        )
+        self.site = MediaSite.objects.create(
+            tenant=self.tenant, name="Central Junction", code="NORTH-SITE", site_type=MediaSite.SiteType.BILLBOARD,
+            address="Central Road", city="Jammu", state="Jammu and Kashmir",
+        )
+        self.other_site = MediaSite.objects.create(
+            tenant=self.other_tenant, name="South Junction", code="SOUTH-SITE", site_type=MediaSite.SiteType.BILLBOARD,
+            address="South Road", city="Delhi", state="Delhi",
+        )
+        self.unit = self.make_unit(self.site, "NORTH-U1", public=True)
+        self.private_unit = self.make_unit(self.site, "NORTH-PRIVATE", public=False)
+        self.other_unit = self.make_unit(self.other_site, "SOUTH-U1", public=True)
+        self.link, self.raw_token = MediaPlannerShareLink.create_with_token(
+            tenant=self.tenant, created_by=self.admin, client=self.client_user, title="Acme Planner",
+            show_rates=False, pricing_mode=MediaPlannerShareLink.PricingMode.HIDDEN,
+        )
+        self.api = APIClient()
+        self.start = date.today() + timedelta(days=10)
+        self.end = self.start + timedelta(days=10)
+
+    def make_unit(self, site, code, *, public, status=MediaUnit.Status.AVAILABLE):
+        return MediaUnit.objects.create(
+            site=site, unit_code=code, face_count=1, width=Decimal("20.00"), height=Decimal("10.00"),
+            monthly_rate=Decimal("50000.00"), facing_direction="North", site_type=MediaUnit.SiteType.SINGLE_SIDE,
+            status=status, is_publicly_listed=public, public_description="Client-safe description",
+            public_features=["High visibility"],
+        )
+
+    def proposal_payload(self, unit=None, **overrides):
+        payload = {
+            "campaign_name": "Summer Launch", "brand_company": "Acme India", "objective": "Awareness",
+            "requested_start_date": self.start, "requested_end_date": self.end, "contact_name": "Client Contact",
+            "contact_email": "client@example.test", "contact_phone": "9999999999", "notes": "Please review",
+            "unit_public_ids": [(unit or self.unit).public_id], "idempotency_key": "request-1",
+        }
+        payload.update(overrides)
+        return payload
+
+    def submit(self, unit=None, **overrides):
+        return submit_proposal(link=self.link, validated_data=self.proposal_payload(unit, **overrides))[0]
+
+    def test_public_token_exposes_only_published_tenant_inventory_and_safe_fields(self):
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([row["unit_code"] for row in response.data["results"]], [self.unit.unit_code])
+        serialized = response.data["results"][0]
+        self.assertNotIn("id", serialized)
+        self.assertNotIn("acquisition_cost", serialized)
+        self.assertNotIn("margin", serialized)
+        self.assertIsNone(serialized["monthly_rate"])
+
+    def test_revoked_and_expired_links_fail_safely(self):
+        self.link.revoked_at = timezone.now()
+        self.link.save(update_fields=["revoked_at"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 410)
+        self.link.revoked_at = None
+        self.link.expires_at = timezone.now() - timedelta(seconds=1)
+        self.link.save(update_fields=["revoked_at", "expires_at"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.status_code, 410)
+
+    def test_inclusive_date_overlap_and_partial_overlap_are_blocked(self):
+        campaign = Campaign.objects.create(
+            tenant=self.tenant, client=self.client_user, account_manager=self.admin, name="Booked", code="BOOKED-CMP",
+            start_date=self.start, end_date=self.end, budget=Decimal("50000"), status=Campaign.Status.ACTIVE,
+        )
+        Booking.objects.create(
+            campaign=campaign, media_unit=self.unit, start_date=self.end, end_date=self.end + timedelta(days=3),
+            booked_rate=Decimal("50000"), status=Booking.Status.CONFIRMED,
+        )
+        result = InventoryAvailabilityService().resolve(self.unit, start_date=self.start, end_date=self.end)
+        self.assertEqual(result["status"], AvailabilityStatus.PARTIALLY_AVAILABLE)
+        boundary = InventoryAvailabilityService().resolve(self.unit, start_date=self.end, end_date=self.end)
+        self.assertEqual(boundary["status"], AvailabilityStatus.BOOKED)
+
+    def test_maintenance_and_reserved_units_are_unavailable(self):
+        maintenance = self.make_unit(self.site, "NORTH-MAINT", public=True, status=MediaUnit.Status.MAINTENANCE)
+        reserved = self.make_unit(self.site, "NORTH-HOLD", public=True, status=MediaUnit.Status.RESERVED)
+        self.assertEqual(InventoryAvailabilityService().resolve(maintenance)["status"], AvailabilityStatus.UNDER_MAINTENANCE)
+        self.assertEqual(InventoryAvailabilityService().resolve(reserved)["status"], AvailabilityStatus.ON_HOLD)
+
+    def test_rate_is_only_returned_for_standard_visible_pricing(self):
+        self.link.show_rates = True
+        self.link.pricing_mode = MediaPlannerShareLink.PricingMode.STANDARD_SELLING_RATE
+        self.link.save(update_fields=["show_rates", "pricing_mode"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertEqual(response.data["results"][0]["monthly_rate"], "50000.00")
+        self.link.pricing_mode = MediaPlannerShareLink.PricingMode.CLIENT_RATE_CARD
+        self.link.save(update_fields=["pricing_mode"])
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        self.assertIsNone(response.data["results"][0]["monthly_rate"])
+
+    def test_submission_snapshots_data_does_not_create_booking_and_is_idempotent(self):
+        proposal, created = submit_proposal(link=self.link, validated_data=self.proposal_payload())
+        second, second_created = submit_proposal(link=self.link, validated_data=self.proposal_payload())
+        self.assertTrue(created)
+        self.assertFalse(second_created)
+        self.assertEqual(second.id, proposal.id)
+        self.assertEqual(Booking.objects.count(), 0)
+        line = proposal.lines.get()
+        self.assertEqual(line.unit_code, self.unit.unit_code)
+        self.assertEqual(line.location_name, self.site.name)
+        self.assertEqual(line.monthly_rate_snapshot, Decimal("50000.00"))
+        self.assertEqual(line.availability_snapshot["status"], AvailabilityStatus.AVAILABLE)
+
+    def test_submission_rejects_cross_tenant_and_unpublished_units(self):
+        with self.assertRaises(ValidationError):
+            self.submit(self.other_unit)
+        with self.assertRaises(ValidationError):
+            self.submit(self.private_unit, idempotency_key="request-2")
+
+    def test_public_submission_never_accepts_client_price_or_booking_state(self):
+        response = self.api.post(
+            f"/api/v1/public/media-planner/{self.raw_token}/proposals/",
+            {**self.proposal_payload(), "unit_public_ids": [str(self.unit.public_id)], "monthly_rate": "1.00", "status": "confirmed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(Booking.objects.count(), 0)
+        self.assertEqual(CampaignProposal.objects.get().status, CampaignProposal.Status.SUBMITTED)
+
+    def test_estimate_preserves_tenant_client_and_existing_numbering(self):
+        proposal = self.submit()
+        estimate, created = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        self.assertTrue(created)
+        self.assertEqual(estimate.client, self.client_user)
+        self.assertTrue(estimate.estimate_number.startswith("EST/"))
+        self.assertEqual(proposal.tenant, estimate.client.tenant)
+        self.assertEqual(estimate.lines.count(), 1)
+
+    def test_estimate_response_synchronizes_proposal_status(self):
+        proposal = self.submit()
+        estimate, _ = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        from apps.billing.services import CampaignEstimateService
+
+        service = CampaignEstimateService()
+        service.share(estimate, actor=self.admin)
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, CampaignProposal.Status.SENT_TO_CLIENT)
+        service.approve(estimate, comment="Approved")
+        proposal.refresh_from_db()
+        self.assertEqual(proposal.status, CampaignProposal.Status.CLIENT_APPROVED)
+
+    def test_conversion_revalidates_and_is_idempotent(self):
+        proposal = self.submit()
+        estimate, _ = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        estimate.status = CampaignEstimate.Status.APPROVED
+        estimate.save(update_fields=["status"])
+        proposal.status = CampaignProposal.Status.CLIENT_APPROVED
+        proposal.save(update_fields=["status"])
+        campaign, created = convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="PLANNER-CMP")
+        proposal.refresh_from_db()
+        second, second_created = convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="IGNORED")
+        self.assertTrue(created)
+        self.assertFalse(second_created)
+        self.assertEqual(second, campaign)
+        self.assertEqual(Booking.objects.filter(campaign=campaign, status=Booking.Status.PENDING).count(), 1)
+        self.assertEqual(proposal.status, CampaignProposal.Status.CONVERTED_TO_CAMPAIGN)
+
+    def test_conversion_is_transactional_when_booking_creation_fails(self):
+        second_unit = self.make_unit(self.site, "NORTH-U2", public=True)
+        proposal = self.submit(unit_public_ids=[self.unit.public_id, second_unit.public_id])
+        estimate, _ = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        estimate.status = CampaignEstimate.Status.APPROVED
+        estimate.save(update_fields=["status"])
+        proposal.status = CampaignProposal.Status.CLIENT_APPROVED
+        proposal.save(update_fields=["status"])
+        original_create = __import__("apps.bookings.services", fromlist=["BookingService"]).BookingService.create
+        calls = {"count": 0}
+
+        def fail_second(service, *args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 2:
+                raise ValidationError("Simulated booking failure")
+            return original_create(service, *args, **kwargs)
+
+        with patch("apps.planner.services.BookingService.create", new=fail_second), self.assertRaises(ValidationError):
+            convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="ROLLBACK-CMP")
+        self.assertFalse(Campaign.objects.filter(code="ROLLBACK-CMP").exists())
+        self.assertFalse(Booking.objects.exists())
+
+    def test_conversion_refuses_new_availability_conflict(self):
+        proposal = self.submit()
+        estimate, _ = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        estimate.status = CampaignEstimate.Status.APPROVED
+        estimate.save(update_fields=["status"])
+        proposal.status = CampaignProposal.Status.CLIENT_APPROVED
+        proposal.save(update_fields=["status"])
+        blocker = Campaign.objects.create(
+            tenant=self.tenant, client=self.client_user, name="Blocker", code="BLOCKER-CMP", start_date=self.start,
+            end_date=self.end, budget=Decimal("50000"), status=Campaign.Status.ACTIVE,
+        )
+        Booking.objects.create(campaign=blocker, media_unit=self.unit, start_date=self.start, end_date=self.end, booked_rate=Decimal("50000"), status=Booking.Status.CONFIRMED)
+        with self.assertRaises(ValidationError):
+            convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="CONFLICT-CMP")
+
+    def test_audit_events_cover_link_open_submission_estimate_and_conversion(self):
+        self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/")
+        proposal = self.submit()
+        estimate, _ = create_estimate_from_proposal(proposal=proposal, actor=self.admin)
+        estimate.status = CampaignEstimate.Status.APPROVED
+        estimate.save(update_fields=["status"])
+        proposal.status = CampaignProposal.Status.CLIENT_APPROVED
+        proposal.save(update_fields=["status"])
+        convert_proposal_to_campaign(proposal=proposal, actor=self.admin, campaign_code="AUDIT-CMP")
+        events = set(AuditEvent.objects.filter(entity_id=proposal.id).values_list("event_type", flat=True))
+        self.assertTrue({"planner.proposal.submitted", "planner.proposal.estimate_created", "planner.proposal.converted"}.issubset(events))

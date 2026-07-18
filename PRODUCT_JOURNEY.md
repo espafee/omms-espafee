@@ -279,3 +279,15 @@ The upgrade uses the platform's existing tenant-scoped summaries and role permis
 Campaign operations now tell one consistent lifecycle story. OMMS distinguishes the administrative state chosen by the team from the effective state determined by tenant-local campaign dates, so an expired campaign can no longer appear active in the roster while its client link says it has ended.
 
 The campaign workspace has also moved from fragmented roster, detail, and sharing blocks into one compact operational table. Teams can scan delivery, POE progress, budget, assets, billing, objective, and share-link state in one place, then open a dedicated internal detail route regardless of whether public sharing remains available. Copying a client link is now a quiet local action with clear confirmation and no page jump.
+
+## Company Team And Access
+
+OMMS company administrators can now manage access without leaving the operational product. The new Team & access workspace makes roles understandable in business language, keeps each company isolated, supports region and reporting-manager context, and uses a secure account-setup link instead of temporary shared passwords.
+
+Removing access now means deactivation, not deletion. Campaign ownership, reviews, approvals, alerts, and audit history remain intact, while the former user can no longer authenticate. The same role definitions govern backend authorization, dashboard modules, and navigation so a hidden menu never substitutes for real permission enforcement.
+
+## Live Media Planning And Formal Proposal Intake
+
+Clients can now explore a controlled, date-aware media selection prepared specifically for them instead of receiving an unrestricted inventory spreadsheet. They see client-safe photos and facts, build a campaign shortlist on mobile or desktop, and submit it for formal availability and pricing review without reserving media.
+
+Sales, operations, and finance receive the request in a shared pipeline. OMMS preserves what the client saw, rechecks availability, reuses the existing estimate approval journey, and converts only after authorized approval. The experience is polished while operational control remains inside OMMS.

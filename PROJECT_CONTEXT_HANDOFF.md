@@ -1095,3 +1095,25 @@ This section supersedes parts of the earlier handoff where the platform was desc
 - Internal campaign detail now lives at `/campaigns/[id]` and remains available to authorized users for ended campaigns. Public-link expiry/end rules are intentionally independent from internal access.
 - Copy is a local button action: it writes once to the Clipboard API, never submits or navigates, preserves scroll position, and shows `Link copied` for about two seconds.
 - Validation passed with no migration: Django checks, 319 backend tests, frontend lint/build, and 11 Playwright tests.
+
+## Tenant Team And Access Management
+
+- Company and platform administrators now have a tenant-safe `Team & access` workspace at `/settings/team` backed by `/api/v1/team/` endpoints.
+- The implementation extends the existing `User.role` model instead of introducing a second permission engine. Existing roles remain compatible; POE Reviewer and Inventory Manager are narrowly authorized specialist roles, while platform administration remains a superuser/platform-tenant capability that cannot be assigned from Team management.
+- Company admins can list, create, edit, deactivate, reactivate, and send one-time password setup links only within their tenant. Platform admins can select a client tenant. Existing users cannot be moved between tenants.
+- `Remove access` deactivates the user and retains historical ownership. Generic user APIs no longer create/delete users or mutate roles, preventing a bypass around the Team service.
+- Security actions are written to the existing audit timeline, including creation, role changes, removal/restoration, setup delivery, and rejected cross-tenant or unsupported-role operations.
+- User work metadata now includes region and an optional same-tenant reporting manager. New accounts start with an unusable password until the signed setup token is completed.
+- Specialist navigation and dashboard profiles mirror backend authorization: POE Reviewer receives POE/campaign review surfaces; Inventory Manager receives inventory surfaces; neither receives finance or platform controls.
+- Deployment requires applying `users.0005_user_region_user_reports_to_user_setup_sent_at_and_more` and configuring `FRONTEND_PUBLIC_BASE_URL`, `DEFAULT_FROM_EMAIL`, and the production email backend.
+- Local regression passed with 336 backend tests plus frontend lint/build and all 15 Playwright smoke tests.
+
+## Live Media Planner And Inventory Photo Viewer
+
+- Added opt-in public inventory using opaque UUIDs and publication disabled by default.
+- Added hash-only, tenant-scoped, revocable planner links, a public date-aware inventory API, and responsive `/media-planner/{token}` UI.
+- Added immutable proposal snapshots, `/sales/proposals`, existing estimate integration, and transactional approved conversion to a draft campaign with pending bookings.
+- One availability service now owns inclusive overlap decisions for planner display and booking writes.
+- The reusable image viewer now supports galleries, arrows, swipe, focus trapping/restoration, safe failure states, metadata, and permission-controlled downloads.
+- Identifier and numbering behavior remains unchanged. Deployment requires `inventory.0009` and `planner.0001`.
+- Final local gate: Django check/migration drift checks passed; all 353 backend tests passed; frontend lint and production build passed; all 21 Playwright tests passed.

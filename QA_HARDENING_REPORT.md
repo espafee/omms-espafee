@@ -153,3 +153,37 @@ Date: 2026-07-17
 - Added Playwright coverage for latest-first rendering, Ended filtering, ended visual treatment, internal View navigation, Clipboard API invocation, `Link copied` feedback, URL stability, and scroll preservation.
 - Full validation passed: 319 Django tests and 11 Playwright tests, plus clean Django system/migration checks, ESLint, TypeScript, and Next.js production build.
 - Residual risk: the SQL effective-status filter uses the application timezone for queryset-wide filtering. Per-tenant metadata timezones are authoritative on serialized model status; a platform-superadmin viewing multiple tenants around midnight could see a short filter boundary difference until filtering is made tenant-timezone-aware at the database level.
+
+## Team And Access Security Gate
+
+Coverage added:
+
+- platform-admin selected-tenant creation and company-admin own-tenant creation
+- cross-tenant list/create/edit rejection and audit logging
+- unsupported platform-role rejection
+- role directory safety and specialist module boundaries
+- deactivate/authentication denial/reactivate flow
+- history retention and hard-delete rejection
+- one-time setup token behavior and duplicate-email handling
+- role-change audit persistence, including rejected changes outside mutation rollback
+- legacy Sales-user metadata compatibility without allowing new Sales assignment
+- responsive 390px Team cards, setup workflow, inactive-state retention, unauthorized Team navigation, and specialist navigation
+
+Security decisions:
+
+- backend permission checks are authoritative; UI visibility mirrors but does not replace them
+- generic User endpoints cannot create/delete users or mutate roles
+- setup links are not returned by list/detail APIs
+- account deactivation is preferred because several operational models retain user references and some historical relationships still use cascading behavior
+- specialist roles do not inherit the broad legacy role tuple, reducing accidental finance or operations-intelligence exposure
+
+The remaining beta verification is operational: apply the additive user migration, validate production mail delivery/domain links, and execute authenticated role smoke checks with real tenant accounts.
+
+Local regression result: Django system/migration checks and all 336 backend tests passed. Frontend lint/build, 4 focused Team Playwright tests, and all 15 Playwright smoke tests also passed.
+
+## Live Media Planner Security Gate
+
+- Backend coverage includes tenant isolation, revoked/expired tokens, unpublished units, inclusive overlap, blocked states, hidden rates, safe serialization, idempotent snapshots, no-booking submission, estimate linkage, transactional conversion, revalidation, and audits.
+- Playwright covers gallery focus restoration, image navigation, public dates/filters/basket/submission, rate visibility, one-time link generation, and 390px layout.
+- Production follow-ups are private-media behavior on the configured storage backend, real estimate/PDF delivery, cache-backed throttling, and concurrent booking contention on production PostgreSQL.
+- Final local result: 353 backend tests and 21 Playwright tests passed, with frontend lint and Next.js production build clean.

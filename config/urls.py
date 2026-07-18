@@ -34,6 +34,8 @@ urlpatterns = [
     path("api/v1/setup/", include("apps.setup.urls")),
     path("api/v1/training/", include("apps.training.urls")),
     path("api/v1/mobile/", include("apps.mobile.urls")),
+    path("api/v1/planner/", include("apps.planner.urls")),
+    path("api/v1/public/media-planner/", include("apps.planner.public_urls")),
 ]
 
 if settings.DEBUG or is_local_media_storage_backend(settings.STORAGES["default"]["BACKEND"]):

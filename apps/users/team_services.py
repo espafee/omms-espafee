@@ -21,6 +21,10 @@ from core.roles import TEAM_ASSIGNABLE_ROLES
 User = get_user_model()
 
 
+class TeamSetupDeliveryError(Exception):
+    pass
+
+
 TEAM_ROLE_DEFINITIONS = (
     {
         "key": "company_admin",
@@ -62,7 +66,7 @@ TEAM_ROLE_DEFINITIONS = (
         "value": User.Role.INVENTORY_MANAGER,
         "label": "Inventory Manager",
         "description": "Maintain sites, media units, rates, and inventory media.",
-        "capabilities": ["inventory"],
+        "capabilities": ["inventory", "campaign_read", "booking_read"],
     },
     {
         "key": "client_viewer",
@@ -159,9 +163,9 @@ def _build_username(email):
     return candidate
 
 
-def _validate_role(actor, role):
+def _validate_role(actor, role, *, target_id=None):
     if role not in TEAM_ASSIGNABLE_ROLES:
-        record_prohibited_team_action(actor=actor, reason="unsupported_role")
+        record_prohibited_team_action(actor=actor, target_id=target_id, reason="unsupported_role")
         raise ValidationError({"role": ["Select one of the supported company roles."]})
 
 
@@ -170,7 +174,6 @@ def _validate_manager(tenant, reports_to):
         raise ValidationError({"reports_to": ["The reporting manager must belong to the same company."]})
 
 
-@transaction.atomic
 def create_team_user(*, actor, email, first_name="", last_name="", phone_number="", role, region="", reports_to=None, tenant=None):
     if not can_manage_team(actor):
         raise PermissionDenied("You do not have permission to manage company users.")
@@ -180,29 +183,29 @@ def create_team_user(*, actor, email, first_name="", last_name="", phone_number=
     if User.objects.filter(email__iexact=email).exists():
         raise ValidationError({"email": ["A user with this email already exists."]})
 
-    user = User.objects.create_user(
-        email=email.lower(),
-        username=_build_username(email),
-        password=None,
-        first_name=first_name,
-        last_name=last_name,
-        phone_number=phone_number,
-        role=role,
-        region=region,
-        reports_to=reports_to,
-        tenant=tenant,
-        is_active=True,
-    )
-    _record_team_event(
-        actor=actor,
-        target=user,
-        event_type="team.user.created",
-        summary="A company team member was created.",
-    )
+    with transaction.atomic():
+        user = User.objects.create_user(
+            email=email.lower(),
+            username=_build_username(email),
+            password=None,
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone_number,
+            role=role,
+            region=region,
+            reports_to=reports_to,
+            tenant=tenant,
+            is_active=True,
+        )
+        _record_team_event(
+            actor=actor,
+            target=user,
+            event_type="team.user.created",
+            summary="A company team member was created.",
+        )
     return user
 
 
-@transaction.atomic
 def update_team_user(*, actor, target, **changes):
     if target.is_superuser or target.tenant.tenant_type != Tenant.TenantType.CLIENT:
         record_prohibited_team_action(actor=actor, target_id=target.id, reason="platform_user_edit")
@@ -210,23 +213,24 @@ def update_team_user(*, actor, target, **changes):
     if "tenant" in changes and changes["tenant"] != target.tenant:
         record_prohibited_team_action(actor=actor, target_id=target.id, reason="tenant_move")
         raise ValidationError({"tenant": ["Moving an existing user between companies is not supported."]})
-    if "role" in changes:
-        _validate_role(actor, changes["role"])
+    if "role" in changes and changes["role"] != target.role:
+        _validate_role(actor, changes["role"], target_id=target.id)
     _validate_manager(target.tenant, changes.get("reports_to", target.reports_to))
 
-    old_role = target.role
-    for field in ("first_name", "last_name", "phone_number", "role", "region", "reports_to"):
-        if field in changes:
-            setattr(target, field, changes[field])
-    target.save()
-    if target.role != old_role:
-        _record_team_event(
-            actor=actor,
-            target=target,
-            event_type="team.user.role_changed",
-            summary="A company team member role was changed.",
-            metadata={"previous_role": old_role, "new_role": target.role},
-        )
+    with transaction.atomic():
+        old_role = target.role
+        for field in ("first_name", "last_name", "phone_number", "role", "region", "reports_to"):
+            if field in changes:
+                setattr(target, field, changes[field])
+        target.save()
+        if target.role != old_role:
+            _record_team_event(
+                actor=actor,
+                target=target,
+                event_type="team.user.role_changed",
+                summary="A company team member role was changed.",
+                metadata={"previous_role": old_role, "new_role": target.role},
+            )
     return target
 
 
@@ -271,7 +275,10 @@ def send_team_setup_email(*, actor, target):
         from_email=settings.DEFAULT_FROM_EMAIL,
         to=[target.email],
     )
-    message.send(fail_silently=False)
+    try:
+        message.send(fail_silently=False)
+    except Exception as exc:
+        raise TeamSetupDeliveryError("Account setup email delivery failed.") from exc
     target.setup_sent_at = timezone.now()
     target.save(update_fields=["setup_sent_at", "updated_at"])
     _record_team_event(

@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from rest_framework import generics, status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView, TokenVerifyView
@@ -32,6 +33,21 @@ class UserViewSet(ServiceModelViewSet):
     filterset_fields = ["role", "is_active"]
     search_fields = ["email", "username", "first_name", "last_name", "organization_name"]
     ordering_fields = ["created_at", "email", "first_name"]
+    http_method_names = ["get", "patch", "head", "options"]
+
+    def partial_update(self, request, *args, **kwargs):
+        protected_fields = {"role", "tenant", "is_active", "is_staff", "is_superuser"}
+        attempted_fields = sorted(protected_fields.intersection(request.data))
+        if attempted_fields:
+            raise ValidationError(
+                {
+                    "detail": [
+                        "Role, company, activation, and privilege changes must use the audited Team & access workflow."
+                    ],
+                    "protected_fields": attempted_fields,
+                }
+            )
+        return super().partial_update(request, *args, **kwargs)
 
 
 class ClientDirectoryView(generics.ListCreateAPIView):

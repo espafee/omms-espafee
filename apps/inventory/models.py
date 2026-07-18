@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import OperationalError, ProgrammingError
 from django.db import models, transaction
 from django.db.models import Q
+import uuid
 
 from core.models import TimeStampedModel
 from core.images import compress_field_image
@@ -104,6 +105,7 @@ class MediaUnit(TimeStampedModel):
         BOTH_SIDE = "both_side", "Both Side"
 
     site = models.ForeignKey(MediaSite, related_name="units", on_delete=models.CASCADE)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     unit_code = models.CharField(max_length=50, unique=True)
     face_count = models.PositiveIntegerField(default=1)
     width = models.DecimalField(max_digits=8, decimal_places=2)
@@ -113,6 +115,9 @@ class MediaUnit(TimeStampedModel):
     monthly_rate = models.DecimalField(max_digits=12, decimal_places=2)
     facing_direction = models.CharField(max_length=150, blank=True)
     site_type = models.CharField(max_length=40, choices=SiteType.choices, blank=True)
+    is_publicly_listed = models.BooleanField(default=False)
+    public_description = models.TextField(blank=True)
+    public_features = models.JSONField(default=list, blank=True)
 
     @property
     def primary_image_object(self):

@@ -32,7 +32,7 @@ from apps.tenants.models import Tenant
 from apps.tenants.services import get_default_client_tenant, get_user_tenant, is_platform_super_admin, resolve_write_tenant, scope_queryset_to_tenant_path, scope_users_to_requesting_tenant
 from apps.users.models import User
 from core.repositories import BaseRepository
-from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, OPERATIONS, SALES
+from core.roles import ADMIN, CLIENT, FIELD_STAFF, FINANCE, INVENTORY_MANAGER, OPERATIONS, POE_REVIEWER, SALES
 from core.services import BaseService
 
 from .models import AlertEvent, AlertRule, ApiRequestLog, AuditEvent, DashboardWidgetPreference, ImportExportJob, OperationalMode, SavedOperationalView
@@ -204,7 +204,9 @@ DASHBOARD_ROLE_DEFAULTS = {
     ADMIN: ["operational_health", "critical_campaigns", "billing_risk", "alerts", "campaign_performance", "poe_sla"],
     SALES: ["campaign_performance", "critical_campaigns", "client_campaign_status", "alerts"],
     OPERATIONS: ["poe_sla", "reviewer_workload", "campaign_performance", "import_export_jobs", "alerts"],
+    POE_REVIEWER: ["poe_sla", "reviewer_workload", "campaign_performance", "alerts"],
     FINANCE: ["overdue_invoices", "collection_efficiency", "invoice_payment_trend", "billing_alerts"],
+    INVENTORY_MANAGER: ["campaign_performance", "alerts"],
     FIELD_STAFF: ["assigned_work", "pending_poe_uploads", "upload_status", "site_task_alerts"],
     CLIENT: ["client_campaign_status", "approved_poes", "client_invoices"],
 }
@@ -416,7 +418,7 @@ def can_view_dashboard_finance(user) -> bool:
 
 def can_view_dashboard_operations(user) -> bool:
     role = getattr(user, "role", "")
-    return bool(getattr(user, "is_superuser", False) or role in {ADMIN, OPERATIONS, FINANCE})
+    return bool(getattr(user, "is_superuser", False) or role in {ADMIN, OPERATIONS, POE_REVIEWER, FINANCE})
 
 
 def get_role_dashboard_defaults(role: str) -> list[str]:
@@ -432,6 +434,10 @@ def _is_widget_allowed_for_user(widget_key: str, user) -> bool:
     if role == FIELD_STAFF and DASHBOARD_WIDGETS[widget_key]["category"] != "field":
         return False
     if role == CLIENT and DASHBOARD_WIDGETS[widget_key]["category"] not in {"client", "finance"}:
+        return False
+    if role == POE_REVIEWER and DASHBOARD_WIDGETS[widget_key]["category"] not in {"poe", "campaigns", "operations"}:
+        return False
+    if role == INVENTORY_MANAGER and DASHBOARD_WIDGETS[widget_key]["category"] not in {"campaigns", "operations"}:
         return False
     return True
 

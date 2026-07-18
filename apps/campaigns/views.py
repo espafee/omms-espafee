@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from apps.billing.serializers import CampaignInvoicePreviewSerializer, InvoiceSerializer
 from apps.billing.services import InvoiceService
 from core.permissions import RoleBasedPermission
-from core.roles import ALL_ROLES, ADMIN, FINANCE, POE_REVIEWER, SALES
+from core.roles import ALL_ROLES, ADMIN, FINANCE, INVENTORY_MANAGER, POE_REVIEWER, SALES
 from core.viewsets import ServiceModelViewSet
 
 from .serializers import (
@@ -34,7 +34,7 @@ class CampaignViewSet(ServiceModelViewSet):
     serializer_class = CampaignSerializer
     permission_classes = [RoleBasedPermission]
     service_class = CampaignService
-    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
+    allowed_roles = ALL_ROLES + (POE_REVIEWER, INVENTORY_MANAGER)
     write_roles = (ADMIN, SALES)
     write_roles_by_action = {"generate_invoice": (ADMIN, FINANCE)}
     filterset_fields = ["status", "client", "account_manager"]
@@ -78,7 +78,7 @@ class CampaignAssetViewSet(ServiceModelViewSet):
     serializer_class = CampaignAssetSerializer
     permission_classes = [RoleBasedPermission]
     service_class = CampaignAssetService
-    allowed_roles = ALL_ROLES + (POE_REVIEWER,)
+    allowed_roles = ALL_ROLES + (POE_REVIEWER, INVENTORY_MANAGER)
     write_roles = (ADMIN, SALES)
     filterset_fields = ["campaign", "asset_type", "is_approved"]
     search_fields = ["name", "campaign__name", "campaign__code"]

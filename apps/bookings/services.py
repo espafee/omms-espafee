@@ -25,14 +25,14 @@ class BookingService(BaseService):
             raise ValidationError("End date must be greater than or equal to start date.")
 
     def _validate_availability(self, media_unit, start_date, end_date, exclude_id=None):
-        overlap_exists = self.repository.get_overlapping_bookings(
-            media_unit=media_unit,
+        from apps.planner.services import InventoryAvailabilityService
+
+        InventoryAvailabilityService().assert_bookable(
+            media_unit,
             start_date=start_date,
             end_date=end_date,
-            exclude_id=exclude_id,
-        ).exists()
-        if overlap_exists:
-            raise ValidationError("The selected media unit is already booked for the given date range.")
+            exclude_booking_id=exclude_id,
+        )
 
     def _validate_unique_booking_window(self, campaign, media_unit, start_date, end_date, exclude_id=None):
         duplicate_exists = Booking.objects.filter(

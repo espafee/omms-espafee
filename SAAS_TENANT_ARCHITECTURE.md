@@ -179,3 +179,23 @@ Important architecture decision:
 - `company_name` should become display-only for saved views/preferences after tenant uniqueness is introduced
 
 Phase 1G should be a migration-readiness phase with production audit output attached, not a broad rewrite.
+
+## Tenant Team And Access Boundary
+
+Team management reuses the tenant identity established in Phase 1A:
+
+- platform super admin: Django superuser in the platform tenant; may manage users across client tenants
+- company admin: `admin` role in a client tenant; may manage only that tenant
+- tenant member: one supported business role within one client tenant
+
+Predefined assignable roles are Company Admin, Operations Manager, Field Staff, POE Reviewer, Finance, Inventory Manager, and Client Viewer. The legacy Sales role remains readable and editable in place for compatibility, but is not assignable to new accounts from Team management. `platform_admin` is not a role value and cannot be granted by a tenant administrator.
+
+The Team query root always starts from client-tenant users and applies actor tenant scope before object lookup. Cross-tenant detail requests return `404`; the rejected attempt is recorded without exposing whether the foreign record exists. Tenant moves and email identity changes are intentionally unsupported in Phase 1.
+
+User removal is lifecycle-based. `is_active=False` blocks JWT authentication while retaining foreign-key history. Hard delete is unavailable through both the Team API and generic User API. Setup links use Django's signed, one-time password-reset token mechanism and never expose a password or token in an API list response.
+
+POE Reviewer and Inventory Manager use explicit least-privilege module grants rather than joining the broad legacy `ALL_ROLES` group. Their dashboard profiles and frontend navigation are restricted to the same module boundaries. Finance remains unavailable to both specialist roles.
+
+## Client Planner Tenant Boundary
+
+Planner links and proposals own an explicit tenant. Public inventory derives ownership from `MediaUnit.site.tenant` and must match the link. Public selection uses opaque unit UUIDs and is resolved inside the link-scoped queryset before snapshot creation. Estimate clients, assignees, campaigns, and booking units must match that tenant. Platform superadmins retain intentional internal global visibility; public tokens never gain platform scope.
