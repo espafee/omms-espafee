@@ -1,7 +1,9 @@
 from datetime import date, timedelta
 from decimal import Decimal
+from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -176,6 +178,80 @@ class LiveMediaPlannerTests(TestCase):
         self.assertEqual(decision_a["canonical_values"]["region"], "Samba")
         self.assertEqual(decision_a["consistency_warnings"][0]["unit_value"], "Lakhanpur")
         self.assertEqual(decision_b["consistency_warnings"][0]["unit_value"], "Jammu")
+
+    def test_espa_14_controlled_fixture_returns_23_units_across_16_locations(self):
+        MediaUnit.objects.filter(site__tenant=self.tenant).delete()
+        MediaSite.objects.filter(tenant=self.tenant).delete()
+        espa14 = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Gurha Morh Vijaypur",
+            code="ESPA-14",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Vijaypur Samba",
+            city="Vijaypur",
+            state="Samba",
+        )
+        affected_a = self.make_unit(espa14, "ESPA - 14-A", public=True)
+        affected_b = self.make_unit(espa14, "ESPA - 14-B", public=True)
+        expected_codes = {affected_a.unit_code, affected_b.unit_code}
+        for index in range(15):
+            site = MediaSite.objects.create(
+                tenant=self.tenant,
+                name=f"Included Location {index + 1:02d}",
+                code=f"ESPA-{index + 15}",
+                site_type=MediaSite.SiteType.BILLBOARD,
+                address=f"Included Road {index + 1}",
+                city="Vijaypur",
+                state="Samba",
+            )
+            unit_count = 2 if index < 6 else 1
+            for face in range(unit_count):
+                code = f"ESPA - {index + 15}-{chr(65 + face)}"
+                self.make_unit(site, code, public=True)
+                expected_codes.add(code)
+        self.link.allowed_cities = ["Vijaypur"]
+        self.link.allowed_regions = ["Samba"]
+        self.link.save(update_fields=["allowed_cities", "allowed_regions"])
+
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 100})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 23)
+        self.assertEqual(response.data["meta"]["eligible_unit_count"], 23)
+        self.assertEqual(response.data["meta"]["eligible_location_count"], 16)
+        self.assertEqual(response.data["meta"]["unique_location_count"], 16)
+        self.assertEqual(len(response.data["results"]), 23)
+        self.assertEqual(len({row["public_id"] for row in response.data["results"]}), 23)
+        self.assertEqual({row["unit_code"] for row in response.data["results"]}, expected_codes)
+
+    def test_diagnose_planner_inventory_reports_espa_14_layer_presence(self):
+        espa14 = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Gurha Morh Vijaypur",
+            code="ESPA-14",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Vijaypur Samba",
+            city="Vijaypur",
+            state="Samba",
+        )
+        affected_a = self.make_unit(espa14, "ESPA - 14-A", public=True)
+        affected_b = self.make_unit(espa14, "ESPA - 14-B", public=True)
+        self.link.allowed_cities = ["Vijaypur"]
+        self.link.allowed_regions = ["Samba"]
+        self.link.save(update_fields=["allowed_cities", "allowed_regions"])
+
+        output = StringIO()
+        call_command(
+            "diagnose_planner_inventory",
+            planner_id=self.link.id,
+            unit_code=[affected_a.unit_code, affected_b.unit_code],
+            stdout=output,
+        )
+        text = output.getvalue()
+        self.assertIn('"unit_code": "ESPA - 14-A"', text)
+        self.assertIn('"unit_code": "ESPA - 14-B"', text)
+        self.assertIn('"eligible_evaluator": true', text)
+        self.assertIn('"final_queryset": true', text)
+        self.assertIn('"api_response": true', text)
 
     def test_parent_location_restrictions_still_exclude_espa_14_style_units_when_canonical_location_fails(self):
         vijaypur = MediaSite.objects.create(
