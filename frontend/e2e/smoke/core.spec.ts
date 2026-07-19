@@ -147,15 +147,78 @@ test.describe("OMMS web smoke", () => {
         created_at: "2026-05-01T00:00:00Z",
         updated_at: "2026-05-02T00:00:00Z",
       },
+      {
+        id: 2,
+        site_id: 2,
+        site_code: "SITE-002",
+        unit_ids: [2],
+        unit_codes: ["UNIT-002"],
+        title: "Highway Gantry",
+        address: "Bypass Road",
+        city: "Jammu",
+        state: "Jammu and Kashmir",
+        media_type: "gantry",
+        dimensions: "30.00 x 12.00",
+        facing_direction: "South",
+        unit_site_type: "both_side",
+        status: "available",
+        thumbnail_url: null,
+        unit_count: 1,
+        available_unit_count: 1,
+        image_count: 1,
+        has_coordinates: true,
+        created_at: "2026-05-03T00:00:00Z",
+        updated_at: "2026-05-04T00:00:00Z",
+      },
     ];
-    const unitSummaries = [{
-      id: 1, unit_code: "UNIT-001", location_id: 1, location_name: "Airport Road Billboard", location_code: "SITE-001", city: "Jammu", address: "Airport Road", location_type: "billboard", face_count: 1, width: "20.00", height: "10.00", status: "available", is_illuminated: true, monthly_rate: "50000.00", facing_direction: "North", site_type: "single_side", thumbnail_url: null, image_count: 0, created_at: "2026-05-01T00:00:00Z", updated_at: "2026-05-01T00:00:00Z",
-    }];
+    const unitSummaries = Array.from({ length: 13 }, (_, index) => {
+      const id = index + 1;
+      return {
+        id,
+        unit_code: `UNIT-${String(id).padStart(3, "0")}`,
+        location_id: id === 1 ? 1 : 2,
+        location_name: id === 1 ? "Airport Road Billboard" : "Highway Gantry",
+        location_code: id === 1 ? "SITE-001" : "SITE-002",
+        city: "Jammu",
+        address: id === 1 ? "Airport Road" : "Bypass Road",
+        location_type: id === 1 ? "billboard" : "gantry",
+        face_count: 1,
+        width: id === 1 ? "20.00" : "30.00",
+        height: id === 1 ? "10.00" : "12.00",
+        status: "available",
+        is_illuminated: true,
+        monthly_rate: "50000.00",
+        facing_direction: id % 2 ? "North" : "South",
+        site_type: id % 2 ? "single_side" : "both_side",
+        thumbnail_url: null,
+        image_count: 0,
+        created_at: "2026-05-01T00:00:00Z",
+        updated_at: "2026-05-01T00:00:00Z",
+      };
+    });
 
     await page.route("**/api/v1/**", async (route) => {
       const url = new URL(route.request().url());
       const path = url.pathname.replace("/api/v1/", "");
-      const paginated = (results: unknown[]) => ({ count: results.length, next: null, previous: null, results });
+      const paginated = (results: Array<Record<string, unknown>>) => {
+        const search = (url.searchParams.get("search") || "").toLowerCase();
+        const pageNumber = Number(url.searchParams.get("page") || 1);
+        const pageSize = Number(url.searchParams.get("page_size") || 12);
+        const filtered = search
+          ? results.filter((item) =>
+              Object.values(item).some((value) =>
+                String(value ?? "").toLowerCase().includes(search),
+              ),
+            )
+          : results;
+        const start = (pageNumber - 1) * pageSize;
+        return {
+          count: filtered.length,
+          next: start + pageSize < filtered.length ? "next" : null,
+          previous: pageNumber > 1 ? "previous" : null,
+          results: filtered.slice(start, start + pageSize),
+        };
+      };
       const payloadByPath: Record<string, unknown> = {
         "users/auth/me/": adminUser,
         "inventory/sites/all-sites/": paginated(locations),
@@ -176,12 +239,43 @@ test.describe("OMMS web smoke", () => {
     await expect(page.getByRole("heading", { name: "Advertising Units" })).toBeVisible();
     await expect(page.getByText("UNIT-001")).toBeVisible();
     await expect(page.getByText("Airport Road Billboard")).toBeVisible();
-    await page.locator(".inventory-unit-filter-grid").getByLabel("Search").fill("UNIT-001");
+    const unitsTable = page.locator(".inventory-units-table");
+    await expect(unitsTable.locator("thead th").first()).toHaveText("S.No.");
+    await expect(unitsTable.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+    await expect(unitsTable.locator("tbody tr").nth(1).locator("td").first()).toHaveText("2");
+    await expect.poll(async () => unitsTable.locator("tbody tr td.inventory-serial-cell").allTextContents()).toEqual(
+      Array.from({ length: 12 }, (_, index) => String(index + 1)),
+    );
+    await page.locator(".pagination-row").getByRole("button", { name: "Next" }).click();
+    await expect(unitsTable.locator("tbody tr").first().locator("td").first()).toHaveText("13");
+    await page.locator(".inventory-unit-filter-grid").getByLabel("Search").fill("UNIT-013");
+    await expect(unitsTable.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+    await expect(unitsTable.locator("tbody tr")).toHaveCount(1);
     await page.getByRole("button", { name: "Locations" }).click();
     await expect(page).toHaveURL(/\/inventory\?view=locations/);
     await expect(page.getByRole("heading", { name: "Locations" })).toBeVisible();
     await expect(page.getByText("SITE-001")).toBeVisible();
-    await page.locator(".all-sites-table").getByRole("button", { name: "View" }).click();
+    const locationsTable = page.locator(".all-sites-table");
+    await expect(locationsTable.locator("thead th").first()).toHaveText("S.No.");
+    await expect(locationsTable.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+    await expect(locationsTable.locator("tbody tr").nth(1).locator("td").first()).toHaveText("2");
+    await page.locator(".inventory-location-filter-grid").getByLabel("Search").fill("Highway");
+    await expect(locationsTable.locator("tbody tr")).toHaveCount(1);
+    await expect(locationsTable.locator("tbody tr").first().locator("td").first()).toHaveText("1");
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(locationsTable.locator("tbody tr").first().locator(".inventory-serial-cell")).toContainText("1");
+    await expect.poll(() =>
+      page.locator(".inventory-list-section").evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBeTruthy();
+    await page.getByRole("button", { name: "Advertising Units" }).click();
+    await expect(unitsTable.locator("tbody tr").first().locator(".inventory-serial-cell")).toContainText("1");
+    await expect.poll(() =>
+      page.locator(".inventory-list-section").evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
+    ).toBeTruthy();
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.getByRole("button", { name: "Locations" }).click();
+    await page.locator(".inventory-location-filter-grid").getByLabel("Search").fill("");
+    await locationsTable.locator("tbody tr").filter({ hasText: "Airport Road Billboard" }).getByRole("button", { name: "View" }).click();
     await expect(page.getByRole("heading", { name: "Airport Road Billboard" })).toBeVisible();
   });
 

@@ -26,7 +26,9 @@ Use this checklist after every production deployment or major workflow change.
 - Switch between Overview, Locations, and Advertising Units. Expected: each tab preserves the hierarchy and the selected view is reflected in the URL.
 - Search for a known code such as `ESPA-002`. Expected: the Location appears in Locations and its sellable faces appear in Advertising Units.
 - In Locations, test search, city, and structure category. Confirm rows show physical-location data only: location code/name, address, unit availability count, photo completeness, and coordinates.
+- Confirm the Locations list shows `S.No.` as the first column, starts visible rows at 1, and recalculates after search/filter changes.
 - In Advertising Units, test city, availability, display format, facing direction, and illumination. Confirm every unit shows its parent Location beside the unit identity.
+- Confirm the Advertising Units list shows `S.No.` as the first column, continues numbering across pages, and recalculates after search/filter changes.
 - Open a Location. Expected: address, city/state, coordinates, category, photos, and Location actions are visible; destructive action is inside More and active booking safeguards are still enforced.
 - Open an Advertising Unit. Expected: dimensions, face count, format, illumination, rate, status, photos, and a link to its parent Location are visible.
 

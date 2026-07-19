@@ -3,6 +3,7 @@
 ## 2026-07-18
 
 ### Added
+- Added compact `S.No.` columns to the Locations and Advertising Units inventory lists with pagination-aware numbering.
 - Added a secure rolling 72-hour inactivity session model using short-lived access tokens and HttpOnly refresh-session cookies.
 - Added a `Copy Link` action to active Recent planner link cards on `/sales/proposals`, placed before Diagnostics and Revoke.
 - Recent planner links now copy their complete public `/media-planner/{token}` URL when a safe public path is available, show `Link copied`, and briefly switch the button label to `Copied`.
