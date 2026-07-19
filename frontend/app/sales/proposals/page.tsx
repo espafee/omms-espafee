@@ -19,6 +19,7 @@ import {
   fetchPlannerProposals,
   revokePlannerLink,
   type PlannerEligibilityPreview,
+  type PlannerDiagnosticUnit,
   type PlannerLinkEligibilityDiagnostics,
   type PlannerLink,
   type PlannerProposal,
@@ -140,6 +141,9 @@ export default function ProposalsWorkspacePage() {
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [diagnosticsByLink, setDiagnosticsByLink] = useState<Record<number, PlannerLinkEligibilityDiagnostics>>({});
   const [activeDiagnostics, setActiveDiagnostics] = useState<PlannerLinkEligibilityDiagnostics | null>(null);
+  const [diagnosticsTab, setDiagnosticsTab] = useState<"eligible" | "excluded" | "summary">("eligible");
+  const [diagnosticsSearch, setDiagnosticsSearch] = useState("");
+  const [diagnosticsReasonFilter, setDiagnosticsReasonFilter] = useState("");
   const [diagnosticsFeedback, setDiagnosticsFeedback] = useState("");
   const [isDiagnosticsLoading, setIsDiagnosticsLoading] = useState(false);
   const [linkFeedback, setLinkFeedback] = useState("");
@@ -369,6 +373,9 @@ export default function ProposalsWorkspacePage() {
         (await fetchPlannerLinkEligibilityDiagnostics(link.id, { unit_code: DEFAULT_DIAGNOSTIC_UNITS }));
       setDiagnosticsByLink((current) => ({ ...current, [link.id]: report }));
       setActiveDiagnostics(report);
+      setDiagnosticsTab((report.link.excluded_count ?? 0) > 0 ? "excluded" : "eligible");
+      setDiagnosticsSearch("");
+      setDiagnosticsReasonFilter("");
     } catch (diagnosticsError) {
       setDiagnosticsFeedback(
         diagnosticsError instanceof Error
@@ -753,67 +760,97 @@ export default function ProposalsWorkspacePage() {
             </div>
             <div className="diagnostics-warning" role="status">
               <strong>Platform diagnostics.</strong>
-              <span>Contains operational metadata. Do not share publicly.</span>
+              <span>Advertising units and physical locations are counted separately. Multiple advertising units may belong to the same location.</span>
             </div>
             {hasTenantMismatch(activeDiagnostics) ? (
               <div className="planner-link-warning" role="alert">
                 {TENANT_MISMATCH_MESSAGE}
               </div>
             ) : null}
+            <p className="diagnostics-count-explainer">
+              {activeDiagnostics.link.eligible_count} eligible advertising unit{activeDiagnostics.link.eligible_count === 1 ? "" : "s"} across{" "}
+              {activeDiagnostics.link.unique_eligible_locations ?? activeDiagnostics.summary?.unique_eligible_locations ?? 0} location
+              {(activeDiagnostics.link.unique_eligible_locations ?? activeDiagnostics.summary?.unique_eligible_locations ?? 0) === 1 ? "" : "s"}
+              {activeDiagnostics.link.excluded_count
+                ? ` · ${activeDiagnostics.link.excluded_count} excluded`
+                : ""}
+            </p>
             <div className="diagnostics-cards">
               <article className="ops-kpi-card">
-                <p className="stat-label">Eligible units</p>
+                <p className="stat-label">Eligible advertising units</p>
                 <strong>{activeDiagnostics.link.eligible_count}</strong>
               </article>
               <article className="ops-kpi-card">
-                <p className="stat-label">Published units</p>
-                <strong>{activeDiagnostics.link.published_count}</strong>
+                <p className="stat-label">Unique eligible locations</p>
+                <strong>{activeDiagnostics.link.unique_eligible_locations ?? activeDiagnostics.summary?.unique_eligible_locations ?? 0}</strong>
               </article>
               <article className="ops-kpi-card">
                 <p className="stat-label">Excluded units</p>
                 <strong>{activeDiagnostics.link.excluded_count}</strong>
               </article>
+              <article className="ops-kpi-card">
+                <p className="stat-label">Published inventory inspected</p>
+                <strong>{activeDiagnostics.link.published_count}</strong>
+              </article>
             </div>
-            <DiagnosticsMap title="Pipeline counts" rows={activeDiagnostics.pipeline} />
-            <DiagnosticsMap title="Exclusion counts" rows={activeDiagnostics.exclusions} />
-            <div>
-              <h3>Migration status</h3>
-              <div className="diagnostics-migrations">
-                {Object.entries(activeDiagnostics.database.migration_status).map(([name, applied]) => (
-                  <span key={name} className={applied ? "status-pill status-pill-success" : "status-pill status-pill-warning"}>
-                    {name}: {applied ? "applied" : "missing"}
-                  </span>
-                ))}
+            <div className="diagnostics-tabs" role="tablist" aria-label="Planner diagnostics sections">
+              <button className={diagnosticsTab === "eligible" ? "active" : ""} type="button" role="tab" aria-selected={diagnosticsTab === "eligible"} onClick={() => setDiagnosticsTab("eligible")}>
+                Eligible units
+              </button>
+              <button className={diagnosticsTab === "excluded" ? "active" : ""} type="button" role="tab" aria-selected={diagnosticsTab === "excluded"} onClick={() => setDiagnosticsTab("excluded")}>
+                Excluded units
+              </button>
+              <button className={diagnosticsTab === "summary" ? "active" : ""} type="button" role="tab" aria-selected={diagnosticsTab === "summary"} onClick={() => setDiagnosticsTab("summary")}>
+                Exclusion summary
+              </button>
+            </div>
+            {diagnosticsTab === "eligible" || diagnosticsTab === "excluded" ? (
+              <div className="diagnostics-filter-row">
+                <label>
+                  <span>Search units</span>
+                  <input value={diagnosticsSearch} onChange={(event) => setDiagnosticsSearch(event.target.value)} placeholder="Unit, location, city" />
+                </label>
+                {diagnosticsTab === "excluded" ? (
+                  <label>
+                    <span>Reason</span>
+                    <select value={diagnosticsReasonFilter} onChange={(event) => setDiagnosticsReasonFilter(event.target.value)}>
+                      <option value="">All reasons</option>
+                      {diagnosticReasonOptions(activeDiagnostics).map((reason) => (
+                        <option key={reason} value={reason}>{reason.replaceAll("_", " ")}</option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
               </div>
-            </div>
-            <div className="diagnostics-table-wrap">
-              <table className="data-table diagnostics-table">
-                <thead>
-                  <tr>
-                    <th>Unit</th>
-                    <th>Tenant</th>
-                    <th>Published</th>
-                    <th>Status</th>
-                    <th>City</th>
-                    <th>Eligible</th>
-                    <th>Reason</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activeDiagnostics.sample_units.map((unit) => (
-                    <tr key={unit.code}>
-                      <td>{unit.code}</td>
-                      <td>{unit.tenant_id ?? "-"}</td>
-                      <td>{unit.published ? "Yes" : "No"}</td>
-                      <td>{unit.status}</td>
-                      <td>{unit.city_raw || "-"}</td>
-                      <td>{unit.eligible ? "Yes" : "No"}</td>
-                      <td>{unit.exclusion_reason ?? "Included"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            ) : null}
+            {diagnosticsTab === "eligible" ? (
+              <DiagnosticUnitTable
+                mode="eligible"
+                rows={filterDiagnosticRows(getDiagnosticRows(activeDiagnostics, "eligible"), diagnosticsSearch)}
+              />
+            ) : null}
+            {diagnosticsTab === "excluded" ? (
+              <DiagnosticUnitTable
+                mode="excluded"
+                rows={filterDiagnosticRows(getDiagnosticRows(activeDiagnostics, "excluded"), diagnosticsSearch, diagnosticsReasonFilter)}
+              />
+            ) : null}
+            {diagnosticsTab === "summary" ? (
+              <>
+                <DiagnosticsMap title="Pipeline counts" rows={activeDiagnostics.pipeline} />
+                <DiagnosticsMap title="Exclusion counts" rows={activeDiagnostics.exclusions} />
+                <div>
+                  <h3>Migration status</h3>
+                  <div className="diagnostics-migrations">
+                    {Object.entries(activeDiagnostics.database.migration_status).map(([name, applied]) => (
+                      <span key={name} className={applied ? "status-pill status-pill-success" : "status-pill status-pill-warning"}>
+                        {name}: {applied ? "applied" : "missing"}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </>
+            ) : null}
             <div className="modal-actions">
               <button className="primary" type="button" onClick={() => void copyDiagnosticsReport()}>
                 Copy diagnostic report
@@ -971,6 +1008,110 @@ function DiagnosticsMap({ title, rows }: { title: string; rows: Record<string, n
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+function filterDiagnosticRows(rows: PlannerDiagnosticUnit[], search: string, reason = "") {
+  const query = search.trim().toLowerCase();
+  return rows.filter((row) => {
+    const matchesSearch =
+      !query ||
+      [row.unit_code, row.title, row.location_name, row.location_code, row.city, row.region, row.inventory_type]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    const matchesReason =
+      !reason || row.exclusion_reasons.some((item) => item.reason === reason);
+    return matchesSearch && matchesReason;
+  });
+}
+
+function diagnosticReasonOptions(report: PlannerLinkEligibilityDiagnostics) {
+  return Object.entries(report.exclusions)
+    .filter(([, value]) => value > 0)
+    .map(([key]) => key)
+    .sort();
+}
+
+function getDiagnosticRows(report: PlannerLinkEligibilityDiagnostics, mode: "eligible" | "excluded") {
+  const rows = mode === "eligible" ? report.eligible_units : report.excluded_units;
+  if (rows?.length) return rows;
+  return report.sample_units
+    .filter((unit) => (mode === "eligible" ? unit.eligible : !unit.eligible))
+    .map((unit, index) => ({
+      id: index + 1,
+      unit_id: index + 1,
+      unit_code: unit.code,
+      code: unit.code,
+      title: unit.code,
+      location_id: null,
+      location_name: "",
+      location_code: "",
+      city: unit.city_raw,
+      region: "",
+      inventory_type: "",
+      tenant_id: unit.tenant_id,
+      tenant_name: unit.tenant_id ? String(unit.tenant_id) : "",
+      published: unit.published,
+      publicly_listed: unit.published,
+      status: unit.status,
+      operational_status: unit.status,
+      availability_status: unit.availability_status ?? unit.status,
+      eligible: unit.eligible,
+      exclusion_reason: unit.exclusion_reason,
+      actual_value: unit.exclusion_reason ? unit.city_raw || unit.status : "",
+      required_value: unit.exclusion_reason ? unit.exclusion_reason.replaceAll("_", " ") : "",
+      exclusion_reasons: unit.exclusion_reason
+        ? [{ reason: unit.exclusion_reason, actual: unit.city_raw || unit.status, required: unit.exclusion_reason.replaceAll("_", " ") }]
+        : [],
+    }));
+}
+
+function DiagnosticUnitTable({ rows, mode }: { rows: PlannerDiagnosticUnit[]; mode: "eligible" | "excluded" }) {
+  return (
+    <div className="diagnostics-table-wrap">
+      <table className="data-table diagnostics-table planner-reconciliation-table">
+        <thead>
+          <tr>
+            <th scope="col">S.No.</th>
+            <th scope="col">Unit code</th>
+            <th scope="col">Advertising unit</th>
+            <th scope="col">Location</th>
+            <th scope="col">City / region</th>
+            <th scope="col">Inventory type</th>
+            <th scope="col">Status</th>
+            {mode === "excluded" ? <th scope="col">Exclusion reason</th> : null}
+            {mode === "excluded" ? <th scope="col">Actual value</th> : null}
+            {mode === "excluded" ? <th scope="col">Required / planner value</th> : null}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length ? (
+            rows.map((unit, index) => (
+              <tr key={`${unit.unit_id}-${unit.unit_code}`}>
+                <td>{index + 1}</td>
+                <td>{unit.unit_code}</td>
+                <td>{unit.title || unit.unit_code}</td>
+                <td>
+                  <strong>{unit.location_name || "-"}</strong>
+                  {unit.location_code ? <span>{unit.location_code}</span> : null}
+                </td>
+                <td>{[unit.city, unit.region].filter(Boolean).join(" / ") || "-"}</td>
+                <td>{unit.inventory_type ? unit.inventory_type.replaceAll("_", " ") : "-"}</td>
+                <td>{unit.status.replaceAll("_", " ")}</td>
+                {mode === "excluded" ? <td>{unit.exclusion_reasons.map((item) => item.reason.replaceAll("_", " ")).join(", ") || unit.exclusion_reason || "-"}</td> : null}
+                {mode === "excluded" ? <td>{unit.actual_value || "-"}</td> : null}
+                {mode === "excluded" ? <td>{unit.required_value || "-"}</td> : null}
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={mode === "excluded" ? 10 : 7}>No units match this diagnostic view.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import { useParams } from "next/navigation";
 
 import { ImageLightbox } from "@/components/image-lightbox";
 import {
-  fetchPublicPlanner,
+  fetchCompletePublicPlanner,
   submitPublicProposal,
   type PublicPlannerPayload,
   type PublicPlannerUnit,
@@ -86,11 +86,10 @@ export default function PublicMediaPlannerPage() {
     setError("");
     try {
       setPayload(
-        await fetchPublicPlanner(token, {
+        await fetchCompletePublicPlanner(token, {
           ...filters,
           start_date: startDate,
           end_date: endDate,
-          page_size: 48,
         }),
       );
     } catch (loadError) {
@@ -138,6 +137,10 @@ export default function PublicMediaPlannerPage() {
     availability: filters.availability,
   });
   const hasValidCampaignDates = Boolean(startDate && endDate && startDate <= endDate);
+  const displayedUnitCount = payload?.count ?? payload?.results.length ?? 0;
+  const displayedLocationCount =
+    payload?.meta?.unique_location_count ??
+    countUniqueLocations(payload?.results ?? []);
 
   function focusDateField(field: "start" | "end") {
     const target = field === "start" ? startDateRef.current : endDateRef.current;
@@ -558,10 +561,17 @@ export default function PublicMediaPlannerPage() {
           <h2>
             {isLoading
               ? "Checking inventory..."
-              : `${payload?.count ?? 0} advertising units`}
+              : `${displayedUnitCount} advertising unit${displayedUnitCount === 1 ? "" : "s"} across ${displayedLocationCount} location${displayedLocationCount === 1 ? "" : "s"}`}
           </h2>
+          {!isLoading && payload?.meta?.eligible_unit_count !== undefined ? (
+            <span className="planner-count-note">
+              {payload.meta.eligible_unit_count} eligible advertising unit{payload.meta.eligible_unit_count === 1 ? "" : "s"}
+              {" · "}
+              {payload.meta.eligible_location_count ?? displayedLocationCount} eligible location{(payload.meta.eligible_location_count ?? displayedLocationCount) === 1 ? "" : "s"}
+            </span>
+          ) : null}
         </div>
-        <p>Availability and pricing are subject to final confirmation.</p>
+        <p>Advertising units and physical locations are counted separately.</p>
       </section>
       <section className="planner-unit-grid" aria-busy={isLoading}>
         {isLoading && !payload ? (
@@ -876,6 +886,10 @@ function formatPlannerDate(value: string) {
     month: "short",
     year: "numeric",
   });
+}
+
+function countUniqueLocations(units: PublicPlannerUnit[]) {
+  return new Set(units.map((unit) => unit.location_name.trim().toLowerCase()).filter(Boolean)).size;
 }
 
 function getEmptyState({

@@ -249,9 +249,11 @@ class PublicMediaPlannerView(APIView):
             return Response(exc.detail, status=status.HTTP_400_BAD_REQUEST)
         eligible_queryset = planner_unit_queryset(link, start_date=start_date, end_date=end_date)
         eligible_count = eligible_queryset.count()
+        eligible_location_count = eligible_queryset.values("site_id").distinct().count()
         facets = _public_facets(eligible_queryset, link, start_date=start_date, end_date=end_date)
         queryset = _filter_public_units(eligible_queryset, request, link)
         filtered_count = queryset.count()
+        filtered_location_count = queryset.values("site_id").distinct().count()
         paginator = DefaultPageNumberPagination()
         page = paginator.paginate_queryset(queryset, request)
         units = page if page is not None else list(queryset)
@@ -283,7 +285,10 @@ class PublicMediaPlannerView(APIView):
             },
             "meta": {
                 "eligible_unit_count": eligible_count,
+                "eligible_location_count": eligible_location_count,
+                "unique_location_count": filtered_location_count,
                 "eligible_count_before_filters": eligible_count,
+                "location_count_before_filters": eligible_location_count,
                 "results_count": filtered_count,
                 "empty_reason": _public_empty_reason(
                     eligible_count=eligible_count,

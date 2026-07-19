@@ -91,6 +91,56 @@ class LiveMediaPlannerTests(TestCase):
         self.assertNotIn("margin", serialized)
         self.assertIsNone(serialized["monthly_rate"])
 
+    def test_public_planner_counts_units_and_unique_locations_separately(self):
+        MediaUnit.objects.filter(site__tenant=self.tenant).delete()
+        MediaSite.objects.filter(tenant=self.tenant).delete()
+        expected_codes = []
+        for index in range(21):
+            site = MediaSite.objects.create(
+                tenant=self.tenant,
+                name=f"Planner Location {index + 1:02d}",
+                code=f"NORTH-LOC-{index + 1:02d}",
+                site_type=MediaSite.SiteType.BILLBOARD,
+                address=f"Road {index + 1}",
+                city="Jammu",
+                state="Jammu and Kashmir",
+            )
+            unit_count = 2 if index in {0, 1} else 1
+            for face in range(unit_count):
+                code = f"NORTH-{index + 1:02d}-{face + 1}"
+                self.make_unit(site, code, public=True)
+                expected_codes.append(code)
+
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 100})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["count"], 23)
+        self.assertEqual(response.data["meta"]["eligible_unit_count"], 23)
+        self.assertEqual(response.data["meta"]["eligible_location_count"], 21)
+        self.assertEqual(response.data["meta"]["unique_location_count"], 21)
+        self.assertEqual(sorted(row["unit_code"] for row in response.data["results"]), sorted(expected_codes))
+        self.assertEqual(len({row["public_id"] for row in response.data["results"]}), 23)
+
+    def test_public_planner_paginates_without_collapsing_shared_locations(self):
+        shared_site = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Shared Planner Location",
+            code="NORTH-SHARED",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Shared Road",
+            city="Jammu",
+            state="Jammu and Kashmir",
+        )
+        self.make_unit(shared_site, "NORTH-SHARED-A", public=True)
+        self.make_unit(shared_site, "NORTH-SHARED-B", public=True)
+        page_two = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 1, "page": 2})
+        page_three = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 1, "page": 3})
+        self.assertEqual(page_two.status_code, 200)
+        self.assertEqual(page_three.status_code, 200)
+        self.assertEqual(page_two.data["count"], 3)
+        self.assertEqual(page_three.data["count"], 3)
+        self.assertEqual(page_two.data["results"][0]["unit_code"], "NORTH-SHARED-A")
+        self.assertEqual(page_three.data["results"][0]["unit_code"], "NORTH-SHARED-B")
+
     def test_allowed_city_matching_is_trimmed_and_case_insensitive(self):
         for value in (["Jammu"], ["jammu"], [" Jammu "], "Jammu", "jammu", " Jammu ", "Jammu, Delhi"):
             with self.subTest(value=value):
@@ -644,6 +694,57 @@ class MediaPlannerPlatformDiagnosticsTests(TestCase):
         self.assertEqual(rows["ESPA-002_1"]["exclusion_reason"], "unpublished")
         self.assertEqual(rows["ESPA-002_2"]["eligible"], True)
         self.assertEqual(rows["ESPA-003"]["exclusion_reason"], "retired")
+
+    @override_settings(ENABLE_PLATFORM_DIAGNOSTICS=True)
+    def test_reconciliation_diagnostics_list_eligible_and_excluded_unit_details(self):
+        self.link.allowed_regions = ["Jammu and Kashmir"]
+        self.link.allowed_inventory_types = [MediaUnit.SiteType.SINGLE_SIDE]
+        self.link.save(update_fields=["allowed_regions", "allowed_inventory_types"])
+        shared = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Twin Face Chowk",
+            code="ESPA-TWIN",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Twin Road",
+            city="Jammu",
+            state="Jammu and Kashmir",
+        )
+        twin_a = self.make_unit(shared, "ESPA-TWIN-A", public=True)
+        twin_b = self.make_unit(shared, "ESPA-TWIN-B", public=True)
+        wrong_city_site = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Samba Circle",
+            code="ESPA-SAMBA",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Samba Road",
+            city="Samba",
+            state="Jammu and Kashmir",
+        )
+        wrong_city = self.make_unit(wrong_city_site, "ESPA-WRONG-CITY", public=True)
+        wrong_city.status = MediaUnit.Status.RETIRED
+        wrong_city.save(update_fields=["status"])
+        wrong_type = self.make_unit(self.site, "ESPA-WRONG-TYPE", public=True)
+        wrong_type.site_type = MediaUnit.SiteType.BOTH_SIDE
+        wrong_type.save(update_fields=["site_type"])
+
+        self.api.force_authenticate(self.platform_admin)
+        response = self.api.get(f"/api/v1/planner/links/{self.link.id}/eligibility-diagnostics/")
+        self.assertEqual(response.status_code, 200)
+        payload = response.data
+        eligible_codes = {row["unit_code"] for row in payload["eligible_units"]}
+        self.assertIn(twin_a.unit_code, eligible_codes)
+        self.assertIn(twin_b.unit_code, eligible_codes)
+        self.assertEqual(payload["link"]["unique_eligible_locations"], 2)
+        self.assertGreaterEqual(payload["summary"]["total_eligible"], 3)
+        excluded = {row["unit_code"]: row for row in payload["excluded_units"]}
+        self.assertIn("ESPA-WRONG-CITY", excluded)
+        wrong_city_reasons = {reason["reason"] for reason in excluded["ESPA-WRONG-CITY"]["exclusion_reasons"]}
+        self.assertTrue({"wrong_city", "retired"}.issubset(wrong_city_reasons))
+        self.assertIn("Samba", excluded["ESPA-WRONG-CITY"]["actual_value"])
+        self.assertIn("Jammu", excluded["ESPA-WRONG-CITY"]["required_value"])
+        self.assertIn("ESPA-WRONG-TYPE", excluded)
+        wrong_type_reasons = {reason["reason"] for reason in excluded["ESPA-WRONG-TYPE"]["exclusion_reasons"]}
+        self.assertIn("wrong_inventory_type", wrong_type_reasons)
 
     def test_platform_superadmin_must_select_client_tenant_for_planner_link(self):
         self.api.force_authenticate(self.platform_admin)

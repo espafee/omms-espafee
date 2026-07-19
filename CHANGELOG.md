@@ -3,6 +3,9 @@
 ## 2026-07-18
 
 ### Added
+- Added Live Media Planner inventory-count reconciliation with separate advertising-unit and unique-location counts.
+- Added detailed authenticated planner diagnostics for eligible and excluded units, including unit codes, locations, exclusion reasons, and actual-vs-required values.
+- Public Live Media Planner now displays summaries such as `23 advertising units across 21 locations` and fetches all paginated result pages instead of stopping at the first 48 units.
 - Added compact `S.No.` columns to the Locations and Advertising Units inventory lists with pagination-aware numbering.
 - Added a secure rolling 72-hour inactivity session model using short-lived access tokens and HttpOnly refresh-session cookies.
 - Added a `Copy Link` action to active Recent planner link cards on `/sales/proposals`, placed before Diagnostics and Revoke.
