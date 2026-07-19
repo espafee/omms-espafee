@@ -342,6 +342,8 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
           { id: 10, tenant: 2, tenant_name: "ESPA FEE", title: "Active Planner", client: null, client_name: "", allowed_cities: ["Jammu"], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 4, public_path: "/media-planner/active-secret", created_at: "2026-07-18T09:00:00Z", updated_at: "2026-07-18T09:00:00Z" },
           { id: 11, tenant: 2, tenant_name: "ESPA FEE", title: "Active Missing Url", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 0, created_at: "2026-07-18T09:30:00Z", updated_at: "2026-07-18T09:30:00Z" },
           { id: 12, tenant: 2, tenant_name: "ESPA FEE", title: "Closed Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: "2026-07-18T10:00:00Z", is_available: false, eligible_unit_count: 0, public_path: "/media-planner/closed-secret", created_at: "2026-07-18T10:00:00Z", updated_at: "2026-07-18T10:00:00Z" },
+          { id: 13, tenant: 2, tenant_name: "ESPA FEE", title: "Absolute Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: "2027-01-01T00:00:00Z", revoked_at: null, is_available: true, eligible_unit_count: 2, public_path: "https://planner.example.com/media-planner/absolute-secret", created_at: "2026-07-18T11:00:00Z", updated_at: "2026-07-18T11:00:00Z" },
+          { id: 14, tenant: 2, tenant_name: "ESPA FEE", title: "Expired Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: "2026-01-01T00:00:00Z", revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/expired-secret", created_at: "2026-07-18T12:00:00Z", updated_at: "2026-07-18T12:00:00Z" },
         ]),
       });
     }
@@ -387,8 +389,11 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   const activeRow = table.locator(".planner-link-row").filter({ hasText: "Active Planner" });
   const missingUrlRow = table.locator(".planner-link-row").filter({ hasText: "Active Missing Url" });
   const closedRow = table.locator(".planner-link-row").filter({ hasText: "Closed Planner" });
+  const absoluteRow = table.locator(".planner-link-row").filter({ hasText: "Absolute Planner" });
+  const expiredRow = table.locator(".planner-link-row").filter({ hasText: "Expired Planner" });
   const copyButton = activeRow.getByRole("button", { name: "Copy Live Media Planner link" });
   await expect(copyButton).toBeEnabled();
+  await expect(copyButton).toHaveAttribute("type", "button");
   await expect(activeRow).toContainText("General client link");
   await expect(activeRow).toContainText("Rates hidden");
   await expect(activeRow).toContainText("ESPA FEE");
@@ -402,14 +407,22 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   await expect(activeRow.locator(".planner-link-actions button").nth(2)).toHaveText("Revoke");
   await copyButton.click();
   await expect(copyButton).toHaveText("Copied");
-  await expect(page.getByText("Planner link copied")).toBeVisible();
-  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toContain("http");
-  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toContain("/media-planner/active-secret");
+  await expect(activeRow.getByTestId("planner-copy-check-icon")).toBeVisible();
+  await expect(page.getByText("Link copied")).toBeVisible();
+  const expectedActiveUrl = new URL("/media-planner/active-secret", page.url()).toString();
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toBe(expectedActiveUrl);
+  await expect(copyButton).toHaveText("Copy Link", { timeout: 3000 });
+  await expect(activeRow.getByTestId("planner-copy-check-icon")).toHaveCount(0);
+  const absoluteCopyButton = absoluteRow.getByRole("button", { name: "Copy Live Media Planner link" });
+  await absoluteCopyButton.click();
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toBe("https://planner.example.com/media-planner/absolute-secret");
   await expect(missingUrlRow.getByRole("button", { name: "Copy Live Media Planner link" })).toBeDisabled();
   await expect(closedRow.getByRole("button", { name: "Copy Live Media Planner link" })).toHaveCount(0);
   await expect(closedRow.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   await expect(closedRow.getByRole("button", { name: "Diagnostics" })).toBeVisible();
   await expect(closedRow).toContainText("REVOKED");
+  await expect(expiredRow.getByRole("button", { name: "Copy Live Media Planner link" })).toHaveCount(0);
+  await expect(expiredRow).toContainText("EXPIRED");
   const warningRow = closedRow.locator("xpath=following-sibling::tr[1]");
   await expect(warningRow).toHaveClass(/planner-link-warning-row/);
   await expect(warningRow).toContainText("Planner tenant does not match published inventory.");
@@ -425,6 +438,67 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   await expect.poll(() =>
     page.locator(".planner-link-history").evaluate((element) => element.scrollWidth <= element.clientWidth + 1),
   ).toBeTruthy();
+});
+
+test("recent planner links use textarea fallback when clipboard API rejects", async ({ page }) => {
+  await seedPlatformAdmin(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard unavailable"); } },
+    });
+    document.execCommand = (command: string) => {
+      if (command !== "copy") return false;
+      const textarea = document.querySelector("textarea") as HTMLTextAreaElement | null;
+      localStorage.setItem("planner_link_clipboard_fallback", textarea?.value || "");
+      return true;
+    };
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    if (path === "users/auth/me/") return route.fulfill({ contentType: "application/json", body: JSON.stringify(platformAdmin) });
+    if (path === "observability/operational-mode/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
+    if (path === "team/roles/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ roles: [], tenants: [], can_select_tenant: true }) });
+    if (path === "planner/links/") return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 30, tenant: 2, tenant_name: "ESPA FEE", title: "Fallback Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "media-planner/fallback-secret", created_at: "2026-07-18T09:00:00Z", updated_at: "2026-07-18T09:00:00Z" }]) });
+    if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
+  });
+
+  await page.goto("/sales/proposals");
+  const copyButton = page.getByRole("row", { name: /Fallback Planner/ }).getByRole("button", { name: "Copy Live Media Planner link" });
+  await copyButton.click();
+  const expectedUrl = new URL("/media-planner/fallback-secret", page.url()).toString();
+  await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard_fallback"))).toBe(expectedUrl);
+  await expect(page.getByText("Link copied")).toBeVisible();
+});
+
+test("recent planner link copy failure recovers with readable feedback", async ({ page }) => {
+  await seedPlatformAdmin(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async () => { throw new Error("clipboard blocked"); } },
+    });
+    document.execCommand = () => false;
+  });
+  await page.route("**/api/v1/**", async (route) => {
+    const request = route.request();
+    const path = new URL(request.url()).pathname.replace("/api/v1/", "");
+    if (path === "users/auth/me/") return route.fulfill({ contentType: "application/json", body: JSON.stringify(platformAdmin) });
+    if (path === "observability/operational-mode/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ mode: "normal", label: "Normal", message: "", is_write_blocking: false }) });
+    if (path === "team/roles/") return route.fulfill({ contentType: "application/json", body: JSON.stringify({ roles: [], tenants: [], can_select_tenant: true }) });
+    if (path === "planner/links/") return route.fulfill({ contentType: "application/json", body: JSON.stringify([{ id: 31, tenant: 2, tenant_name: "ESPA FEE", title: "Failure Planner", client: null, client_name: "", allowed_cities: [], allowed_regions: [], allowed_inventory_types: [], show_rates: false, pricing_mode: "hidden", effective_show_rates: false, allow_proposal_submission: true, allow_image_download: false, allow_map_data: false, expires_at: null, revoked_at: null, is_available: true, eligible_unit_count: 1, public_path: "/media-planner/failure-secret", created_at: "2026-07-18T09:00:00Z", updated_at: "2026-07-18T09:00:00Z" }]) });
+    if (path.startsWith("planner/proposals/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify([]) });
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "Not mocked" }) });
+  });
+
+  await page.goto("/sales/proposals");
+  const copyButton = page.getByRole("row", { name: /Failure Planner/ }).getByRole("button", { name: "Copy Live Media Planner link" });
+  await copyButton.click();
+  await expect(page.getByText("Unable to copy link. Please try again.")).toBeVisible();
+  await expect(copyButton).toBeEnabled();
+  await expect(copyButton).toHaveText("Copy Link");
 });
 
 test("platform superadmin opens planner diagnostics inside media proposals", async ({ page }) => {
@@ -485,6 +559,7 @@ test("platform diagnostics warns on tenant mismatch and keeps modal open when co
       configurable: true,
       value: { writeText: async () => { throw new Error("Denied"); } },
     });
+    document.execCommand = () => false;
   });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();

@@ -5390,8 +5390,12 @@ body.modal-open { overflow: hidden; }
 .planner-link-warning-row + .planner-link-row td { border-top: 0; }
 .planner-link-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px; }
 .planner-link-actions .ghost { padding: 7px 9px; font-size: 11px; }
-.planner-copy-link-button { display: inline-flex; align-items: center; gap: 6px; }
+.planner-copy-link-button { display: inline-flex; align-items: center; gap: 6px; transition: background .15s ease, border-color .15s ease, color .15s ease, transform .12s ease; }
+.planner-copy-link-button:not(:disabled) { cursor: pointer; }
+.planner-copy-link-button:not(:disabled):active { transform: translateY(1px) scale(.98); }
+.planner-copy-link-button.is-copied { border-color: #8bc5ae; background: #eff9f4; color: #126247; }
 .planner-copy-link-button svg { width: 15px; height: 15px; flex: 0 0 15px; }
+.planner-action-feedback-error { color: #9b2e2e; }
 .planner-diagnostics-modal { width: min(1080px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto; }
 .diagnostics-json-source { width: 100%; min-height: 96px; margin-top: 8px; padding: 10px; border: 1px solid #dce9e3; border-radius: 6px; background: #f8fbfa; color: #526b61; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; resize: vertical; }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; }

@@ -5,10 +5,11 @@
 ### Added
 - Added a secure rolling 72-hour inactivity session model using short-lived access tokens and HttpOnly refresh-session cookies.
 - Added a `Copy Link` action to active Recent planner link cards on `/sales/proposals`, placed before Diagnostics and Revoke.
-- Recent planner links now copy their complete public `/media-planner/{token}` URL when a safe public path is available, show `Planner link copied`, and briefly switch the button label to `Copied`.
+- Recent planner links now copy their complete public `/media-planner/{token}` URL when a safe public path is available, show `Link copied`, and briefly switch the button label to `Copied`.
 - Redesigned Recent planner links as a compact responsive table with planner, client/company, inventory, status, dates when available, and action columns.
 
 ### Fixed
+- Fixed the Recent planner links `Copy Link` action so it copies exact public planner URLs, falls back safely when the Clipboard API is unavailable, shows `Link copied` with a temporary check-icon `Copied` state, and recovers with a readable error if copying fails.
 - Fixed frequent automatic logout by queuing silent refresh attempts, retrying expired-access requests once, and avoiding auth clearing on temporary refresh network failures.
 - Closed, revoked, expired, and unavailable planner links no longer show the Recent links copy action.
 - Active planner links without a public URL now render the copy action disabled instead of attempting an invalid clipboard write.

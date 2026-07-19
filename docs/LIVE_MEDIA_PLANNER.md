@@ -13,7 +13,7 @@ Live Media Planner is a controlled client-planning surface, not a public invento
 
 The `Recent planner links` section on `/sales/proposals` shows generated planner links in a compact responsive table. Columns cover planner title/type/pricing, client or company context, eligible/published/excluded inventory counts, status, created/expiry dates when the API provides them, and available actions.
 
-Active links include a `Copy Link` action before Diagnostics and Revoke when the frontend has a safe `public_path` for that link. The action copies the complete public planner URL, shows `Planner link copied`, and briefly changes to `Copied`. Closed, revoked, expired, or otherwise unavailable links do not show the copy action. Active links without a public URL keep the copy action disabled.
+Active links include a `Copy Link` action before Diagnostics and Revoke when the frontend has a safe `public_path` for that link. The action copies the complete public planner URL, uses the Clipboard API with a textarea fallback, shows `Link copied`, swaps to a check icon, and briefly changes to `Copied`. Closed, revoked, expired, or otherwise unavailable links do not show the copy action. Active links without a public URL keep the copy action disabled.
 
 Diagnostic warning messages render as a secondary full-width row directly below the affected planner link. On narrow screens, the table stacks each planner row so the title and status remain first, details stay visible, and actions wrap in a full-width footer area.
 
@@ -34,7 +34,7 @@ Diagnostic warning messages render as a secondary full-width row directly below 
 
 1. Open `/sales/proposals` as Admin or Sales.
 2. Create a new secure client link and confirm it appears in `Recent planner links`.
-3. On an active link with a public URL, click `Copy Link` and confirm the button changes to `Copied` and the page shows `Planner link copied`.
+3. On an active link with a public URL, click `Copy Link` and confirm the button changes to a check-icon `Copied` state and the page shows `Link copied`.
 4. Paste the copied value into a new browser tab and confirm it opens the matching `/media-planner/{token}` public planner.
 5. Confirm the Recent planner links table has Planner Link, Client / Company, Inventory, Status, Created / Expiry when available, and Actions columns on desktop/tablet.
 6. Confirm the `Copy Link`, `Diagnostics`, and `Revoke` actions stay compact on desktop and wrap cleanly in the mobile stacked row without horizontal overflow.
