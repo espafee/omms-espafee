@@ -130,6 +130,9 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: Diagnostics shows `21 eligible advertising units · 2 excluded`, and the Excluded units table names the two unit codes with reasons such as `wrong_city`, `wrong_tenant`, `retired`, or `wrong_inventory_type`.
 - In Diagnostics, use search and reason filtering.
 - Expected: eligible/excluded totals reconcile, the exact excluded units remain visible when filtered by reason, and no diagnostic/internal data appears on the public planner endpoint.
+- For `ESPA - 14-A` and `ESPA - 14-B`, verify the parent location is `Gurha Morh Vijaypur` and its canonical city/region match the planner restrictions.
+- Expected: both units remain marked published in Inventory, the Inventory badge reads `Published — subject to planner tenant and filter eligibility`, and the public planner shows both unit codes as separate advertising units when the parent location is eligible.
+- If Diagnostics reports `Advertising-unit geography does not match its parent location.`, confirm the row shows the legacy unit value and canonical parent-location value before correcting production data.
 
 ## 14. Finance Dashboard
 - Open Dashboard.

@@ -210,6 +210,10 @@ export type PlannerDiagnosticUnit = {
   location_code: string;
   city: string;
   region: string;
+  canonical_city?: string;
+  canonical_region?: string;
+  unit_city?: string | null;
+  unit_region?: string | null;
   inventory_type: string;
   tenant_id: number | null;
   tenant_name: string;
@@ -222,6 +226,9 @@ export type PlannerDiagnosticUnit = {
   exclusion_reason: string | null;
   actual_value: string;
   required_value: string;
+  expected_values?: Record<string, unknown>;
+  canonical_values?: Record<string, unknown>;
+  consistency_warnings?: Array<{ code: string; message: string; unit_value: string; canonical_value: string }>;
   exclusion_reasons: Array<{ reason: string; actual: string | string[]; required: string | string[] }>;
 };
 

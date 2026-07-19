@@ -19,6 +19,7 @@ from ..models import CampaignProposal, CampaignProposalLine, MediaPlannerShareLi
 from ..services import (
     AvailabilityStatus,
     InventoryAvailabilityService,
+    PlannerEligibilityEvaluator,
     convert_proposal_to_campaign,
     create_estimate_from_proposal,
     submit_proposal,
@@ -140,6 +141,66 @@ class LiveMediaPlannerTests(TestCase):
         self.assertEqual(page_three.data["count"], 3)
         self.assertEqual(page_two.data["results"][0]["unit_code"], "NORTH-SHARED-A")
         self.assertEqual(page_three.data["results"][0]["unit_code"], "NORTH-SHARED-B")
+
+    def test_espa_14_style_units_use_parent_location_geography_for_planner_eligibility(self):
+        vijaypur = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Gurha Morh Vijaypur",
+            code="ESPA - 14",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Vijaypur Samba",
+            city="Vijaypur",
+            state="Samba",
+        )
+        unit_a = self.make_unit(vijaypur, "ESPA - 14-A", public=True)
+        unit_b = self.make_unit(vijaypur, "ESPA - 14-B", public=True)
+        self.link.allowed_cities = ["Vijaypur"]
+        self.link.allowed_regions = ["Samba"]
+        self.link.save(update_fields=["allowed_cities", "allowed_regions"])
+
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 100})
+        self.assertEqual(response.status_code, 200)
+        codes = {row["unit_code"] for row in response.data["results"]}
+        self.assertIn(unit_a.unit_code, codes)
+        self.assertIn(unit_b.unit_code, codes)
+        self.assertEqual(response.data["meta"]["eligible_location_count"], 1)
+
+        evaluator = PlannerEligibilityEvaluator()
+        unit_a.city = "Lakhanpur"
+        unit_b.city = "Jammu"
+        decision_a = evaluator.evaluate(unit_a, self.link)
+        decision_b = evaluator.evaluate(unit_b, self.link)
+        self.assertTrue(decision_a["eligible"])
+        self.assertTrue(decision_b["eligible"])
+        self.assertEqual(decision_a["canonical_values"]["city"], "Vijaypur")
+        self.assertEqual(decision_a["canonical_values"]["region"], "Samba")
+        self.assertEqual(decision_a["consistency_warnings"][0]["unit_value"], "Lakhanpur")
+        self.assertEqual(decision_b["consistency_warnings"][0]["unit_value"], "Jammu")
+
+    def test_parent_location_restrictions_still_exclude_espa_14_style_units_when_canonical_location_fails(self):
+        vijaypur = MediaSite.objects.create(
+            tenant=self.tenant,
+            name="Gurha Morh Vijaypur",
+            code="ESPA - 14",
+            site_type=MediaSite.SiteType.BILLBOARD,
+            address="Vijaypur Samba",
+            city="Vijaypur",
+            state="Samba",
+        )
+        unit_a = self.make_unit(vijaypur, "ESPA - 14-A", public=True)
+        unit_b = self.make_unit(vijaypur, "ESPA - 14-B", public=True)
+        self.link.allowed_cities = ["Jammu"]
+        self.link.allowed_regions = ["Jammu and Kashmir"]
+        self.link.save(update_fields=["allowed_cities", "allowed_regions"])
+
+        response = self.api.get(f"/api/v1/public/media-planner/{self.raw_token}/", {"page_size": 100})
+        self.assertEqual(response.status_code, 200)
+        codes = {row["unit_code"] for row in response.data["results"]}
+        self.assertNotIn(unit_a.unit_code, codes)
+        self.assertNotIn(unit_b.unit_code, codes)
+        decision = PlannerEligibilityEvaluator().evaluate(unit_a, self.link)
+        reasons = {reason["reason"] for reason in decision["exclusion_reasons"]}
+        self.assertTrue({"wrong_city", "wrong_region"}.issubset(reasons))
 
     def test_allowed_city_matching_is_trimmed_and_case_insensitive(self):
         for value in (["Jammu"], ["jammu"], [" Jammu "], "Jammu", "jammu", " Jammu ", "Jammu, Delhi"):

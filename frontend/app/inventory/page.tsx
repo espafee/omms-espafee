@@ -1466,7 +1466,7 @@ function InventoryWorkspace() {
                             }`}
                           >
                             {unit.is_publicly_listed
-                              ? "Published to Media Planner"
+                              ? "Published — subject to planner tenant and filter eligibility"
                               : "Not published"}
                           </span>
                         </div>

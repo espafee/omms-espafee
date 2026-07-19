@@ -13,6 +13,8 @@ Live Media Planner is a controlled client-planning surface, not a public invento
 
 The planner counts advertising units and physical locations separately. A physical location can contain multiple advertising units, so a planner can correctly show `23 advertising units across 21 locations`. Operators should not interpret unique location count as missing inventory.
 
+Canonical geography for planner eligibility comes from the parent physical location (`MediaSite`): city, region/state, address, and coordinates. Advertising units inherit that location context. Inventory type is evaluated against the unit's sellable face type first, with the parent location type as the fallback used by existing planner restrictions.
+
 Secure planner eligibility still requires every visible unit to match the planner link tenant, be publicly listed, avoid retired status, and satisfy any allowed city, region, or inventory-type restrictions. Public filters can further reduce the displayed result count, but the public header keeps the eligible advertising-unit count and eligible location count visible. The public planner fetches all paginated result pages instead of stopping at the first 48 records.
 
 The public planner endpoint returns safe count metadata only:
@@ -37,6 +39,8 @@ Diagnostic warning messages render as a secondary full-width row directly below 
 Platform Diagnostics on a planner link now shows summary cards for eligible advertising units, unique eligible locations, excluded units, and published inventory inspected. The modal includes Eligible units, Excluded units, and Exclusion summary sections with search and reason filtering.
 
 Excluded rows include the unit code, advertising unit, physical location, city/region, inventory type, operational status, explicit exclusion reason, actual value, and required planner value. Common reasons are `wrong_tenant`, `unpublished`, `retired`, `wrong_city`, `wrong_region`, `wrong_inventory_type`, `invalid_or_missing_location`, `missing_public_id`, `unavailable_for_dates`, and `other`. A unit can carry more than one reason, such as `retired` and `wrong_city`.
+
+If an environment has legacy or denormalised unit-level geography, Diagnostics compares it with the canonical parent location and shows: `Advertising-unit geography does not match its parent location.` Public planner eligibility still uses the canonical parent-location values.
 
 If inventory shows 23 published units but a planner shows 21 eligible units, open Diagnostics and check the Excluded units section to identify the exact two unit codes and reasons. If Diagnostics shows 23 eligible advertising units across 21 locations, nothing is missing; two or more units share physical locations.
 
@@ -66,3 +70,4 @@ If inventory shows 23 published units but a planner shows 21 eligible units, ope
 9. Confirm any active link without a public URL shows the copy action disabled.
 10. With test data containing 23 eligible advertising units across 21 physical locations, open the public planner and confirm the summary reads `23 advertising units across 21 locations`.
 11. With test data containing 23 published units but 21 eligible units, open Diagnostics and confirm the Excluded units section lists the exact two unit codes and exclusion reasons.
+12. Search the public planner for `ESPA - 14-A` and `ESPA - 14-B` when their parent location matches the planner restrictions. Confirm both codes appear as separate advertising units under `Gurha Morh Vijaypur`.

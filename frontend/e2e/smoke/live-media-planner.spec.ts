@@ -238,6 +238,45 @@ test("public planner shows advertising-unit and location counts without collapsi
   expect(requestedPages).toEqual(["1", "2", "3"]);
 });
 
+test("public planner shows ESPA 14 faces as separate advertising units when eligible", async ({ page }) => {
+  const base = publicPayload(false).results[0];
+  await page.route("**/api/v1/public/media-planner/espa-14-token/**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        ...publicPayload(false),
+        count: 2,
+        next: null,
+        previous: null,
+        filters: {
+          ...publicPayload(false).filters,
+          cities: ["Vijaypur"],
+          locations: ["Gurha Morh Vijaypur"],
+        },
+        meta: {
+          eligible_unit_count: 2,
+          eligible_location_count: 1,
+          unique_location_count: 1,
+          eligible_count_before_filters: 2,
+          location_count_before_filters: 1,
+          results_count: 2,
+          has_campaign_dates: false,
+        },
+        results: [
+          { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c14", unit_code: "ESPA - 14-A", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
+          { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c15", unit_code: "ESPA - 14-B", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
+        ],
+      }),
+    });
+  });
+  await page.goto("/media-planner/espa-14-token");
+  await expect(page.getByRole("heading", { name: "2 advertising units across 1 location" })).toBeVisible();
+  await expect(page.locator(".planner-unit-card")).toHaveCount(2);
+  await expect(page.getByText("ESPA - 14-A")).toBeVisible();
+  await expect(page.getByText("ESPA - 14-B")).toBeVisible();
+  await expect(page.locator(".planner-unit-card").filter({ hasText: "Gurha Morh Vijaypur" })).toHaveCount(2);
+});
+
 test("public planner proposal validation remains reachable on mobile widths", async ({ page }) => {
   await page.route("**/api/v1/public/media-planner/mobile-token-*/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(false)) }));
   for (const width of [320, 360, 390, 430]) {
@@ -587,7 +626,7 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
           exclusions: { wrong_tenant: 0, unpublished: 1, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
           sample_units: [{ code: "ESPA-001", tenant_id: 4, published: true, public_id_present: true, status: "available", city_raw: "Jammu", city_normalized: "jammu", parent_active: true, eligible: true, exclusion_reason: null }],
           eligible_units: [{ id: 1, unit_id: 1, unit_code: "ESPA-001", code: "ESPA-001", title: "ESPA-001", location_id: 1, location_name: "SIDCO Chowk", location_code: "ESPA-SITE", city: "Jammu", region: "Jammu and Kashmir", inventory_type: "single_side", tenant_id: 4, tenant_name: "ESPA FEE", published: true, publicly_listed: true, status: "available", operational_status: "available", availability_status: "available", eligible: true, exclusion_reason: null, actual_value: "", required_value: "", exclusion_reasons: [] }],
-          excluded_units: [{ id: 2, unit_id: 2, unit_code: "ESPA-002_1", code: "ESPA-002_1", title: "ESPA-002_1", location_id: 1, location_name: "SIDCO Chowk", location_code: "ESPA-SITE", city: "Jammu", region: "Jammu and Kashmir", inventory_type: "single_side", tenant_id: 4, tenant_name: "ESPA FEE", published: false, publicly_listed: false, status: "available", operational_status: "available", availability_status: "available", eligible: false, exclusion_reason: "unpublished", actual_value: "false", required_value: "true", exclusion_reasons: [{ reason: "unpublished", actual: "false", required: "true" }] }],
+          excluded_units: [{ id: 2, unit_id: 2, unit_code: "ESPA-002_1", code: "ESPA-002_1", title: "ESPA-002_1", location_id: 1, location_name: "SIDCO Chowk", location_code: "ESPA-SITE", city: "Jammu", region: "Jammu and Kashmir", canonical_city: "Jammu", canonical_region: "Jammu and Kashmir", unit_city: "Lakhanpur", unit_region: null, inventory_type: "single_side", tenant_id: 4, tenant_name: "ESPA FEE", published: false, publicly_listed: false, status: "available", operational_status: "available", availability_status: "available", eligible: false, exclusion_reason: "unpublished", actual_value: "false", required_value: "true", consistency_warnings: [{ code: "unit_location_city_mismatch", message: "Advertising-unit geography does not match its parent location.", unit_value: "Lakhanpur", canonical_value: "Jammu" }], exclusion_reasons: [{ reason: "unpublished", actual: "false", required: "true" }] }],
         }),
       });
     }
@@ -606,6 +645,8 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
   await expect(diagnosticsModal).toBeVisible();
   await expect(diagnosticsModal.getByText("1 eligible advertising unit across 1 location · 1 excluded")).toBeVisible();
   await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
+  await expect(diagnosticsModal.getByText("Advertising-unit geography does not match its parent location.")).toBeVisible();
+  await expect(diagnosticsModal.getByText("Unit value: Lakhanpur · Canonical location value: Jammu")).toBeVisible();
   await diagnosticsModal.getByLabel("Reason").selectOption("unpublished");
   await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
   await diagnosticsModal.getByRole("tab", { name: "Eligible units" }).click();

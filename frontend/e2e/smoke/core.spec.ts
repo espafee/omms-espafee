@@ -190,6 +190,7 @@ test.describe("OMMS web smoke", () => {
         monthly_rate: "50000.00",
         facing_direction: id % 2 ? "North" : "South",
         site_type: id % 2 ? "single_side" : "both_side",
+        is_publicly_listed: id === 1,
         thumbnail_url: null,
         image_count: 0,
         created_at: "2026-05-01T00:00:00Z",
@@ -239,6 +240,7 @@ test.describe("OMMS web smoke", () => {
     await expect(page.getByRole("heading", { name: "Advertising Units" })).toBeVisible();
     await expect(page.getByText("UNIT-001")).toBeVisible();
     await expect(page.getByText("Airport Road Billboard")).toBeVisible();
+    await expect(page.getByText("Published — subject to planner tenant and filter eligibility")).toBeVisible();
     const unitsTable = page.locator(".inventory-units-table");
     await expect(unitsTable.locator("thead th").first()).toHaveText("S.No.");
     await expect(unitsTable.locator("tbody tr").first().locator("td").first()).toHaveText("1");
