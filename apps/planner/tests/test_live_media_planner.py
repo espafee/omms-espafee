@@ -256,6 +256,11 @@ class LiveMediaPlannerTests(TestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.data["eligible_unit_count"], 0)
+        self.assertRegex(response.data["public_path"], r"^/media-planner/planner_")
+        list_response = self.api.get("/api/v1/planner/links/")
+        rows = list_response.data["results"] if "results" in list_response.data else list_response.data
+        created_row = next(row for row in rows if row["id"] == response.data["id"])
+        self.assertEqual(created_row["public_path"], response.data["public_path"])
 
     def test_company_admin_created_link_uses_own_tenant_without_tenant_payload(self):
         self.api.force_authenticate(self.admin)

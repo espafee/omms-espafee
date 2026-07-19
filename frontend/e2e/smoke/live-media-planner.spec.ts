@@ -416,7 +416,10 @@ test("recent planner links copy only active public URLs", async ({ page }) => {
   const absoluteCopyButton = absoluteRow.getByRole("button", { name: "Copy Live Media Planner link" });
   await absoluteCopyButton.click();
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard"))).toBe("https://planner.example.com/media-planner/absolute-secret");
-  await expect(missingUrlRow.getByRole("button", { name: "Copy Live Media Planner link" })).toBeDisabled();
+  const missingUrlCopyButton = missingUrlRow.getByRole("button", { name: "Copy Live Media Planner link" });
+  await expect(missingUrlCopyButton).toBeEnabled();
+  await missingUrlCopyButton.click();
+  await expect(page.getByText("Unable to copy link. This planner link does not have a copyable public URL. Create a new planner link and try again.")).toBeVisible();
   await expect(closedRow.getByRole("button", { name: "Copy Live Media Planner link" })).toHaveCount(0);
   await expect(closedRow.getByRole("button", { name: "Revoke" })).toHaveCount(0);
   await expect(closedRow.getByRole("button", { name: "Diagnostics" })).toBeVisible();
