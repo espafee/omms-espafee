@@ -28,6 +28,7 @@ REQUIRED_MIGRATIONS = (
     ("planner", "0001_initial"),
 )
 SAMPLE_LIMIT = 25
+DETAIL_LIMIT = 500
 
 
 @dataclass(frozen=True)
@@ -102,7 +103,37 @@ class MediaPlannerDiagnosticsService:
 
         final_count = final_queryset.count()
         published_count = public_units.count()
-        excluded_count = sum(exclusions.values())
+        eligible_location_count = final_queryset.values("site_id").distinct().count()
+        excluded_unit_rows = self._excluded_unit_rows(
+            all_units=all_units,
+            link=link,
+            final_ids=final_ids,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        excluded_count = all_units.exclude(id__in=final_ids).count()
+        eligible_unit_rows = [
+            self._unit_detail(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+            for unit in final_queryset[:DETAIL_LIMIT]
+        ]
+        excluded_location_count = len(
+            {
+                row["location_id"]
+                for row in excluded_unit_rows
+                if row.get("location_id") is not None
+            }
+        )
+        summary = {
+            "total_units_inspected": all_units.count(),
+            "total_publicly_listed": all_units.filter(is_publicly_listed=True).count(),
+            "total_eligible": final_count,
+            "total_excluded": excluded_count,
+            "unique_eligible_locations": eligible_location_count,
+            "unique_excluded_locations": excluded_location_count,
+            "eligible_detail_count": len(eligible_unit_rows),
+            "excluded_detail_count": len(excluded_unit_rows),
+            "detail_limit": DETAIL_LIMIT,
+        }
         link_payload = {
             "id": link.id,
             "title": link.title,
@@ -118,6 +149,8 @@ class MediaPlannerDiagnosticsService:
             "eligible_count": final_count,
             "published_count": published_count,
             "excluded_count": excluded_count,
+            "unique_eligible_locations": eligible_location_count,
+            "unique_excluded_locations": excluded_location_count,
         }
         pipeline = {
             "all_units": all_units.count(),
@@ -142,6 +175,8 @@ class MediaPlannerDiagnosticsService:
             "serializer_eligible_units": max(final_count - serialization_error_count, 0),
             "final_serialized": final_count,
             "final_units": final_count,
+            "unique_eligible_locations": eligible_location_count,
+            "unique_excluded_locations": excluded_location_count,
         }
         exclusions["parent_inactive"] = 0
         exclusions["date_unavailable"] = exclusions.get("unavailable_for_dates", 0)
@@ -154,6 +189,7 @@ class MediaPlannerDiagnosticsService:
                 "migration_status": self._migration_status(),
             },
             "link": link_payload,
+            "summary": summary,
             "planner_link": {
                 "id": link.id,
                 "title": link.title,
@@ -170,11 +206,15 @@ class MediaPlannerDiagnosticsService:
                 "eligible_count": final_count,
                 "published_count": published_count,
                 "excluded_count": excluded_count,
+                "unique_eligible_locations": eligible_location_count,
+                "unique_excluded_locations": excluded_location_count,
             },
             "pipeline": pipeline,
             "exclusions": exclusions,
             "sample_units": sampled_units,
             "units": sampled_units,
+            "eligible_units": eligible_unit_rows,
+            "excluded_units": excluded_unit_rows,
         }
 
     def _service_identity(self) -> dict[str, str]:
@@ -227,6 +267,7 @@ class MediaPlannerDiagnosticsService:
             "wrong_city": 0,
             "wrong_region": 0,
             "wrong_inventory_type": 0,
+            "invalid_or_missing_location": 0,
             "retired": 0,
             "maintenance": 0,
             "missing_public_id": 0,
@@ -235,9 +276,9 @@ class MediaPlannerDiagnosticsService:
             "other": 0,
         }
         for unit in all_units.iterator(chunk_size=200):
-            reason = self._exclusion_reason(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
-            if reason:
-                counters[reason] = counters.get(reason, 0) + 1
+            reasons = self._exclusion_reasons(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+            for reason in reasons:
+                counters[reason["reason"]] = counters.get(reason["reason"], 0) + 1
         return counters
 
     def _sample_units(self, *, all_units, link, final_ids, unit_codes, start_date=None, end_date=None) -> list[dict[str, Any]]:
@@ -274,30 +315,72 @@ class MediaPlannerDiagnosticsService:
         }
 
     def _exclusion_reason(self, unit, *, link, final_ids, start_date=None, end_date=None) -> str | None:
+        reasons = self._exclusion_reasons(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+        return reasons[0]["reason"] if reasons else None
+
+    def _exclusion_reasons(self, unit, *, link, final_ids, start_date=None, end_date=None) -> list[dict[str, Any]]:
         if unit.id in final_ids:
-            return None
-        if unit.site.tenant_id != link.tenant_id:
-            return "wrong_tenant"
+            return []
+        reasons: list[dict[str, Any]] = []
+        site = getattr(unit, "site", None)
+        if not site:
+            return [
+                {
+                    "reason": "invalid_or_missing_location",
+                    "actual": "missing",
+                    "required": "valid location",
+                }
+            ]
+        if site.tenant_id != link.tenant_id:
+            reasons.append(
+                {
+                    "reason": "wrong_tenant",
+                    "actual": str(site.tenant_id),
+                    "required": str(link.tenant_id),
+                }
+            )
         if not unit.public_id:
-            return "missing_public_id"
+            reasons.append({"reason": "missing_public_id", "actual": "missing", "required": "public id"})
         if not unit.is_publicly_listed:
-            return "unpublished"
+            reasons.append({"reason": "unpublished", "actual": "false", "required": "true"})
         if unit.status == MediaUnit.Status.RETIRED:
-            return "retired"
+            reasons.append({"reason": "retired", "actual": unit.status, "required": f"not {MediaUnit.Status.RETIRED}"})
+            reasons.append({"reason": "inactive", "actual": unit.status, "required": "active"})
         if unit.status == MediaUnit.Status.MAINTENANCE:
-            return "maintenance"
+            reasons.append({"reason": "maintenance", "actual": unit.status, "required": "operationally available"})
+            reasons.append({"reason": "inactive", "actual": unit.status, "required": "active"})
         if link.allowed_cities:
-            city = (unit.site.city or "").strip().casefold()
-            if city not in _normalized_allowed_values(link.allowed_cities):
-                return "wrong_city"
+            city = (site.city or "").strip().casefold()
+            allowed_cities = _normalized_allowed_values(link.allowed_cities)
+            if city not in allowed_cities:
+                reasons.append(
+                    {
+                        "reason": "wrong_city",
+                        "actual": site.city or "",
+                        "required": _coerced_allowed_values(link.allowed_cities),
+                    }
+                )
         if link.allowed_regions:
-            region = (unit.site.state or "").strip().casefold()
-            if region not in _normalized_allowed_values(link.allowed_regions):
-                return "wrong_region"
+            region = (site.state or "").strip().casefold()
+            allowed_regions = _normalized_allowed_values(link.allowed_regions)
+            if region not in allowed_regions:
+                reasons.append(
+                    {
+                        "reason": "wrong_region",
+                        "actual": site.state or "",
+                        "required": _coerced_allowed_values(link.allowed_regions),
+                    }
+                )
         if link.allowed_inventory_types:
             inventory_types = set(_coerced_allowed_values(link.allowed_inventory_types))
-            if unit.site_type not in inventory_types and unit.site.site_type not in inventory_types:
-                return "wrong_inventory_type"
+            if unit.site_type not in inventory_types and site.site_type not in inventory_types:
+                reasons.append(
+                    {
+                        "reason": "wrong_inventory_type",
+                        "actual": unit.site_type or site.site_type or "",
+                        "required": sorted(inventory_types),
+                    }
+                )
         if start_date and end_date:
             availability = InventoryAvailabilityService().resolve(
                 unit,
@@ -306,5 +389,58 @@ class MediaPlannerDiagnosticsService:
                 require_publication=False,
             )
             if availability["status"] != AvailabilityStatus.AVAILABLE:
-                return "unavailable_for_dates"
-        return "other"
+                reasons.append(
+                    {
+                        "reason": "unavailable_for_dates",
+                        "actual": availability["status"],
+                        "required": AvailabilityStatus.AVAILABLE,
+                    }
+                )
+        return reasons or [{"reason": "other", "actual": "excluded", "required": "eligible"}]
+
+    def _unit_detail(self, unit, *, link, final_ids, start_date=None, end_date=None) -> dict[str, Any]:
+        site = getattr(unit, "site", None)
+        reasons = self._exclusion_reasons(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+        availability = InventoryAvailabilityService().resolve(
+            unit,
+            start_date=start_date,
+            end_date=end_date,
+            require_publication=False,
+        )
+        return {
+            "id": unit.id,
+            "unit_id": unit.id,
+            "unit_code": unit.unit_code,
+            "code": unit.unit_code,
+            "title": unit.public_description or unit.unit_code,
+            "location_id": getattr(site, "id", None),
+            "location_name": getattr(site, "name", ""),
+            "location_code": getattr(site, "code", ""),
+            "city": getattr(site, "city", ""),
+            "region": getattr(site, "state", ""),
+            "inventory_type": unit.site_type or getattr(site, "site_type", ""),
+            "tenant_id": getattr(site, "tenant_id", None),
+            "tenant_name": getattr(getattr(site, "tenant", None), "name", ""),
+            "published": unit.is_publicly_listed,
+            "publicly_listed": unit.is_publicly_listed,
+            "status": unit.status,
+            "operational_status": unit.status,
+            "availability_status": availability["status"],
+            "eligible": unit.id in final_ids,
+            "exclusion_reasons": reasons,
+            "exclusion_reason": reasons[0]["reason"] if reasons else None,
+            "actual_value": "; ".join(str(reason["actual"]) for reason in reasons) if reasons else "",
+            "required_value": "; ".join(str(reason["required"]) for reason in reasons) if reasons else "",
+        }
+
+    def _excluded_unit_rows(self, *, all_units, link, final_ids, start_date=None, end_date=None) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for unit in all_units.order_by("site__city", "site__name", "unit_code", "id").iterator(chunk_size=200):
+            if unit.id in final_ids:
+                continue
+            rows.append(
+                self._unit_detail(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+            )
+            if len(rows) >= DETAIL_LIMIT:
+                break
+        return rows

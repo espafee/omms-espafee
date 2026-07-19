@@ -52,7 +52,10 @@ export type PublicPlannerPayload = {
   };
   meta: {
     eligible_unit_count: number;
+    eligible_location_count?: number;
+    unique_location_count?: number;
     eligible_count_before_filters?: number;
+    location_count_before_filters?: number;
     results_count?: number;
     empty_reason?: "no_eligible_inventory" | "no_date_availability" | "no_filter_matches" | null;
     has_campaign_dates: boolean;
@@ -163,6 +166,19 @@ export type PlannerLinkEligibilityDiagnostics = {
     eligible_count: number;
     published_count: number;
     excluded_count: number;
+    unique_eligible_locations?: number;
+    unique_excluded_locations?: number;
+  };
+  summary?: {
+    total_units_inspected: number;
+    total_publicly_listed: number;
+    total_eligible: number;
+    total_excluded: number;
+    unique_eligible_locations: number;
+    unique_excluded_locations: number;
+    eligible_detail_count: number;
+    excluded_detail_count: number;
+    detail_limit: number;
   };
   pipeline: Record<string, number>;
   exclusions: Record<string, number>;
@@ -171,6 +187,7 @@ export type PlannerLinkEligibilityDiagnostics = {
     tenant_id: number | null;
     published: boolean;
     status: string;
+    availability_status?: string;
     public_id_present: boolean;
     city_raw: string;
     city_normalized: string;
@@ -178,6 +195,34 @@ export type PlannerLinkEligibilityDiagnostics = {
     eligible: boolean;
     exclusion_reason: string | null;
   }>;
+  eligible_units?: PlannerDiagnosticUnit[];
+  excluded_units?: PlannerDiagnosticUnit[];
+};
+
+export type PlannerDiagnosticUnit = {
+  id: number;
+  unit_id: number;
+  unit_code: string;
+  code: string;
+  title: string;
+  location_id: number | null;
+  location_name: string;
+  location_code: string;
+  city: string;
+  region: string;
+  inventory_type: string;
+  tenant_id: number | null;
+  tenant_name: string;
+  published: boolean;
+  publicly_listed: boolean;
+  status: string;
+  operational_status: string;
+  availability_status: string;
+  eligible: boolean;
+  exclusion_reason: string | null;
+  actual_value: string;
+  required_value: string;
+  exclusion_reasons: Array<{ reason: string; actual: string | string[]; required: string | string[] }>;
 };
 
 function queryString(values: Record<string, string | number | boolean | undefined | null>) {
@@ -202,6 +247,23 @@ async function publicRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 export function fetchPublicPlanner(token: string, filters: Record<string, string | number | boolean | undefined>) {
   return publicRequest<PublicPlannerPayload>(`public/media-planner/${encodeURIComponent(token)}/?${queryString(filters)}`);
+}
+
+export async function fetchCompletePublicPlanner(token: string, filters: Record<string, string | number | boolean | undefined>) {
+  const firstPage = await fetchPublicPlanner(token, { ...filters, page: 1, page_size: 100 });
+  const merged = new Map(firstPage.results.map((unit) => [unit.public_id, unit]));
+  let page = 2;
+  let hasNext = Boolean(firstPage.next);
+  while (hasNext) {
+    const nextPage = await fetchPublicPlanner(token, { ...filters, page, page_size: 100 });
+    nextPage.results.forEach((unit) => merged.set(unit.public_id, unit));
+    hasNext = Boolean(nextPage.next);
+    page += 1;
+  }
+  return {
+    ...firstPage,
+    results: Array.from(merged.values()),
+  };
 }
 
 export function submitPublicProposal(token: string, payload: Record<string, unknown>) {

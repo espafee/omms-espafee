@@ -5296,6 +5296,7 @@ body.modal-open { overflow: hidden; }
 .planner-filter-grid { display: grid; grid-template-columns: 1.5fr repeat(5, minmax(120px, 1fr)) auto; gap: 10px; padding: 0 16px 16px; }
 .planner-results-head { display: flex; justify-content: space-between; align-items: end; gap: 20px; max-width: 1440px; margin: 0 auto 12px; }
 .planner-results-head h2 { margin: 3px 0 0; }
+.planner-count-note { display: block; margin-top: 4px; color: #60756d; font-size: 12px; font-weight: 750; }
 .planner-results-head > p { color: #63776f; font-size: 12px; }
 .planner-unit-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; max-width: 1440px; margin: 0 auto; }
 .planner-unit-card { overflow: hidden; border: 1px solid #d5e1dc; border-radius: 7px; background: white; box-shadow: 0 7px 20px rgba(11,65,48,.05); }
@@ -5369,6 +5370,17 @@ body.modal-open { overflow: hidden; }
 .diagnostics-migrations { display: flex; flex-wrap: wrap; gap: 8px; }
 .diagnostics-table-wrap { overflow-x: auto; }
 .diagnostics-table { min-width: 760px; }
+.diagnostics-count-explainer { margin: 0 0 12px; color: #496258; font-size: 13px; font-weight: 800; }
+.diagnostics-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; border-bottom: 1px solid #dce9e3; }
+.diagnostics-tabs button { padding: 9px 11px; border: 0; border-bottom: 2px solid transparent; background: transparent; color: #526b61; font-weight: 850; cursor: pointer; }
+.diagnostics-tabs button.active { border-color: #0d6548; color: #0d6548; }
+.diagnostics-filter-row { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, 260px); gap: 10px; margin-bottom: 12px; }
+.diagnostics-filter-row label { display: grid; gap: 6px; color: #526b61; font-size: 11px; font-weight: 850; text-transform: uppercase; }
+.diagnostics-filter-row input, .diagnostics-filter-row select { min-height: 38px; padding: 8px 10px; border: 1px solid #cbdad4; border-radius: 5px; background: white; color: #10251e; font: inherit; text-transform: none; }
+.planner-reconciliation-table { min-width: 980px; }
+.planner-reconciliation-table th:first-child, .planner-reconciliation-table td:first-child { width: 56px; text-align: center; }
+.planner-reconciliation-table td { vertical-align: top; }
+.planner-reconciliation-table td span { display: block; color: #64776f; font-size: 11px; }
 .planner-link-table-wrap { width: 100%; overflow: visible; }
 .planner-link-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .planner-link-table th { padding: 9px 8px; border-bottom: 1px solid #d8e5df; color: #64776f; font-size: 10px; font-weight: 850; text-align: left; text-transform: uppercase; letter-spacing: .08em; }
@@ -5441,6 +5453,7 @@ body.modal-open { overflow: hidden; }
   .planner-date-bar > div, .planner-live-indicator { grid-column: 1 / -1; }
   .planner-filter-panel:not([open]) .planner-filter-grid { display: none; }
   .planner-filter-grid, .planner-proposal-form, .planner-link-form { grid-template-columns: 1fr; }
+  .diagnostics-filter-row { grid-template-columns: 1fr; }
   .planner-unit-grid, .planner-internal-grid, .planner-detail-grid, .planner-line-grid { grid-template-columns: 1fr; }
   .planner-link-table-wrap { overflow: visible; }
   .planner-link-table, .planner-link-table tbody { display: block; width: 100%; }

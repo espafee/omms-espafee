@@ -124,6 +124,12 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: closed/revoked/expired planner links do not show `Copy Link`; active links with no public URL show the copy action disabled.
 - At desktop, tablet, and mobile widths, confirm the table remains readable. On mobile, each planner row should stack without horizontal page overflow and actions should wrap in a footer area.
 - If a planner diagnostics warning appears, expected: it displays in a full-width row directly below the affected planner link.
+- Create or use safe test planner data with 23 eligible advertising units across 21 physical locations.
+- Expected: the public Live Media Planner summary reads `23 advertising units across 21 locations`, all 23 unit codes are visible, and duplicate-location units remain separate cards.
+- Create or use safe test planner data with 23 published units where only 21 satisfy the planner tenant/restriction/status rules.
+- Expected: Diagnostics shows `21 eligible advertising units · 2 excluded`, and the Excluded units table names the two unit codes with reasons such as `wrong_city`, `wrong_tenant`, `retired`, or `wrong_inventory_type`.
+- In Diagnostics, use search and reason filtering.
+- Expected: eligible/excluded totals reconcile, the exact excluded units remain visible when filtered by reason, and no diagnostic/internal data appears on the public planner endpoint.
 
 ## 14. Finance Dashboard
 - Open Dashboard.

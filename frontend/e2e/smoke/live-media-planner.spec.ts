@@ -32,8 +32,43 @@ function publicPayload(showRates = false) {
     count: 1, next: null, previous: null,
     planner: { title: "Acme Live Media Planner", tenant_name: "Alpha Outdoor", client_name: "Acme India", contact_email: "sales@alpha.test", expires_at: "2027-01-01T00:00:00Z", show_rates: showRates, pricing_mode: showRates ? "standard_selling_rate" : "hidden", allow_proposal_submission: true, allow_image_download: false, client_rate_card_available: false },
     filters: { cities: ["Jammu"], locations: ["Central Junction"], formats: ["single_side"], facing_directions: ["North"], illumination: [{ value: "true", label: "Illuminated" }], availability_statuses: ["available"], rate_bounds: { min: showRates ? "50000.00" : null, max: showRates ? "50000.00" : null } },
-    meta: { eligible_unit_count: 1, has_campaign_dates: false },
+    meta: { eligible_unit_count: 1, eligible_location_count: 1, unique_location_count: 1, has_campaign_dates: false },
     results: [{ public_id: "62807432-5e10-441f-a0e1-089cf5f42bb8", unit_code: "JMU-001-A", location_name: "Central Junction", public_address: "Central Road", city: "Jammu", region: "Jammu and Kashmir", dimensions: { width: "20.00", height: "10.00" }, display_format: "single_side", facing_direction: "North", is_illuminated: true, availability: { status: "available", label: "Available", reason: "Available for selected dates", conflict_count: 0 }, description: "Premium arterial road visibility.", features: ["High visibility"], primary_photo: { url: pixel, caption: "Main face", is_primary: true }, photos: [{ url: pixel, caption: "Main face", is_primary: true }, { url: pixel, caption: "Street view", is_primary: false }], image_download_allowed: false, monthly_rate: showRates ? "50000.00" : null }],
+  };
+}
+
+function reconciliationPayload(pageNumber: number) {
+  const units = Array.from({ length: 23 }, (_, index) => {
+    const locationIndex = index < 4 ? Math.floor(index / 2) : index - 2;
+    const locationName = `Planner Location ${String(locationIndex + 1).padStart(2, "0")}`;
+    return {
+      ...publicPayload(false).results[0],
+      public_id: `62807432-5e10-441f-a0e1-089cf5f42b${String(index).padStart(2, "0")}`,
+      unit_code: `REC-${String(index + 1).padStart(2, "0")}`,
+      location_name: locationName,
+      city: "Jammu",
+    };
+  });
+  const results = pageNumber === 1 ? units.slice(0, 10) : pageNumber === 2 ? units.slice(10, 20) : units.slice(20);
+  return {
+    ...publicPayload(false),
+    count: 23,
+    next: pageNumber < 3 ? `http://127.0.0.1:8000/api/v1/public/media-planner/reconcile-token/?page=${pageNumber + 1}&page_size=10` : null,
+    previous: pageNumber > 1 ? `http://127.0.0.1:8000/api/v1/public/media-planner/reconcile-token/?page=${pageNumber - 1}&page_size=10` : null,
+    filters: {
+      ...publicPayload(false).filters,
+      locations: Array.from(new Set(units.map((unit) => unit.location_name))),
+    },
+    meta: {
+      eligible_unit_count: 23,
+      eligible_location_count: 21,
+      unique_location_count: 21,
+      eligible_count_before_filters: 23,
+      location_count_before_filters: 21,
+      results_count: 23,
+      has_campaign_dates: false,
+    },
+    results,
   };
 }
 
@@ -183,6 +218,24 @@ test("public planner exposes rates only when the link permits them and remains u
   await expect(page.getByText("INR 50,000 / month")).toBeVisible();
   await expect(page.locator(".planner-unit-card")).toHaveCount(1);
   await expect(page.locator(".planner-basket-bar")).toBeVisible();
+});
+
+test("public planner shows advertising-unit and location counts without collapsing duplicate locations", async ({ page }) => {
+  const requestedPages: string[] = [];
+  await page.route("**/api/v1/public/media-planner/reconcile-token/**", async (route) => {
+    const url = new URL(route.request().url());
+    requestedPages.push(url.searchParams.get("page") || "1");
+    const pageNumber = Number(url.searchParams.get("page") || 1);
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(reconciliationPayload(pageNumber)) });
+  });
+  await page.goto("/media-planner/reconcile-token");
+  await expect(page.getByRole("heading", { name: "23 advertising units across 21 locations" })).toBeVisible();
+  await expect(page.getByText("23 eligible advertising units · 21 eligible locations")).toBeVisible();
+  await expect(page.locator(".planner-unit-card")).toHaveCount(23);
+  await expect(page.getByText("REC-01")).toBeVisible();
+  await expect(page.getByText("REC-02")).toBeVisible();
+  await expect(page.locator(".planner-unit-card").filter({ hasText: "Planner Location 01" })).toHaveCount(2);
+  expect(requestedPages).toEqual(["1", "2", "3"]);
 });
 
 test("public planner proposal validation remains reachable on mobile widths", async ({ page }) => {
@@ -471,9 +524,10 @@ test("recent planner links use textarea fallback when clipboard API rejects", as
   await page.goto("/sales/proposals");
   const copyButton = page.getByRole("row", { name: /Fallback Planner/ }).getByRole("button", { name: "Copy Live Media Planner link" });
   await copyButton.click();
+  await expect(copyButton).toHaveText("Copied");
+  await expect(page.getByText("Link copied")).toBeVisible();
   const expectedUrl = new URL("/media-planner/fallback-secret", page.url()).toString();
   await expect.poll(() => page.evaluate(() => window.localStorage.getItem("planner_link_clipboard_fallback"))).toBe(expectedUrl);
-  await expect(page.getByText("Link copied")).toBeVisible();
 });
 
 test("recent planner link copy failure recovers with readable feedback", async ({ page }) => {
@@ -527,10 +581,13 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
         body: JSON.stringify({
           service: { git_sha: "abc123def456", build_timestamp: "2026-07-18T07:00:00Z", environment: "production" },
           database: { engine: "postgresql", database_fingerprint: "a1b2c3d4e5f6a7b8", migration_status: { "inventory.0009_mediaunit_is_publicly_listed_and_more": true, "planner.0001_initial": true } },
-          link: { id: 7, title: "Live Media Planner", tenant_id: 4, tenant_name: "ESPA FEE", active: true, revoked: false, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 1, published_count: 1, excluded_count: 1 },
+          link: { id: 7, title: "Live Media Planner", tenant_id: 4, tenant_name: "ESPA FEE", active: true, revoked: false, expired: false, allowed_cities_type: "list", allowed_cities: ["Jammu"], pricing_mode: "hidden", expires_at: null, eligible_count: 1, published_count: 1, excluded_count: 1, unique_eligible_locations: 1, unique_excluded_locations: 1 },
+          summary: { total_units_inspected: 2, total_publicly_listed: 1, total_eligible: 1, total_excluded: 1, unique_eligible_locations: 1, unique_excluded_locations: 1, eligible_detail_count: 1, excluded_detail_count: 1, detail_limit: 500 },
           pipeline: { all_units: 2, tenant_units: 2, published_units: 1, active_units: 1, operational_units: 1, city_eligible_units: 1, link_restriction_units: 1, date_eligible_units: 1, serializer_eligible_units: 1, final_units: 1 },
           exclusions: { wrong_tenant: 0, unpublished: 1, inactive: 0, wrong_city: 0, parent_inactive: 0, retired: 0, maintenance: 0, missing_public_id: 0, date_unavailable: 0, other: 0 },
           sample_units: [{ code: "ESPA-001", tenant_id: 4, published: true, public_id_present: true, status: "available", city_raw: "Jammu", city_normalized: "jammu", parent_active: true, eligible: true, exclusion_reason: null }],
+          eligible_units: [{ id: 1, unit_id: 1, unit_code: "ESPA-001", code: "ESPA-001", title: "ESPA-001", location_id: 1, location_name: "SIDCO Chowk", location_code: "ESPA-SITE", city: "Jammu", region: "Jammu and Kashmir", inventory_type: "single_side", tenant_id: 4, tenant_name: "ESPA FEE", published: true, publicly_listed: true, status: "available", operational_status: "available", availability_status: "available", eligible: true, exclusion_reason: null, actual_value: "", required_value: "", exclusion_reasons: [] }],
+          excluded_units: [{ id: 2, unit_id: 2, unit_code: "ESPA-002_1", code: "ESPA-002_1", title: "ESPA-002_1", location_id: 1, location_name: "SIDCO Chowk", location_code: "ESPA-SITE", city: "Jammu", region: "Jammu and Kashmir", inventory_type: "single_side", tenant_id: 4, tenant_name: "ESPA FEE", published: false, publicly_listed: false, status: "available", operational_status: "available", availability_status: "available", eligible: false, exclusion_reason: "unpublished", actual_value: "false", required_value: "true", exclusion_reasons: [{ reason: "unpublished", actual: "false", required: "true" }] }],
         }),
       });
     }
@@ -547,8 +604,14 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
   await page.getByRole("button", { name: "Diagnostics" }).click();
   const diagnosticsModal = page.getByRole("dialog", { name: "Media planner eligibility diagnostics" });
   await expect(diagnosticsModal).toBeVisible();
-  await expect(page.getByText("final units")).toBeVisible();
+  await expect(diagnosticsModal.getByText("1 eligible advertising unit across 1 location · 1 excluded")).toBeVisible();
+  await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
+  await diagnosticsModal.getByLabel("Reason").selectOption("unpublished");
+  await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
+  await diagnosticsModal.getByRole("tab", { name: "Eligible units" }).click();
   await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-001" }).first()).toBeVisible();
+  await diagnosticsModal.getByRole("tab", { name: "Exclusion summary" }).click();
+  await expect(page.getByText("final units")).toBeVisible();
   await expect(page.getByText("DATABASE_URL")).toHaveCount(0);
   await page.getByRole("button", { name: "Copy diagnostic report" }).click();
   await expect(page.getByText("Diagnostic report copied")).toBeVisible();
