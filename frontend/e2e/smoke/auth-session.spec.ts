@@ -170,11 +170,11 @@ async function routeDashboardApi(page: Page, options: {
 
 test("login page restores a valid cookie session before showing the form", async ({ page }) => {
   let refreshCalls = 0;
-  await routeDashboardApi(page, { delayRefreshMs: 100, onRefresh: () => { refreshCalls += 1; } });
+  await routeDashboardApi(page, { delayRefreshMs: 500, onRefresh: () => { refreshCalls += 1; } });
 
-  await page.goto("/login");
-
+  const navigation = page.goto("/login");
   await expect(page.getByText("Checking your session...")).toBeVisible();
+  await navigation;
   await expect(page).toHaveURL(/\/dashboard$/);
   await expect(page.getByTestId("admin-executive-dashboard")).toBeVisible();
   expect(refreshCalls).toBe(1);

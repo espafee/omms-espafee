@@ -816,6 +816,10 @@ function InventoryWorkspace() {
   const unitPageCount = Math.max(1, Math.ceil((units?.count ?? 0) / PAGE_SIZE));
   const locationRows = locations?.results ?? [];
   const unitRows = units?.results ?? [];
+  const locationSerialStart =
+    ((locationFilters.page ?? 1) - 1) * (locationFilters.page_size ?? PAGE_SIZE);
+  const unitSerialStart =
+    ((unitFilters.page ?? 1) - 1) * (unitFilters.page_size ?? PAGE_SIZE);
   const visibleUnitIds = unitRows.map((unit) => unit.id);
   const allVisibleUnitsSelected =
     visibleUnitIds.length > 0 &&
@@ -1052,18 +1056,22 @@ function InventoryWorkspace() {
               <table className="inventory-table all-sites-table inventory-workspace-table">
                 <thead>
                   <tr>
-                    <th>Photo</th>
-                    <th>Location</th>
-                    <th>City / Address</th>
-                    <th>Category</th>
-                    <th>Advertising units</th>
-                    <th>Photos / Coordinates</th>
-                    <th>Actions</th>
+                    <th className="inventory-serial-cell" scope="col">S.No.</th>
+                    <th scope="col">Photo</th>
+                    <th scope="col">Location</th>
+                    <th scope="col">City / Address</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Advertising units</th>
+                    <th scope="col">Photos / Coordinates</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {locationRows.map((location) => (
+                  {locationRows.map((location, index) => (
                     <tr key={location.id}>
+                      <td className="inventory-serial-cell">
+                        {locationSerialStart + index + 1}
+                      </td>
                       <td>
                         <SafeImage
                           src={location.thumbnail_url}
@@ -1389,21 +1397,25 @@ function InventoryWorkspace() {
               <table className="inventory-table inventory-workspace-table inventory-units-table">
                 <thead>
                   <tr>
-                    <th>Photo</th>
-                    <th>Advertising Unit</th>
-                    <th>Location</th>
-                    <th>Facing</th>
-                    <th>Dimensions</th>
-                    <th>Format</th>
-                    <th>Illumination</th>
-                    <th>Rate</th>
-                    <th>Status</th>
-                    <th>Actions</th>
+                    <th className="inventory-serial-cell" scope="col">S.No.</th>
+                    <th scope="col">Photo</th>
+                    <th scope="col">Advertising Unit</th>
+                    <th scope="col">Location</th>
+                    <th scope="col">Facing</th>
+                    <th scope="col">Dimensions</th>
+                    <th scope="col">Format</th>
+                    <th scope="col">Illumination</th>
+                    <th scope="col">Rate</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {unitRows.map((unit) => (
+                  {unitRows.map((unit, index) => (
                     <tr key={unit.id}>
+                      <td className="inventory-serial-cell">
+                        {unitSerialStart + index + 1}
+                      </td>
                       <td>
                         <button
                           className="inventory-thumbnail-button"
