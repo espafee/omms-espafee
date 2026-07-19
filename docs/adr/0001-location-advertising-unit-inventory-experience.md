@@ -16,6 +16,8 @@ Keep the domain model and API identifiers unchanged. Use **Location** as the UI 
 
 The Inventory page is a URL-backed workspace with Overview, Locations, and Advertising Units tabs. Advertising Units is the default list because it is the sellable and operational surface. Locations list only physical-place data. Detail and photo-management interactions use drawers so forms and galleries are not rendered for every row.
 
+Location geography is canonical. City, region/state, address, and coordinates belong to `MediaSite`; Advertising Unit lists, planner eligibility, and diagnostics derive those values from the parent Location unless a future schema explicitly introduces labelled unit-level overrides.
+
 The existing site list remains the Location summary endpoint. A paginated, read-only `/inventory/units/all-units/` action exposes unit summaries with parent Location context. It uses the same tenant-scoped source of truth and safe public media URL builder as existing inventory endpoints.
 
 ## Consequences

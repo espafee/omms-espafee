@@ -16,6 +16,7 @@ from .serializers import serialize_public_unit
 from .services import (
     AvailabilityStatus,
     InventoryAvailabilityService,
+    PlannerEligibilityEvaluator,
     _coerced_allowed_values,
     _filter_normalized_text,
     _normalized_allowed_values,
@@ -275,8 +276,13 @@ class MediaPlannerDiagnosticsService:
             "serializer_error": 0,
             "other": 0,
         }
+        evaluator = PlannerEligibilityEvaluator()
         for unit in all_units.iterator(chunk_size=200):
-            reasons = self._exclusion_reasons(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+            reasons = (
+                []
+                if unit.id in final_ids
+                else evaluator.evaluate(unit, link, start_date=start_date, end_date=end_date)["exclusion_reasons"]
+            )
             for reason in reasons:
                 counters[reason["reason"]] = counters.get(reason["reason"], 0) + 1
         return counters
@@ -321,86 +327,14 @@ class MediaPlannerDiagnosticsService:
     def _exclusion_reasons(self, unit, *, link, final_ids, start_date=None, end_date=None) -> list[dict[str, Any]]:
         if unit.id in final_ids:
             return []
-        reasons: list[dict[str, Any]] = []
-        site = getattr(unit, "site", None)
-        if not site:
-            return [
-                {
-                    "reason": "invalid_or_missing_location",
-                    "actual": "missing",
-                    "required": "valid location",
-                }
-            ]
-        if site.tenant_id != link.tenant_id:
-            reasons.append(
-                {
-                    "reason": "wrong_tenant",
-                    "actual": str(site.tenant_id),
-                    "required": str(link.tenant_id),
-                }
-            )
-        if not unit.public_id:
-            reasons.append({"reason": "missing_public_id", "actual": "missing", "required": "public id"})
-        if not unit.is_publicly_listed:
-            reasons.append({"reason": "unpublished", "actual": "false", "required": "true"})
-        if unit.status == MediaUnit.Status.RETIRED:
-            reasons.append({"reason": "retired", "actual": unit.status, "required": f"not {MediaUnit.Status.RETIRED}"})
-            reasons.append({"reason": "inactive", "actual": unit.status, "required": "active"})
-        if unit.status == MediaUnit.Status.MAINTENANCE:
-            reasons.append({"reason": "maintenance", "actual": unit.status, "required": "operationally available"})
-            reasons.append({"reason": "inactive", "actual": unit.status, "required": "active"})
-        if link.allowed_cities:
-            city = (site.city or "").strip().casefold()
-            allowed_cities = _normalized_allowed_values(link.allowed_cities)
-            if city not in allowed_cities:
-                reasons.append(
-                    {
-                        "reason": "wrong_city",
-                        "actual": site.city or "",
-                        "required": _coerced_allowed_values(link.allowed_cities),
-                    }
-                )
-        if link.allowed_regions:
-            region = (site.state or "").strip().casefold()
-            allowed_regions = _normalized_allowed_values(link.allowed_regions)
-            if region not in allowed_regions:
-                reasons.append(
-                    {
-                        "reason": "wrong_region",
-                        "actual": site.state or "",
-                        "required": _coerced_allowed_values(link.allowed_regions),
-                    }
-                )
-        if link.allowed_inventory_types:
-            inventory_types = set(_coerced_allowed_values(link.allowed_inventory_types))
-            if unit.site_type not in inventory_types and site.site_type not in inventory_types:
-                reasons.append(
-                    {
-                        "reason": "wrong_inventory_type",
-                        "actual": unit.site_type or site.site_type or "",
-                        "required": sorted(inventory_types),
-                    }
-                )
-        if start_date and end_date:
-            availability = InventoryAvailabilityService().resolve(
-                unit,
-                start_date=start_date,
-                end_date=end_date,
-                require_publication=False,
-            )
-            if availability["status"] != AvailabilityStatus.AVAILABLE:
-                reasons.append(
-                    {
-                        "reason": "unavailable_for_dates",
-                        "actual": availability["status"],
-                        "required": AvailabilityStatus.AVAILABLE,
-                    }
-                )
+        reasons = PlannerEligibilityEvaluator().evaluate(unit, link, start_date=start_date, end_date=end_date)["exclusion_reasons"]
         return reasons or [{"reason": "other", "actual": "excluded", "required": "eligible"}]
 
     def _unit_detail(self, unit, *, link, final_ids, start_date=None, end_date=None) -> dict[str, Any]:
+        evaluator = PlannerEligibilityEvaluator()
+        evaluation = evaluator.evaluate(unit, link, start_date=start_date, end_date=end_date)
         site = getattr(unit, "site", None)
-        reasons = self._exclusion_reasons(unit, link=link, final_ids=final_ids, start_date=start_date, end_date=end_date)
+        reasons = [] if unit.id in final_ids else evaluation["exclusion_reasons"]
         availability = InventoryAvailabilityService().resolve(
             unit,
             start_date=start_date,
@@ -413,14 +347,18 @@ class MediaPlannerDiagnosticsService:
             "unit_code": unit.unit_code,
             "code": unit.unit_code,
             "title": unit.public_description or unit.unit_code,
-            "location_id": getattr(site, "id", None),
-            "location_name": getattr(site, "name", ""),
-            "location_code": getattr(site, "code", ""),
-            "city": getattr(site, "city", ""),
-            "region": getattr(site, "state", ""),
-            "inventory_type": unit.site_type or getattr(site, "site_type", ""),
-            "tenant_id": getattr(site, "tenant_id", None),
-            "tenant_name": getattr(getattr(site, "tenant", None), "name", ""),
+            "location_id": evaluation["canonical_values"]["location_id"],
+            "location_name": evaluation["canonical_values"]["location_name"],
+            "location_code": evaluation["canonical_values"]["location_code"],
+            "city": evaluation["canonical_values"]["city"],
+            "region": evaluation["canonical_values"]["region"],
+            "canonical_city": evaluation["canonical_values"]["city"],
+            "canonical_region": evaluation["canonical_values"]["region"],
+            "unit_city": getattr(unit, "city", None),
+            "unit_region": getattr(unit, "region", getattr(unit, "state", None)),
+            "inventory_type": evaluation["canonical_values"]["inventory_type"],
+            "tenant_id": evaluation["canonical_values"]["tenant_id"],
+            "tenant_name": evaluation["canonical_values"]["tenant_name"],
             "published": unit.is_publicly_listed,
             "publicly_listed": unit.is_publicly_listed,
             "status": unit.status,
@@ -431,6 +369,9 @@ class MediaPlannerDiagnosticsService:
             "exclusion_reason": reasons[0]["reason"] if reasons else None,
             "actual_value": "; ".join(str(reason["actual"]) for reason in reasons) if reasons else "",
             "required_value": "; ".join(str(reason["required"]) for reason in reasons) if reasons else "",
+            "expected_values": evaluation["expected_values"],
+            "canonical_values": evaluation["canonical_values"],
+            "consistency_warnings": evaluation["consistency_warnings"],
         }
 
     def _excluded_unit_rows(self, *, all_units, link, final_ids, start_date=None, end_date=None) -> list[dict[str, Any]]:

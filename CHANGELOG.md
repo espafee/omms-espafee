@@ -5,6 +5,8 @@
 ### Added
 - Added Live Media Planner inventory-count reconciliation with separate advertising-unit and unique-location counts.
 - Added detailed authenticated planner diagnostics for eligible and excluded units, including unit codes, locations, exclusion reasons, and actual-vs-required values.
+- Added a shared Live Media Planner eligibility evaluator so public planner results and diagnostics use the same parent-location geography rules.
+- Added diagnostics warnings for legacy advertising-unit geography that differs from the canonical parent location.
 - Public Live Media Planner now displays summaries such as `23 advertising units across 21 locations` and fetches all paginated result pages instead of stopping at the first 48 units.
 - Added compact `S.No.` columns to the Locations and Advertising Units inventory lists with pagination-aware numbering.
 - Added a secure rolling 72-hour inactivity session model using short-lived access tokens and HttpOnly refresh-session cookies.
@@ -21,6 +23,7 @@
 - Active planner links without a public URL now render the copy action disabled instead of attempting an invalid clipboard write.
 - Moved planner diagnostics warnings into full-width secondary table rows so warnings do not crowd narrow action cells.
 - Fixed Inventory Add/Edit modal stacking so global search and filter controls stay behind the backdrop and cannot overlap the dialog.
+- Clarified the Inventory publication badge to say published units remain subject to planner tenant and filter eligibility.
 
 ### Documentation
 - Documented Live Media Planner recent-link copy behavior and manual smoke-test steps.
