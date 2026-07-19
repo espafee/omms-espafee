@@ -240,41 +240,55 @@ test("public planner shows advertising-unit and location counts without collapsi
 
 test("public planner shows ESPA 14 faces as separate advertising units when eligible", async ({ page }) => {
   const base = publicPayload(false).results[0];
+  const units = [
+    { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c14", unit_code: "ESPA - 14-A", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
+    { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c15", unit_code: "ESPA - 14-B", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
+    ...Array.from({ length: 21 }, (_, index) => {
+      const locationIndex = index < 12 ? Math.floor(index / 2) + 15 : index + 9;
+      return {
+        ...base,
+        public_id: `62807432-5e10-441f-a0e1-089cf5f43${String(index).padStart(2, "0")}`,
+        unit_code: `ESPA - ${locationIndex}-${index % 2 ? "B" : "A"}`,
+        location_name: `Included Location ${String(locationIndex).padStart(2, "0")}`,
+        city: "Vijaypur",
+        region: "Samba",
+      };
+    }),
+  ];
   await page.route("**/api/v1/public/media-planner/espa-14-token/**", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: JSON.stringify({
         ...publicPayload(false),
-        count: 2,
+        count: 23,
         next: null,
         previous: null,
         filters: {
           ...publicPayload(false).filters,
           cities: ["Vijaypur"],
-          locations: ["Gurha Morh Vijaypur"],
+          locations: Array.from(new Set(units.map((unit) => unit.location_name))),
         },
         meta: {
-          eligible_unit_count: 2,
-          eligible_location_count: 1,
-          unique_location_count: 1,
-          eligible_count_before_filters: 2,
-          location_count_before_filters: 1,
-          results_count: 2,
+          eligible_unit_count: 23,
+          eligible_location_count: 16,
+          unique_location_count: 16,
+          eligible_count_before_filters: 23,
+          location_count_before_filters: 16,
+          results_count: 23,
           has_campaign_dates: false,
         },
-        results: [
-          { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c14", unit_code: "ESPA - 14-A", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
-          { ...base, public_id: "62807432-5e10-441f-a0e1-089cf5f42c15", unit_code: "ESPA - 14-B", location_name: "Gurha Morh Vijaypur", city: "Vijaypur", region: "Samba" },
-        ],
+        results: units,
       }),
     });
   });
   await page.goto("/media-planner/espa-14-token");
-  await expect(page.getByRole("heading", { name: "2 advertising units across 1 location" })).toBeVisible();
-  await expect(page.locator(".planner-unit-card")).toHaveCount(2);
+  await expect(page.getByRole("heading", { name: "23 advertising units across 16 locations" })).toBeVisible();
+  await expect(page.locator(".planner-unit-card")).toHaveCount(23);
   await expect(page.getByText("ESPA - 14-A")).toBeVisible();
   await expect(page.getByText("ESPA - 14-B")).toBeVisible();
   await expect(page.locator(".planner-unit-card").filter({ hasText: "Gurha Morh Vijaypur" })).toHaveCount(2);
+  await expect(page.locator('.planner-unit-card[data-unit-id="62807432-5e10-441f-a0e1-089cf5f42c14"]')).toHaveCount(1);
+  await expect(page.locator('.planner-unit-card[data-unit-id="62807432-5e10-441f-a0e1-089cf5f42c15"]')).toHaveCount(1);
 });
 
 test("public planner proposal validation remains reachable on mobile widths", async ({ page }) => {
@@ -645,8 +659,9 @@ test("platform superadmin opens planner diagnostics inside media proposals", asy
   await expect(diagnosticsModal).toBeVisible();
   await expect(diagnosticsModal.getByText("1 eligible advertising unit across 1 location · 1 excluded")).toBeVisible();
   await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
-  await expect(diagnosticsModal.getByText("Advertising-unit geography does not match its parent location.")).toBeVisible();
-  await expect(diagnosticsModal.getByText("Unit value: Lakhanpur · Canonical location value: Jammu")).toBeVisible();
+  const consistencyWarning = diagnosticsModal.locator(".diagnostics-consistency-warning");
+  await expect(consistencyWarning.getByText("Advertising-unit geography does not match its parent location.", { exact: false })).toBeVisible();
+  await expect(consistencyWarning.getByText("Unit value: Lakhanpur · Canonical location value: Jammu")).toBeVisible();
   await diagnosticsModal.getByLabel("Reason").selectOption("unpublished");
   await expect(diagnosticsModal.locator("tbody td").filter({ hasText: "ESPA-002_1" }).first()).toBeVisible();
   await diagnosticsModal.getByRole("tab", { name: "Eligible units" }).click();
