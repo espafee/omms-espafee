@@ -108,6 +108,8 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 - [!] Import preview works with marked beta/test Excel. Do not confirm import unless approved test data is used.
 - [!] Export job completes and file downloads. Requires production admin credentials and Celery worker verification.
 - [!] Mobile field POE upload screen works against production API. Requires production field credentials and release/test build configuration.
+- [ ] Run `python manage.py diagnose_planner_inventory --planner-id <id> --unit-code "ESPA - 14-A" --unit-code "ESPA - 14-B"` from the production backend shell. Expected: both units are present in Database, eligible evaluator, final queryset, and API response layers.
+- [ ] Open the active public Live Media Planner in a fresh private/incognito session. Expected: `23 advertising units across 16 locations`, with `ESPA - 14-A` and `ESPA - 14-B` visible as separate advertising-unit cards.
 
 ## Rollback Plan
 

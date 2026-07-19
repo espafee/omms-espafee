@@ -591,7 +591,7 @@ export default function PublicMediaPlannerPage() {
         {(payload?.results ?? []).map((unit) => {
           const isSelected = selected.includes(unit.public_id);
           return (
-            <article className="planner-unit-card" key={unit.public_id}>
+            <article className="planner-unit-card" key={unit.public_id} data-unit-id={unit.public_id}>
               <button
                 className="planner-unit-photo"
                 type="button"

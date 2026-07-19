@@ -7,6 +7,7 @@
 - Added detailed authenticated planner diagnostics for eligible and excluded units, including unit codes, locations, exclusion reasons, and actual-vs-required values.
 - Added a shared Live Media Planner eligibility evaluator so public planner results and diagnostics use the same parent-location geography rules.
 - Added diagnostics warnings for legacy advertising-unit geography that differs from the canonical parent location.
+- Added the read-only `diagnose_planner_inventory` management command for production-safe missing-unit reconciliation.
 - Public Live Media Planner now displays summaries such as `23 advertising units across 21 locations` and fetches all paginated result pages instead of stopping at the first 48 units.
 - Added compact `S.No.` columns to the Locations and Advertising Units inventory lists with pagination-aware numbering.
 - Added a secure rolling 72-hour inactivity session model using short-lived access tokens and HttpOnly refresh-session cookies.

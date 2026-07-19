@@ -44,6 +44,14 @@ If an environment has legacy or denormalised unit-level geography, Diagnostics c
 
 If inventory shows 23 published units but a planner shows 21 eligible units, open Diagnostics and check the Excluded units section to identify the exact two unit codes and reasons. If Diagnostics shows 23 eligible advertising units across 21 locations, nothing is missing; two or more units share physical locations.
 
+For production missing-unit investigations, run the read-only command below from the backend environment. It does not mutate data or print tokens:
+
+```bash
+python manage.py diagnose_planner_inventory --planner-id <id> --unit-code "ESPA - 14-A" --unit-code "ESPA - 14-B"
+```
+
+The command reports safe planner metadata, final queryset totals, unique-location totals, unit IDs/codes, parent-location fields, gate-by-gate eligibility results, and whether each requested unit is present in the final API-style serialized response. Use `--json` for machine-readable output.
+
 ## Workflow
 
 1. Create a link with optional city, region, format, rate, download, and expiry restrictions.
@@ -71,3 +79,4 @@ If inventory shows 23 published units but a planner shows 21 eligible units, ope
 10. With test data containing 23 eligible advertising units across 21 physical locations, open the public planner and confirm the summary reads `23 advertising units across 21 locations`.
 11. With test data containing 23 published units but 21 eligible units, open Diagnostics and confirm the Excluded units section lists the exact two unit codes and exclusion reasons.
 12. Search the public planner for `ESPA - 14-A` and `ESPA - 14-B` when their parent location matches the planner restrictions. Confirm both codes appear as separate advertising units under `Gurha Morh Vijaypur`.
+13. For the production ESPA-14 case, direct API and fresh private-window UI verification must both show `23 advertising units across 16 locations` before the incident is considered resolved.

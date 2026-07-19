@@ -131,7 +131,10 @@ Use this checklist after every production deployment or major workflow change.
 - In Diagnostics, use search and reason filtering.
 - Expected: eligible/excluded totals reconcile, the exact excluded units remain visible when filtered by reason, and no diagnostic/internal data appears on the public planner endpoint.
 - For `ESPA - 14-A` and `ESPA - 14-B`, verify the parent location is `Gurha Morh Vijaypur` and its canonical city/region match the planner restrictions.
+- Run `python manage.py diagnose_planner_inventory --planner-id <id> --unit-code "ESPA - 14-A" --unit-code "ESPA - 14-B"` from the backend environment.
+- Expected: Database, eligible evaluator, final queryset, and API response layers all mark both units present when the parent location is eligible.
 - Expected: both units remain marked published in Inventory, the Inventory badge reads `Published — subject to planner tenant and filter eligibility`, and the public planner shows both unit codes as separate advertising units when the parent location is eligible.
+- Expected: the ESPA-14 production planner summary changes from `21 advertising units across 15 locations` to `23 advertising units across 16 locations` only after direct API and fresh private-window UI verification agree.
 - If Diagnostics reports `Advertising-unit geography does not match its parent location.`, confirm the row shows the legacy unit value and canonical parent-location value before correcting production data.
 
 ## 14. Finance Dashboard
