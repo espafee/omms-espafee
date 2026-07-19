@@ -71,7 +71,7 @@ async function copyText(value: string) {
   }
 }
 
-function buildPlannerPublicUrl(publicPath?: string) {
+function buildPlannerPublicUrl(publicPath?: string | null) {
   const path = publicPath?.trim();
   if (!path) return "";
   if (/^https?:\/\//i.test(path)) return path;
@@ -278,7 +278,7 @@ export default function ProposalsWorkspacePage() {
     }
     try {
       const link = await createPlannerLink(payload);
-      const url = `${window.location.origin}${link.public_path}`;
+      const url = buildPlannerPublicUrl(link.public_path);
       setGeneratedUrl(url);
       setGeneratedLink(link);
       setLinkFeedback("Link generated");
@@ -325,7 +325,11 @@ export default function ProposalsWorkspacePage() {
     event.stopPropagation();
     if (!isCopyablePlannerLink(link) || copyingPlannerLinkRef.current === link.id) return;
     const url = buildPlannerPublicUrl(link.public_path);
-    if (!url) return;
+    if (!url) {
+      setHistoryCopyFeedback("");
+      setHistoryCopyError("Unable to copy link. This planner link does not have a copyable public URL. Create a new planner link and try again.");
+      return;
+    }
     copyingPlannerLinkRef.current = link.id;
     setCopyingPlannerLinkId(link.id);
     setHistoryCopyFeedback("");
@@ -611,7 +615,6 @@ export default function ProposalsWorkspacePage() {
                   {recentPlannerLinks.map((link) => {
                     const diagnostics = diagnosticsByLink[link.id];
                     const canCopyPlannerLink = isCopyablePlannerLink(link);
-                    const hasPlannerUrl = Boolean(buildPlannerPublicUrl(link.public_path));
                     const isCopied = copiedPlannerLinkId === link.id;
                     const isCopying = copyingPlannerLinkId === link.id;
                     const status = getPlannerLinkStatus(link);
@@ -673,7 +676,7 @@ export default function ProposalsWorkspacePage() {
                                   className={`ghost planner-copy-link-button${isCopied ? " is-copied" : ""}`}
                                   type="button"
                                   aria-label="Copy Live Media Planner link"
-                                  disabled={!hasPlannerUrl || isCopying}
+                                  disabled={isCopying}
                                   onClick={(event) => void copyPlannerHistoryLink(event, link)}
                                 >
                                   {isCopied ? <CheckIcon /> : <CopyLinkIcon />}

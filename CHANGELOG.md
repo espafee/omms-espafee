@@ -9,6 +9,8 @@
 - Redesigned Recent planner links as a compact responsive table with planner, client/company, inventory, status, dates when available, and action columns.
 
 ### Fixed
+- Fixed Recent planner link copying for page reloads by persisting and listing the copyable planner `public_path` for newly generated links.
+- Active legacy planner links without a retained public URL now show a clear copy error instead of presenting a dead-feeling disabled action.
 - Fixed the Recent planner links `Copy Link` action so it copies exact public planner URLs, falls back safely when the Clipboard API is unavailable, shows `Link copied` with a temporary check-icon `Copied` state, and recovers with a readable error if copying fails.
 - Fixed frequent automatic logout by queuing silent refresh attempts, retrying expired-access requests once, and avoiding auth clearing on temporary refresh network failures.
 - Closed, revoked, expired, and unavailable planner links no longer show the Recent links copy action.

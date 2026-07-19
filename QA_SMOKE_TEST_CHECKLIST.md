@@ -114,6 +114,8 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: active table rows show `Copy Link`, Diagnostics, and Revoke actions in order when available.
 - Click `Copy Link`.
 - Expected: the full public planner URL is copied, the button temporarily shows a check icon and reads `Copied`, and `Link copied` appears.
+- For a legacy active planner link without a retained public URL, click `Copy Link`.
+- Expected: OMMS shows `Unable to copy link. This planner link does not have a copyable public URL. Create a new planner link and try again.` instead of failing silently.
 - Temporarily block clipboard writes in a safe test browser/session.
 - Expected: OMMS falls back to the textarea copy path when possible, or shows `Unable to copy link. Please try again.` and leaves the button ready to retry.
 - Revoke or close a planner link.

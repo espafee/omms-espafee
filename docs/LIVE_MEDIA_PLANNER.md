@@ -13,14 +13,14 @@ Live Media Planner is a controlled client-planning surface, not a public invento
 
 The `Recent planner links` section on `/sales/proposals` shows generated planner links in a compact responsive table. Columns cover planner title/type/pricing, client or company context, eligible/published/excluded inventory counts, status, created/expiry dates when the API provides them, and available actions.
 
-Active links include a `Copy Link` action before Diagnostics and Revoke when the frontend has a safe `public_path` for that link. The action copies the complete public planner URL, uses the Clipboard API with a textarea fallback, shows `Link copied`, swaps to a check icon, and briefly changes to `Copied`. Closed, revoked, expired, or otherwise unavailable links do not show the copy action. Active links without a public URL keep the copy action disabled.
+Active links include a `Copy Link` action before Diagnostics and Revoke. New planner links retain a copyable `public_path` so the action keeps working after page refresh. The action copies the complete public planner URL, uses the Clipboard API with a textarea fallback, shows `Link copied`, swaps to a check icon, and briefly changes to `Copied`. Closed, revoked, expired, or otherwise unavailable links do not show the copy action. Legacy active links that predate retained public paths cannot be reconstructed from their token hash; clicking Copy Link shows a readable error and operators should create a replacement link if they need copy-from-history.
 
 Diagnostic warning messages render as a secondary full-width row directly below the affected planner link. On narrow screens, the table stacks each planner row so the title and status remain first, details stay visible, and actions wrap in a full-width footer area.
 
 ## Workflow
 
 1. Create a link with optional city, region, format, rate, download, and expiry restrictions.
-2. Copy the raw token when it is shown once. OMMS stores only its SHA-256 hash and a short diagnostic prefix.
+2. Copy the public link when it is shown. OMMS stores the SHA-256 token hash for validation, a short diagnostic prefix, and the generated public path so authorized internal users can copy active links from Recent planner links after refresh.
 3. The client selects dates; the backend computes availability.
 4. The token-isolated session shortlist creates no booking or hold.
 5. Submission stores immutable unit, pricing, tax, and availability snapshots.

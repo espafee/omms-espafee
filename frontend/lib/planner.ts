@@ -113,7 +113,7 @@ export type PlannerLink = {
   revoked_at: string | null;
   is_available: boolean;
   eligible_unit_count?: number;
-  public_path?: string;
+  public_path?: string | null;
   token?: string;
   created_at?: string;
   updated_at?: string;

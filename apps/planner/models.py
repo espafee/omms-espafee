@@ -24,6 +24,7 @@ class MediaPlannerShareLink(TimeStampedModel):
     tenant = models.ForeignKey("tenants.Tenant", related_name="media_planner_links", on_delete=models.PROTECT)
     token_hash = models.CharField(max_length=64, unique=True, db_index=True, editable=False)
     token_prefix = models.CharField(max_length=16, editable=False)
+    public_path = models.CharField(max_length=255, blank=True, editable=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         related_name="created_media_planner_links",
@@ -69,6 +70,7 @@ class MediaPlannerShareLink(TimeStampedModel):
         instance = cls.objects.create(
             token_hash=cls.build_hash(raw_token),
             token_prefix=raw_token[:16],
+            public_path=f"/media-planner/{raw_token}",
             **values,
         )
         return instance, raw_token
