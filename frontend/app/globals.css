@@ -5381,6 +5381,8 @@ body.modal-open { overflow: hidden; }
 .planner-reconciliation-table th:first-child, .planner-reconciliation-table td:first-child { width: 56px; text-align: center; }
 .planner-reconciliation-table td { vertical-align: top; }
 .planner-reconciliation-table td span { display: block; color: #64776f; font-size: 11px; }
+.diagnostics-consistency-warning td { padding: 0 8px 10px; border-bottom: 1px solid #e2ebe7; }
+.diagnostics-consistency-warning p { margin: 0; padding: 8px 10px; border: 1px solid #e6d4a1; border-radius: 5px; background: #fffbeb; color: #765b08; font-size: 12px; font-weight: 750; }
 .planner-link-table-wrap { width: 100%; overflow: visible; }
 .planner-link-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
 .planner-link-table th { padding: 9px 8px; border-bottom: 1px solid #d8e5df; color: #64776f; font-size: 10px; font-weight: 850; text-align: left; text-transform: uppercase; letter-spacing: .08em; }

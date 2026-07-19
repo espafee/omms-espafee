@@ -1062,6 +1062,7 @@ function getDiagnosticRows(report: PlannerLinkEligibilityDiagnostics, mode: "eli
       exclusion_reason: unit.exclusion_reason,
       actual_value: unit.exclusion_reason ? unit.city_raw || unit.status : "",
       required_value: unit.exclusion_reason ? unit.exclusion_reason.replaceAll("_", " ") : "",
+      consistency_warnings: [],
       exclusion_reasons: unit.exclusion_reason
         ? [{ reason: unit.exclusion_reason, actual: unit.city_raw || unit.status, required: unit.exclusion_reason.replaceAll("_", " ") }]
         : [],
@@ -1089,21 +1090,34 @@ function DiagnosticUnitTable({ rows, mode }: { rows: PlannerDiagnosticUnit[]; mo
         <tbody>
           {rows.length ? (
             rows.map((unit, index) => (
-              <tr key={`${unit.unit_id}-${unit.unit_code}`}>
-                <td>{index + 1}</td>
-                <td>{unit.unit_code}</td>
-                <td>{unit.title || unit.unit_code}</td>
-                <td>
-                  <strong>{unit.location_name || "-"}</strong>
-                  {unit.location_code ? <span>{unit.location_code}</span> : null}
-                </td>
-                <td>{[unit.city, unit.region].filter(Boolean).join(" / ") || "-"}</td>
-                <td>{unit.inventory_type ? unit.inventory_type.replaceAll("_", " ") : "-"}</td>
-                <td>{unit.status.replaceAll("_", " ")}</td>
-                {mode === "excluded" ? <td>{unit.exclusion_reasons.map((item) => item.reason.replaceAll("_", " ")).join(", ") || unit.exclusion_reason || "-"}</td> : null}
-                {mode === "excluded" ? <td>{unit.actual_value || "-"}</td> : null}
-                {mode === "excluded" ? <td>{unit.required_value || "-"}</td> : null}
-              </tr>
+              <Fragment key={`${unit.unit_id}-${unit.unit_code}`}>
+                <tr>
+                  <td>{index + 1}</td>
+                  <td>{unit.unit_code}</td>
+                  <td>{unit.title || unit.unit_code}</td>
+                  <td>
+                    <strong>{unit.location_name || "-"}</strong>
+                    {unit.location_code ? <span>{unit.location_code}</span> : null}
+                  </td>
+                  <td>{[unit.city, unit.region].filter(Boolean).join(" / ") || "-"}</td>
+                  <td>{unit.inventory_type ? unit.inventory_type.replaceAll("_", " ") : "-"}</td>
+                  <td>{unit.status.replaceAll("_", " ")}</td>
+                  {mode === "excluded" ? <td>{unit.exclusion_reasons.map((item) => item.reason.replaceAll("_", " ")).join(", ") || unit.exclusion_reason || "-"}</td> : null}
+                  {mode === "excluded" ? <td>{unit.actual_value || "-"}</td> : null}
+                  {mode === "excluded" ? <td>{unit.required_value || "-"}</td> : null}
+                </tr>
+                {unit.consistency_warnings?.length ? (
+                  <tr className="diagnostics-consistency-warning">
+                    <td colSpan={mode === "excluded" ? 10 : 7}>
+                      {unit.consistency_warnings.map((warning) => (
+                        <p key={`${warning.code}-${warning.unit_value}-${warning.canonical_value}`}>
+                          {warning.message} Unit value: {warning.unit_value || "-"} · Canonical location value: {warning.canonical_value || "-"}
+                        </p>
+                      ))}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))
           ) : (
             <tr>

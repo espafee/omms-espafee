@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 
 from django.db import transaction
 from django.db.models import F, Prefetch, Q
@@ -195,21 +196,129 @@ def _filter_normalized_text(queryset, field_name, values, alias):
     return queryset.annotate(**{alias: Lower(Trim(F(field_name)))}).filter(**{f"{alias}__in": normalized})
 
 
+class PlannerEligibilityEvaluator:
+    """Single source of truth for planner inventory eligibility decisions."""
+
+    def eligible_queryset(self, link, *, start_date=None, end_date=None):
+        queryset = (
+            MediaUnit.objects.select_related("site", "site__tenant")
+            .prefetch_related("images", "site__images", InventoryAvailabilityService().booking_prefetch(start_date, end_date))
+        )
+        return self.apply_queryset_filters(queryset, link).order_by("site__city", "site__name", "unit_code", "id")
+
+    def apply_queryset_filters(self, queryset, link):
+        queryset = queryset.filter(site__tenant=link.tenant, is_publicly_listed=True).exclude(status=MediaUnit.Status.RETIRED)
+        if link.allowed_cities:
+            queryset = _filter_normalized_text(queryset, "site__city", link.allowed_cities, "_planner_city")
+        if link.allowed_regions:
+            queryset = _filter_normalized_text(queryset, "site__state", link.allowed_regions, "_planner_region")
+        if link.allowed_inventory_types:
+            inventory_types = _coerced_allowed_values(link.allowed_inventory_types)
+            queryset = queryset.filter(Q(site_type__in=inventory_types) | Q(site__site_type__in=inventory_types))
+        return queryset
+
+    def evaluate(self, unit, link, *, start_date=None, end_date=None) -> dict[str, Any]:
+        values = self.canonical_values(unit)
+        reasons = self.exclusion_reasons(unit, link, start_date=start_date, end_date=end_date, values=values)
+        return {
+            "eligible": not reasons,
+            "exclusion_reasons": reasons,
+            "canonical_values": values,
+            "expected_values": {
+                "tenant_id": link.tenant_id,
+                "allowed_cities": _coerced_allowed_values(link.allowed_cities),
+                "allowed_regions": _coerced_allowed_values(link.allowed_regions),
+                "allowed_inventory_types": _coerced_allowed_values(link.allowed_inventory_types),
+                "published": True,
+                "status": f"not {MediaUnit.Status.RETIRED}",
+            },
+            "consistency_warnings": self.consistency_warnings(unit, values=values),
+        }
+
+    def canonical_values(self, unit) -> dict[str, Any]:
+        site = getattr(unit, "site", None)
+        return {
+            "unit_id": unit.id,
+            "unit_code": unit.unit_code,
+            "published": unit.is_publicly_listed,
+            "status": unit.status,
+            "location_id": getattr(site, "id", None),
+            "location_code": getattr(site, "code", ""),
+            "location_name": getattr(site, "name", ""),
+            "city": getattr(site, "city", ""),
+            "region": getattr(site, "state", ""),
+            "address": getattr(site, "address", ""),
+            "tenant_id": getattr(site, "tenant_id", None),
+            "tenant_name": getattr(getattr(site, "tenant", None), "name", ""),
+            "inventory_type": unit.site_type or getattr(site, "site_type", ""),
+            "location_inventory_type": getattr(site, "site_type", ""),
+            "unit_inventory_type": unit.site_type,
+        }
+
+    def consistency_warnings(self, unit, *, values=None) -> list[dict[str, str]]:
+        values = values or self.canonical_values(unit)
+        warnings = []
+        unit_city = getattr(unit, "city", None)
+        if unit_city and str(unit_city).strip().casefold() != str(values["city"]).strip().casefold():
+            warnings.append(
+                {
+                    "code": "unit_location_city_mismatch",
+                    "message": "Advertising-unit geography does not match its parent location.",
+                    "unit_value": str(unit_city),
+                    "canonical_value": str(values["city"]),
+                }
+            )
+        unit_region = getattr(unit, "region", getattr(unit, "state", None))
+        if unit_region and str(unit_region).strip().casefold() != str(values["region"]).strip().casefold():
+            warnings.append(
+                {
+                    "code": "unit_location_region_mismatch",
+                    "message": "Advertising-unit geography does not match its parent location.",
+                    "unit_value": str(unit_region),
+                    "canonical_value": str(values["region"]),
+                }
+            )
+        return warnings
+
+    def exclusion_reasons(self, unit, link, *, start_date=None, end_date=None, values=None) -> list[dict[str, Any]]:
+        values = values or self.canonical_values(unit)
+        if values["location_id"] is None:
+            return [{"reason": "invalid_or_missing_location", "actual": "missing", "required": "valid location"}]
+        reasons: list[dict[str, Any]] = []
+        if values["tenant_id"] != link.tenant_id:
+            reasons.append({"reason": "wrong_tenant", "actual": str(values["tenant_id"]), "required": str(link.tenant_id)})
+        if not unit.public_id:
+            reasons.append({"reason": "missing_public_id", "actual": "missing", "required": "public id"})
+        if not values["published"]:
+            reasons.append({"reason": "unpublished", "actual": "false", "required": "true"})
+        if values["status"] == MediaUnit.Status.RETIRED:
+            reasons.append({"reason": "retired", "actual": values["status"], "required": f"not {MediaUnit.Status.RETIRED}"})
+            reasons.append({"reason": "inactive", "actual": values["status"], "required": "active"})
+        if link.allowed_cities:
+            city = str(values["city"] or "").strip().casefold()
+            allowed_cities = _normalized_allowed_values(link.allowed_cities)
+            if city not in allowed_cities:
+                reasons.append({"reason": "wrong_city", "actual": values["city"] or "", "required": _coerced_allowed_values(link.allowed_cities)})
+        if link.allowed_regions:
+            region = str(values["region"] or "").strip().casefold()
+            allowed_regions = _normalized_allowed_values(link.allowed_regions)
+            if region not in allowed_regions:
+                reasons.append({"reason": "wrong_region", "actual": values["region"] or "", "required": _coerced_allowed_values(link.allowed_regions)})
+        if link.allowed_inventory_types:
+            inventory_types = set(_coerced_allowed_values(link.allowed_inventory_types))
+            if unit.site_type not in inventory_types and values["location_inventory_type"] not in inventory_types:
+                reasons.append(
+                    {
+                        "reason": "wrong_inventory_type",
+                        "actual": values["inventory_type"] or "",
+                        "required": sorted(inventory_types),
+                    }
+                )
+        return reasons
+
+
 def planner_unit_queryset(link, *, start_date=None, end_date=None):
-    queryset = (
-        MediaUnit.objects.select_related("site")
-        .prefetch_related("images", "site__images", InventoryAvailabilityService().booking_prefetch(start_date, end_date))
-        .filter(site__tenant=link.tenant, is_publicly_listed=True)
-        .exclude(status=MediaUnit.Status.RETIRED)
-    )
-    if link.allowed_cities:
-        queryset = _filter_normalized_text(queryset, "site__city", link.allowed_cities, "_planner_city")
-    if link.allowed_regions:
-        queryset = _filter_normalized_text(queryset, "site__state", link.allowed_regions, "_planner_region")
-    if link.allowed_inventory_types:
-        inventory_types = _coerced_allowed_values(link.allowed_inventory_types)
-        queryset = queryset.filter(Q(site_type__in=inventory_types) | Q(site__site_type__in=inventory_types))
-    return queryset.order_by("site__city", "site__name", "unit_code", "id")
+    return PlannerEligibilityEvaluator().eligible_queryset(link, start_date=start_date, end_date=end_date)
 
 
 def planner_inventory_diagnostics(link, *, start_date=None, end_date=None):
