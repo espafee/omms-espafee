@@ -170,11 +170,9 @@ class CampaignProposalLineSerializer(serializers.ModelSerializer):
         if not obj.media_unit:
             return None
         image = obj.media_unit.primary_image_object or obj.media_unit.site.primary_image_object
-        if not image or not image.image:
+        if not image:
             return None
-        from core.images import build_public_media_url
-
-        return build_public_media_url(image.image, request=self.context.get("request"))
+        return image.image_url(request=self.context.get("request"), variant="planner_card")
 
 
 class CampaignProposalSerializer(serializers.ModelSerializer):
@@ -307,17 +305,15 @@ class ProposalConversionSerializer(serializers.Serializer):
 
 
 def serialize_public_unit(unit, *, link, request, availability):
-    from core.images import build_public_media_url
-
     images = list(unit.images.all()) or list(unit.site.images.all())
     public_images = [
         {
-            "url": build_public_media_url(image.image, request=request),
+            "url": image.image_url(request=request, variant="planner_card"),
             "caption": image.caption,
             "is_primary": image.is_primary,
         }
         for image in images
-        if image.image
+        if image.image_url(request=request, variant="planner_card")
     ]
     public_images.sort(key=lambda item: (not item["is_primary"], item["caption"]))
     payload = {

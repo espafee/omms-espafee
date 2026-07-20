@@ -39,11 +39,13 @@ Use this checklist after every production deployment or major workflow change.
 - Create an Advertising Unit under an existing Location. Expected: existing API permissions apply and the unit appears in the default list.
 
 ## 3B. Location And Unit Photos
+- Confirm the compatibility deployment still has `MEDIA_STORAGE_PROVIDER=r2` before Cloudinary cutover approval.
 - From a Location or Advertising Unit, choose `Manage Photos`.
 - Expected: Upload image is disabled before a JPG, PNG, or WebP file is selected and does not show a loading/wait cursor.
 - Select a file. Expected: Upload image becomes enabled only in that focused photo manager.
 - Upload the image, set it primary, and return to the list. Expected: only that manager shows upload progress, image count and thumbnail refresh, and no private document URL is exposed.
 - Try an invalid upload. Expected: readable error appears, the selected file remains for retry, and the button recovers.
+- After manual Cloudinary cutover only, upload one safe test JPG to a test Location or Advertising Unit. Expected: the API returns a Cloudinary image URL, PostgreSQL stores provider metadata only, and an existing R2 image still loads unchanged.
 
 ## 4. Campaign Creation
 - Open Campaigns.
@@ -94,6 +96,7 @@ Use this checklist after every production deployment or major workflow change.
 - Expected: GPS and timestamp attach automatically.
 - If site has no verified coordinates, first POE stores provisional coordinates.
 - After verification, expected: site coordinates lock as first verified POE location.
+- After manual Cloudinary cutover only, upload one safe POE image. Expected: the image appears under `omms/tenants/<tenant-id>/poe/<poe-id>/`, the POE review image loads, and existing R2 POE media still loads.
 
 ## 11. POE Review
 - Open web POE page as admin/operations.

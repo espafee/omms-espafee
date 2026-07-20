@@ -22,6 +22,7 @@ class MediaSiteImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             "site",
             "image",
             "image_url",
+            "provider",
             "caption",
             "is_primary",
             "uploaded_by",
@@ -29,7 +30,7 @@ class MediaSiteImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "image_url", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "image_url", "provider", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -39,7 +40,13 @@ class MediaSiteImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             self.fields["site"].queryset = self.fields["site"].queryset.filter(tenant=get_user_tenant(user))
 
     def get_image_url(self, obj):
-        return self.build_absolute_media_url(obj.image)
+        return obj.image_url(request=self.context.get("request"), variant="inventory_thumbnail")
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance is None and not attrs.get("image"):
+            raise serializers.ValidationError({"image": ["Select an image to upload."]})
+        return attrs
 
     def validate_site(self, value):
         request = self.context.get("request")
@@ -59,6 +66,7 @@ class MediaUnitImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             "media_unit",
             "image",
             "image_url",
+            "provider",
             "caption",
             "is_primary",
             "uploaded_by",
@@ -66,7 +74,7 @@ class MediaUnitImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "image_url", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
+        read_only_fields = ["id", "image_url", "provider", "uploaded_by", "uploaded_at", "created_at", "updated_at"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -76,7 +84,13 @@ class MediaUnitImageSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerialize
             self.fields["media_unit"].queryset = self.fields["media_unit"].queryset.filter(site__tenant=get_user_tenant(user))
 
     def get_image_url(self, obj):
-        return self.build_absolute_media_url(obj.image)
+        return obj.image_url(request=self.context.get("request"), variant="inventory_thumbnail")
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance is None and not attrs.get("image"):
+            raise serializers.ValidationError({"image": ["Select an image to upload."]})
+        return attrs
 
     def validate_media_unit(self, value):
         request = self.context.get("request")
@@ -354,7 +368,7 @@ class InventorySiteListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
                     break
         if not image:
             return None
-        return self.build_absolute_media_url(image.image)
+        return image.image_url(request=self.context.get("request"), variant="inventory_thumbnail")
 
     def get_unit_count(self, obj):
         return len(self._units(obj))
@@ -416,7 +430,7 @@ class InventoryUnitListSerializer(AbsoluteMediaUrlMixin, serializers.ModelSerial
         if not image:
             location_images = list(obj.site.images.all())
             image = next((item for item in location_images if item.is_primary), None) or (location_images[0] if location_images else None)
-        return self.build_absolute_media_url(image.image) if image else None
+        return image.image_url(request=self.context.get("request"), variant="inventory_thumbnail") if image else None
 
     def get_image_count(self, obj):
         return len(self._images(obj))

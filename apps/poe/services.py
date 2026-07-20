@@ -8,6 +8,12 @@ from apps.notifications.services import trigger_poe_uploaded_notification
 from apps.issues.services import resolve_open_issues_after_poe
 from apps.inventory.models import MediaSite
 from apps.tenants.services import require_same_tenant
+from core.media_storage import (
+    apply_uploaded_metadata,
+    build_storage_folder,
+    get_media_storage_provider,
+    get_media_storage_provider_for_record,
+)
 from core.services import BaseService
 
 from .exceptions import DuplicateProofOfExecutionError
@@ -424,9 +430,67 @@ class ProofOfExecutionMediaService(BaseService):
             validated_data["captured_by"] = actor
         if "captured_at" not in validated_data:
             validated_data["captured_at"] = timezone.now()
+        provider = get_media_storage_provider()
+        if validated_data.get("image") and provider.provider_name == "cloudinary":
+            image = validated_data.pop("image")
+            poe_record = validated_data["poe_record"]
+            folder = build_storage_folder(
+                tenant_id=poe_record.booking.campaign.tenant_id,
+                entity_kind="poe",
+                entity_id=poe_record.id,
+            )
+            uploaded = provider.upload_image(
+                image,
+                folder=folder,
+                metadata={"tenant_id": poe_record.booking.campaign.tenant_id, "poe_record_id": poe_record.id},
+            )
+            try:
+                media = self.repository.model(**validated_data)
+                apply_uploaded_metadata(media, uploaded)
+                media.save()
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
+            trigger_poe_uploaded_notification(media, actor=actor)
+            return media
         media = super().create(actor=actor, **validated_data)
         trigger_poe_uploaded_notification(media, actor=actor)
         return media
+
+    def update(self, instance, actor=None, **validated_data):
+        new_image = validated_data.get("image")
+        provider = get_media_storage_provider()
+        if new_image and provider.provider_name == "cloudinary":
+            old_provider = instance.provider
+            old_public_id = instance.provider_public_id
+            validated_data.pop("image")
+            uploaded = provider.upload_image(
+                new_image,
+                folder=build_storage_folder(
+                    tenant_id=instance.poe_record.booking.campaign.tenant_id,
+                    entity_kind="poe",
+                    entity_id=instance.poe_record_id,
+                ),
+                metadata={"tenant_id": instance.poe_record.booking.campaign.tenant_id, "poe_record_id": instance.poe_record_id},
+            )
+            try:
+                for key, value in validated_data.items():
+                    setattr(instance, key, value)
+                instance.image = None
+                apply_uploaded_metadata(instance, uploaded)
+                instance.save()
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
+            if old_provider == instance.Provider.CLOUDINARY and old_public_id:
+                provider.delete_image(type("OldRecord", (), {"provider_public_id": old_public_id})())
+            return instance
+        return super().update(instance, actor=actor, **validated_data)
+
+    def delete(self, instance, actor=None):
+        if instance.provider == instance.Provider.CLOUDINARY:
+            get_media_storage_provider_for_record(instance).delete_image(instance)
+        return super().delete(instance, actor=actor)
 
 
 class ProofOfExecutionVerificationLogService(BaseService):

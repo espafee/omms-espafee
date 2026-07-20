@@ -4,6 +4,7 @@ import tempfile
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -35,6 +36,20 @@ def generate_large_test_image(name="poe-large.jpg"):
     image.save(file_obj, format="JPEG", quality=96)
     file_obj.seek(0)
     return SimpleUploadedFile(name, file_obj.read(), content_type="image/jpeg")
+
+
+def cloudinary_upload_response(public_id="omms/tenants/1/poe/1/generated"):
+    return {
+        "asset_id": "poe-asset-123",
+        "public_id": public_id,
+        "version": 1234567890,
+        "secure_url": f"https://res.cloudinary.com/demo/image/upload/v1234567890/{public_id}.jpg",
+        "resource_type": "image",
+        "format": "jpg",
+        "width": 1000,
+        "height": 700,
+        "bytes": 23456,
+    }
 
 
 @override_settings(MEDIA_URL="/media/")
@@ -193,3 +208,35 @@ class PoeMediaAPITests(APITestCase):
         saved_media = ProofOfExecutionMedia.objects.get(pk=response.data["id"])
         self.assertLess(saved_media.image.size, original_size)
         self.assertTrue(saved_media.image.name.lower().endswith(".jpg"))
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+        CLOUDINARY_ROOT_FOLDER="omms",
+    )
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_poe_upload_stores_metadata_and_uses_poe_folder(self, upload_mock):
+        upload_mock.return_value = cloudinary_upload_response("omms/tenants/1/poe/1/proof")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("poe-media-list"),
+            {
+                "poe_record": self.poe.id,
+                "image": generate_test_image("poe-cloudinary.png"),
+                "media_type": "image",
+                "note": "Cloudinary proof",
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        media = ProofOfExecutionMedia.objects.get(pk=response.data["id"])
+        self.assertEqual(media.provider, "cloudinary")
+        self.assertEqual(media.provider_public_id, "omms/tenants/1/poe/1/proof")
+        self.assertEqual(media.provider_asset_id, "poe-asset-123")
+        self.assertIsNone(media.image.name or None)
+        self.assertEqual(upload_mock.call_args.kwargs["folder"], f"omms/tenants/{self.campaign.tenant_id}/poe/{self.poe.id}")
+        self.assertNotIn("api-secret", str(response.data))
+        self.assertIn("res.cloudinary.com", response.data["image_url"])

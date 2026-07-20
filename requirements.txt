@@ -10,6 +10,7 @@ redis==5.2.1
 certifi==2025.8.3
 charset-normalizer==3.4.3
 click==8.3.3
+cloudinary==1.44.1
 click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0

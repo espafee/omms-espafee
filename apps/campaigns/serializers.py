@@ -170,7 +170,7 @@ class PublicImageSerializer(AbsoluteMediaUrlMixin, serializers.Serializer):
     is_primary = serializers.BooleanField()
 
     def get_image_url(self, obj):
-        return self.build_absolute_media_url(obj.image)
+        return obj.image_url(request=self.context.get("request"), variant="inventory_thumbnail")
 
 
 class PublicSiteSerializer(serializers.Serializer):
@@ -212,7 +212,7 @@ class PublicProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.S
     captured_at = serializers.DateTimeField()
 
     def get_image_url(self, obj):
-        return self.build_absolute_media_url(obj.image)
+        return obj.image_url(request=self.context.get("request"), variant="full_preview")
 
 
 class PublicProofOfExecutionSerializer(serializers.Serializer):
