@@ -3,6 +3,7 @@
 ## 2026-07-18
 
 ### Added
+- Added an explicit `Search` action to the public Live Media Planner filters so clients can apply text, dropdown, size, and rate filters intentionally.
 - Added a provider-aware image storage layer with optional Cloudinary support for new Location, Advertising Unit, and POE uploads while preserving existing R2 media records.
 - Added Cloudinary metadata fields for image records, fixed delivery variants, and mocked upload/deletion regression coverage.
 - Added Live Media Planner inventory-count reconciliation with separate advertising-unit and unique-location counts.
@@ -18,6 +19,7 @@
 - Redesigned Recent planner links as a compact responsive table with planner, client/company, inventory, status, dates when available, and action columns.
 
 ### Fixed
+- Live Media Planner filter inputs now use draft state until `Search` or Enter applies them, preventing confusing partial auto-filter requests while preserving `Clear filters` as an immediate reset.
 - Fixed Recent planner link copying for page reloads by persisting and listing the copyable planner `public_path` for newly generated links.
 - Active legacy planner links without a retained public URL now show a clear copy error instead of presenting a dead-feeling disabled action.
 - Fixed the Recent planner links `Copy Link` action so it copies exact public planner URLs, falls back safely when the Clipboard API is unavailable, shows `Link copied` with a temporary check-icon `Copied` state, and recovers with a readable error if copying fails.

@@ -129,6 +129,14 @@ Use this checklist after every production deployment or major workflow change.
 - If a planner diagnostics warning appears, expected: it displays in a full-width row directly below the affected planner link.
 - Create or use safe test planner data with 23 eligible advertising units across 21 physical locations.
 - Expected: the public Live Media Planner summary reads `23 advertising units across 21 locations`, all 23 unit codes are visible, and duplicate-location units remain separate cards.
+- In the public Live Media Planner filter panel, enter a known unit code such as `ESPA - 18-A`, choose any applicable dropdown or numeric filters, and click `Search`.
+- Expected: the selected filters are applied together, the user remains at Available Media, and only matching advertising units are shown.
+- Press Enter from the Search field or a numeric filter input.
+- Expected: the same Search behavior runs without a page reload.
+- Click `Clear filters`.
+- Expected: all filter controls reset and the full eligible inventory reloads.
+- Search for a value with no match.
+- Expected: OMMS shows `No advertising units match the selected filters.` and does not fall back to the unfiltered list.
 - Create or use safe test planner data with 23 published units where only 21 satisfy the planner tenant/restriction/status rules.
 - Expected: Diagnostics shows `21 eligible advertising units · 2 excluded`, and the Excluded units table names the two unit codes with reasons such as `wrong_city`, `wrong_tenant`, `retired`, or `wrong_inventory_type`.
 - In Diagnostics, use search and reason filtering.
