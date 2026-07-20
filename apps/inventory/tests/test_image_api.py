@@ -4,6 +4,7 @@ import tempfile
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -16,6 +17,7 @@ from rest_framework.test import APITestCase
 from apps.bookings.models import Booking
 from apps.campaigns.models import Campaign
 from apps.inventory.models import MediaSite, MediaSiteImage, MediaUnit, MediaUnitImage
+from apps.inventory.services import MediaSiteImageService
 
 User = get_user_model()
 
@@ -34,6 +36,20 @@ def generate_large_test_image(name="large-test.jpg"):
     image.save(file_obj, format="JPEG", quality=96)
     file_obj.seek(0)
     return SimpleUploadedFile(name, file_obj.read(), content_type="image/jpeg")
+
+
+def cloudinary_upload_response(public_id="omms/tenants/1/locations/1/generated"):
+    return {
+        "asset_id": "asset-123",
+        "public_id": public_id,
+        "version": 1234567890,
+        "secure_url": f"https://res.cloudinary.com/demo/image/upload/v1234567890/{public_id}.jpg",
+        "resource_type": "image",
+        "format": "jpg",
+        "width": 1200,
+        "height": 800,
+        "bytes": 34567,
+    }
 
 
 @override_settings(MEDIA_URL="/media/")
@@ -239,6 +255,190 @@ class InventoryImageAPITests(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertTrue(response.data["image_url"].startswith("https://cdn.example.com/media/"))
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+        CLOUDINARY_ROOT_FOLDER="omms",
+    )
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_site_image_upload_stores_provider_metadata(self, upload_mock):
+        upload_mock.return_value = cloudinary_upload_response("omms/tenants/1/locations/1/site-primary")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-site-images-list"),
+            {
+                "site": self.site.id,
+                "caption": "Cloudinary primary",
+                "image": generate_test_image("cloudinary-site.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        image = MediaSiteImage.objects.get(pk=response.data["id"])
+        self.assertEqual(image.provider, "cloudinary")
+        self.assertEqual(image.provider_public_id, "omms/tenants/1/locations/1/site-primary")
+        self.assertEqual(image.provider_asset_id, "asset-123")
+        self.assertEqual(image.width, 1200)
+        self.assertEqual(image.height, 800)
+        self.assertEqual(image.bytes, 34567)
+        self.assertEqual(image.original_filename, "cloudinary-site.png")
+        self.assertIsNone(image.image.name or None)
+        kwargs = upload_mock.call_args.kwargs
+        self.assertEqual(kwargs["upload_preset"], "omms_inventory_signed")
+        self.assertEqual(kwargs["folder"], f"omms/tenants/{self.site.tenant_id}/locations/{self.site.id}")
+        self.assertEqual(kwargs["resource_type"], "image")
+        self.assertNotIn("api-secret", str(response.data))
+        self.assertIn("res.cloudinary.com", response.data["image_url"])
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+        CLOUDINARY_ROOT_FOLDER="omms",
+    )
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_unit_image_upload_uses_advertising_unit_folder(self, upload_mock):
+        upload_mock.return_value = cloudinary_upload_response("omms/tenants/1/advertising-units/1/unit-primary")
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-unit-images-list"),
+            {
+                "media_unit": self.unit.id,
+                "caption": "Cloudinary unit",
+                "image": generate_test_image("cloudinary-unit.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        image = MediaUnitImage.objects.get(pk=response.data["id"])
+        self.assertEqual(image.provider, "cloudinary")
+        self.assertEqual(upload_mock.call_args.kwargs["folder"], f"omms/tenants/{self.unit.site.tenant_id}/advertising-units/{self.unit.id}")
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+    )
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_upload_rejects_invalid_file_without_provider_call(self, upload_mock):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-site-images-list"),
+            {
+                "site": self.site.id,
+                "caption": "Bad",
+                "image": SimpleUploadedFile("bad.txt", b"not an image", content_type="text/plain"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        upload_mock.assert_not_called()
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+    )
+    @patch("cloudinary.uploader.upload", side_effect=RuntimeError("provider down"))
+    def test_cloudinary_failure_creates_no_database_record(self, upload_mock):
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.post(
+            reverse("inventory-site-images-list"),
+            {
+                "site": self.site.id,
+                "caption": "Provider failure",
+                "image": generate_test_image("provider-failure.png"),
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertFalse(MediaSiteImage.objects.filter(caption="Provider failure").exists())
+        upload_mock.assert_called_once()
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+    )
+    @patch("cloudinary.uploader.destroy")
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_database_failure_attempts_uploaded_asset_cleanup(self, upload_mock, destroy_mock):
+        upload_mock.return_value = cloudinary_upload_response("omms/tenants/1/locations/1/orphan")
+        service = MediaSiteImageService()
+
+        with patch.object(MediaSiteImage, "save", side_effect=RuntimeError("db unavailable")):
+            with self.assertRaises(RuntimeError):
+                service.create(
+                    actor=self.operations,
+                    site=self.site,
+                    caption="Cleanup",
+                    image=generate_test_image("cleanup.png"),
+                )
+
+        destroy_mock.assert_called_once_with("omms/tenants/1/locations/1/orphan", resource_type="image", invalidate=True)
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="cloudinary",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+        CLOUDINARY_UPLOAD_PRESET="omms_inventory_signed",
+    )
+    @patch("cloudinary.uploader.destroy")
+    @patch("cloudinary.uploader.upload")
+    def test_cloudinary_replacement_uploads_new_image_before_deleting_old_asset(self, upload_mock, destroy_mock):
+        upload_mock.return_value = cloudinary_upload_response("omms/tenants/1/locations/1/replacement")
+        existing = MediaSiteImage.objects.create(
+            site=self.site,
+            caption="Old cloudinary",
+            provider="cloudinary",
+            provider_public_id="omms/tenants/1/locations/1/old",
+            secure_url="https://res.cloudinary.com/demo/image/upload/v1/old.jpg",
+            uploaded_by=self.operations,
+        )
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.patch(
+            reverse("inventory-site-images-detail", args=[existing.id]),
+            {"image": generate_test_image("replacement.png")},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        existing.refresh_from_db()
+        self.assertEqual(existing.provider_public_id, "omms/tenants/1/locations/1/replacement")
+        upload_mock.assert_called_once()
+        destroy_mock.assert_called_once_with("omms/tenants/1/locations/1/old", resource_type="image", invalidate=True)
+
+    @override_settings(
+        MEDIA_STORAGE_PROVIDER="r2",
+        CLOUDINARY_URL="cloudinary://api-key:api-secret@demo",
+    )
+    @patch("cloudinary.uploader.destroy")
+    def test_cloudinary_delete_uses_record_provider_even_when_active_provider_is_r2(self, destroy_mock):
+        image = MediaSiteImage.objects.create(
+            site=self.site,
+            caption="Cloudinary delete",
+            provider="cloudinary",
+            provider_public_id="omms/tenants/1/locations/1/delete-me",
+            secure_url="https://res.cloudinary.com/demo/image/upload/v1/delete-me.jpg",
+            uploaded_by=self.operations,
+        )
+        self.client.force_authenticate(user=self.operations)
+
+        response = self.client.delete(reverse("inventory-site-images-detail", args=[image.id]))
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        destroy_mock.assert_called_once_with("omms/tenants/1/locations/1/delete-me", resource_type="image", invalidate=True)
+        self.assertFalse(MediaSiteImage.objects.filter(pk=image.id).exists())
 
     def test_site_detail_exposes_primary_image_and_gallery(self):
         first = MediaSiteImage.objects.create(

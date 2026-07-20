@@ -3,6 +3,12 @@ from rest_framework.exceptions import ValidationError
 
 from apps.bookings.models import Booking
 from apps.tenants.services import resolve_write_tenant, require_same_tenant
+from core.media_storage import (
+    apply_uploaded_metadata,
+    build_storage_folder,
+    get_media_storage_provider,
+    get_media_storage_provider_for_record,
+)
 from core.services import BaseService
 
 from .repositories import (
@@ -128,7 +134,63 @@ class MediaSiteImageService(BaseService):
             validated_data["uploaded_by"] = actor
         if not validated_data.get("is_primary") and not validated_data["site"].images.exists():
             validated_data["is_primary"] = True
+        provider = get_media_storage_provider()
+        if provider.provider_name == "cloudinary":
+            image = validated_data.pop("image", None)
+            folder = build_storage_folder(
+                tenant_id=validated_data["site"].tenant_id,
+                entity_kind="locations",
+                entity_id=validated_data["site"].id,
+            )
+            uploaded = provider.upload_image(
+                image,
+                folder=folder,
+                metadata={"tenant_id": validated_data["site"].tenant_id, "site_id": validated_data["site"].id},
+            )
+            try:
+                instance = self.repository.model(**validated_data)
+                apply_uploaded_metadata(instance, uploaded)
+                instance.save()
+                return instance
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
         return super().create(actor=actor, **validated_data)
+
+    def update(self, instance, actor=None, **validated_data):
+        new_image = validated_data.get("image")
+        provider = get_media_storage_provider()
+        if new_image and provider.provider_name == "cloudinary":
+            old_provider = instance.provider
+            old_public_id = instance.provider_public_id
+            validated_data.pop("image")
+            uploaded = provider.upload_image(
+                new_image,
+                folder=build_storage_folder(
+                    tenant_id=instance.site.tenant_id,
+                    entity_kind="locations",
+                    entity_id=instance.site_id,
+                ),
+                metadata={"tenant_id": instance.site.tenant_id, "site_id": instance.site_id},
+            )
+            try:
+                for key, value in validated_data.items():
+                    setattr(instance, key, value)
+                instance.image = None
+                apply_uploaded_metadata(instance, uploaded)
+                instance.save()
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
+            if old_provider == instance.Provider.CLOUDINARY and old_public_id:
+                provider.delete_image(type("OldRecord", (), {"provider_public_id": old_public_id})())
+            return instance
+        return super().update(instance, actor=actor, **validated_data)
+
+    def delete(self, instance, actor=None):
+        if instance.provider == instance.Provider.CLOUDINARY:
+            get_media_storage_provider_for_record(instance).delete_image(instance)
+        return super().delete(instance, actor=actor)
 
 
 class MediaUnitImageService(BaseService):
@@ -141,4 +203,61 @@ class MediaUnitImageService(BaseService):
             validated_data["uploaded_by"] = actor
         if not validated_data.get("is_primary") and not validated_data["media_unit"].images.exists():
             validated_data["is_primary"] = True
+        provider = get_media_storage_provider()
+        if provider.provider_name == "cloudinary":
+            image = validated_data.pop("image", None)
+            unit = validated_data["media_unit"]
+            folder = build_storage_folder(
+                tenant_id=unit.site.tenant_id,
+                entity_kind="advertising-units",
+                entity_id=unit.id,
+            )
+            uploaded = provider.upload_image(
+                image,
+                folder=folder,
+                metadata={"tenant_id": unit.site.tenant_id, "media_unit_id": unit.id},
+            )
+            try:
+                instance = self.repository.model(**validated_data)
+                apply_uploaded_metadata(instance, uploaded)
+                instance.save()
+                return instance
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
         return super().create(actor=actor, **validated_data)
+
+    def update(self, instance, actor=None, **validated_data):
+        new_image = validated_data.get("image")
+        provider = get_media_storage_provider()
+        if new_image and provider.provider_name == "cloudinary":
+            old_provider = instance.provider
+            old_public_id = instance.provider_public_id
+            validated_data.pop("image")
+            uploaded = provider.upload_image(
+                new_image,
+                folder=build_storage_folder(
+                    tenant_id=instance.media_unit.site.tenant_id,
+                    entity_kind="advertising-units",
+                    entity_id=instance.media_unit_id,
+                ),
+                metadata={"tenant_id": instance.media_unit.site.tenant_id, "media_unit_id": instance.media_unit_id},
+            )
+            try:
+                for key, value in validated_data.items():
+                    setattr(instance, key, value)
+                instance.image = None
+                apply_uploaded_metadata(instance, uploaded)
+                instance.save()
+            except Exception:
+                provider.delete_image(type("UploadedRecord", (), {"provider_public_id": uploaded.provider_public_id})())
+                raise
+            if old_provider == instance.Provider.CLOUDINARY and old_public_id:
+                provider.delete_image(type("OldRecord", (), {"provider_public_id": old_public_id})())
+            return instance
+        return super().update(instance, actor=actor, **validated_data)
+
+    def delete(self, instance, actor=None):
+        if instance.provider == instance.Provider.CLOUDINARY:
+            get_media_storage_provider_for_record(instance).delete_image(instance)
+        return super().delete(instance, actor=actor)

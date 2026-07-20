@@ -47,6 +47,9 @@ Legend: `[x]` verified, `[ ]` pending, `[!]` attention/blocker.
 
 ## Storage
 
+- [ ] Keep `MEDIA_STORAGE_PROVIDER=r2` for the first Cloudinary-compatible deployment; do not cut over new uploads during PR review, merge, or the first compatibility deploy.
+- [ ] Confirm existing R2 media still loads for site images, media unit images, public planner cards, public campaigns, and POE evidence.
+- [ ] After compatibility smoke passes and cutover is approved, switch only new uploads by setting `MEDIA_STORAGE_PROVIDER=cloudinary`; keep `USE_S3_MEDIA`, AWS/R2 credentials, and existing R2 assets in place.
 - [ ] Configure durable media storage for site images, media unit images, and POE evidence. Requires production env/storage verification.
 - [ ] Configure private document storage for invoices, contracts, receipts, reports, and training-sensitive files. Requires production env/storage verification.
 - [ ] Confirm signed private URLs do not expose storage secrets. Backend tests cover this locally; production storage still needs smoke validation.

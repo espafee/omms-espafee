@@ -4,8 +4,8 @@ from django.db import models, transaction
 from django.db.models import Q
 import uuid
 
-from core.models import TimeStampedModel
 from core.images import compress_field_image
+from core.models import ProviderImageModel, TimeStampedModel
 
 
 def site_image_upload_to(instance, filename):
@@ -141,9 +141,9 @@ class RateCard(TimeStampedModel):
         return f"{self.unit.unit_code} ({self.start_date} - {self.end_date})"
 
 
-class MediaSiteImage(TimeStampedModel):
+class MediaSiteImage(ProviderImageModel, TimeStampedModel):
     site = models.ForeignKey(MediaSite, related_name="images", on_delete=models.CASCADE)
-    image = models.ImageField(upload_to=site_image_upload_to)
+    image = models.ImageField(upload_to=site_image_upload_to, blank=True, null=True)
     caption = models.CharField(max_length=255, blank=True)
     is_primary = models.BooleanField(default=False)
     uploaded_by = models.ForeignKey(
@@ -169,16 +169,17 @@ class MediaSiteImage(TimeStampedModel):
         with transaction.atomic():
             if self.is_primary:
                 self.site.images.exclude(pk=self.pk).filter(is_primary=True).update(is_primary=False)
-            compress_field_image(self.image)
+            if self.provider == self.Provider.R2:
+                compress_field_image(self.image)
             super().save(*args, **kwargs)
 
     def __str__(self) -> str:
         return f"{self.site.code} image {self.pk}"
 
 
-class MediaUnitImage(TimeStampedModel):
+class MediaUnitImage(ProviderImageModel, TimeStampedModel):
     media_unit = models.ForeignKey(MediaUnit, related_name="images", on_delete=models.CASCADE)
-    image = models.ImageField(upload_to=unit_image_upload_to)
+    image = models.ImageField(upload_to=unit_image_upload_to, blank=True, null=True)
     caption = models.CharField(max_length=255, blank=True)
     is_primary = models.BooleanField(default=False)
     uploaded_by = models.ForeignKey(
@@ -204,7 +205,8 @@ class MediaUnitImage(TimeStampedModel):
         with transaction.atomic():
             if self.is_primary:
                 self.media_unit.images.exclude(pk=self.pk).filter(is_primary=True).update(is_primary=False)
-            compress_field_image(self.image)
+            if self.provider == self.Provider.R2:
+                compress_field_image(self.image)
             super().save(*args, **kwargs)
 
     def __str__(self) -> str:

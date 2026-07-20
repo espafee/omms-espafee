@@ -23,6 +23,7 @@ class ProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.ModelSe
             "poe_record",
             "image",
             "image_url",
+            "provider",
             "media_url",
             "media_type",
             "captured_at",
@@ -31,7 +32,7 @@ class ProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.ModelSe
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "image_url", "captured_by", "created_at", "updated_at"]
+        read_only_fields = ["id", "image_url", "provider", "captured_by", "created_at", "updated_at"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -58,7 +59,7 @@ class ProofOfExecutionMediaSerializer(AbsoluteMediaUrlMixin, serializers.ModelSe
         return attrs
 
     def get_image_url(self, obj):
-        return self.build_absolute_media_url(obj.image)
+        return obj.image_url(request=self.context.get("request"), variant="full_preview")
 
 
 class ProofOfExecutionVerificationLogSerializer(serializers.ModelSerializer):

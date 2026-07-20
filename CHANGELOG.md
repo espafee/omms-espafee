@@ -3,6 +3,8 @@
 ## 2026-07-18
 
 ### Added
+- Added a provider-aware image storage layer with optional Cloudinary support for new Location, Advertising Unit, and POE uploads while preserving existing R2 media records.
+- Added Cloudinary metadata fields for image records, fixed delivery variants, and mocked upload/deletion regression coverage.
 - Added Live Media Planner inventory-count reconciliation with separate advertising-unit and unique-location counts.
 - Added detailed authenticated planner diagnostics for eligible and excluded units, including unit codes, locations, exclusion reasons, and actual-vs-required values.
 - Added a shared Live Media Planner eligibility evaluator so public planner results and diagnostics use the same parent-location geography rules.

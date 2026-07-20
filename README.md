@@ -45,6 +45,7 @@ The platform supports:
 - drf-spectacular for OpenAPI docs
 - django-filter for filtering APIs
 - Pillow for image handling
+- Cloudinary SDK for optional image storage
 
 ### Frontend
 
@@ -175,6 +176,7 @@ Inventory supports:
 - Ownership assignment
 - Primary image selection
 - Image uploads
+- Provider-aware image storage for existing R2 images and optional Cloudinary uploads
 - Client-scoped inventory visibility
 - All Sites inventory list at `GET /api/v1/inventory/sites/all-sites/`
 - Advertising Unit inventory list at `GET /api/v1/inventory/units/all-units/`
@@ -182,6 +184,8 @@ Inventory supports:
 The All Sites endpoint is paginated and powers the Inventory page list view. It returns one row per `MediaSite`, including newly created sites that do not have media units yet. Rows include site id, site code, unit ids/codes, title, address, city, state, media type, dimensions, facing direction, single/both-side unit type, availability status, public thumbnail URL, and created/updated timestamps. Filters include `search`, `city`, `status`, `media_type`, `facing_direction`, `site_type`, `page`, and `page_size`.
 
 The Inventory workspace uses user-facing terminology without changing the domain model: `MediaSite` is displayed as a **Location** and `MediaUnit` as an **Advertising Unit**. `/inventory?view=units` is the default sales/operations list; `/inventory?view=locations` is the physical-location list; `/inventory?view=overview` provides compact operational metrics. Locations additionally support `photo_status` and `coordinate_status` filters. The unit endpoint returns unit code, parent location id/name/code, city/address, dimensions, facing direction, display format, illumination, monthly rate, availability, safe thumbnail URL, image count, and timestamps. Its filters are `search`, `city`, `status`, `site_type`, `facing_direction`, `is_illuminated`, `size`, `page`, and `page_size`.
+
+Image storage is provider-aware. Existing records default to `provider=r2` and continue using their existing `ImageField` URLs. When `MEDIA_STORAGE_PROVIDER=cloudinary` is selected on the backend, new Location, Advertising Unit, and POE uploads are sent server-side to Cloudinary with the configured signed preset and stored as provider metadata in PostgreSQL. Cloudinary secrets must never be exposed to the frontend. See `docs/MEDIA_STORAGE.md` for rollout and rollback steps.
 
 ### Campaigns
 
@@ -330,6 +334,10 @@ CELERY_BROKER_URL=redis://redis:6379/0
 CELERY_RESULT_BACKEND=redis://redis:6379/0
 JWT_ACCESS_TOKEN_MINUTES=60
 JWT_REFRESH_TOKEN_DAYS=7
+MEDIA_STORAGE_PROVIDER=r2
+CLOUDINARY_URL=
+CLOUDINARY_UPLOAD_PRESET=omms_inventory_signed
+CLOUDINARY_ROOT_FOLDER=omms
 ```
 
 Common frontend variables include:

@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from apps.bookings.models import Booking
 from core.images import compress_field_image
-from core.models import TimeStampedModel
+from core.models import ProviderImageModel, TimeStampedModel
 
 
 def poe_media_upload_to(instance, filename):
@@ -66,7 +66,7 @@ class ProofOfExecution(TimeStampedModel):
         ]
 
 
-class ProofOfExecutionMedia(TimeStampedModel):
+class ProofOfExecutionMedia(ProviderImageModel, TimeStampedModel):
     poe_record = models.ForeignKey(
         ProofOfExecution,
         related_name="media_items",
@@ -89,7 +89,8 @@ class ProofOfExecutionMedia(TimeStampedModel):
         ordering = ["-captured_at", "-created_at"]
 
     def save(self, *args, **kwargs):
-        compress_field_image(self.image)
+        if self.provider == self.Provider.R2:
+            compress_field_image(self.image)
         super().save(*args, **kwargs)
 
     def __str__(self) -> str:
