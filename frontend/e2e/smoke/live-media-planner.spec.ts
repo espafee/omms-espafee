@@ -101,6 +101,9 @@ test("public client selects dates, opens gallery, builds basket and submits prop
       await route.fulfill({ status: 201, contentType: "application/json", body: JSON.stringify({ reference: "PRP-DEMO123", status: "submitted", message: "Proposal submitted" }) });
       return;
     }
+    if (route.request().url().includes("city=Jammu")) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(false)) });
   });
   await page.goto("/media-planner/demo-token");
@@ -115,6 +118,11 @@ test("public client selects dates, opens gallery, builds basket and submits prop
   await page.getByLabel("Format").selectOption("single_side");
   await page.getByLabel("Facing").selectOption("North");
   await page.getByLabel("Illumination").selectOption("true");
+  const draftRequestCount = requests.length;
+  await page.waitForTimeout(350);
+  expect(requests.length).toBe(draftRequestCount);
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("button", { name: "Searching..." })).toBeDisabled();
   await expect.poll(() => requests.some((url) => url.includes("city=Jammu") && url.includes("location=Central+Junction") && url.includes("availability=available") && url.includes("display_format=single_side") && url.includes("facing=North") && url.includes("illumination=true"))).toBeTruthy();
   await expect(page.getByText("Rate on request")).toBeVisible();
   await page.getByRole("button", { name: "View photos for JMU-001-A" }).click();
@@ -197,12 +205,14 @@ test("public planner shows distinct empty and API failure states", async ({ page
   await page.route("**/api/v1/public/media-planner/filter-token/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(emptyPayload(1)) }));
   await page.goto("/media-planner/filter-token");
   await page.getByLabel("City").selectOption("Jammu");
-  await expect(page.getByRole("heading", { name: "No media units match these filters" })).toBeVisible();
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("heading", { name: "No advertising units match the selected filters." })).toBeVisible();
 
   await page.route("**/api/v1/public/media-planner/dates-token/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(emptyPayload(1, true)) }));
   await page.goto("/media-planner/dates-token");
   await fillCampaignDates(page, "2026-08-01", "2026-08-31");
   await page.getByLabel("Availability").selectOption("available");
+  await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByRole("heading", { name: "No units are available for these dates" })).toBeVisible();
 
   await page.route("**/api/v1/public/media-planner/fail-token/**", (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ detail: "Server unavailable" }) }));
@@ -216,8 +226,92 @@ test("public planner exposes rates only when the link permits them and remains u
   await page.route("**/api/v1/public/media-planner/rates-token/**", (route) => route.fulfill({ contentType: "application/json", body: JSON.stringify(publicPayload(true)) }));
   await page.goto("/media-planner/rates-token");
   await expect(page.getByText("INR 50,000 / month")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
   await expect(page.locator(".planner-unit-card")).toHaveCount(1);
   await expect(page.locator(".planner-basket-bar")).toBeVisible();
+  await expect.poll(() =>
+    page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1),
+  ).toBeTruthy();
+});
+
+test("public planner Search applies text, numeric and select filters without page reload", async ({ page }) => {
+  const requests: URL[] = [];
+  const payload = publicPayload(true);
+  payload.results = [
+    {
+      ...payload.results[0],
+      unit_code: "ESPA - 18-A",
+      location_name: "SIDCO Chowk",
+      public_address: "Industrial Estate",
+      dimensions: { width: "20.00", height: "10.00" },
+    },
+  ];
+  payload.filters = {
+    ...payload.filters,
+    locations: ["SIDCO Chowk"],
+    rate_bounds: { min: "40000.00", max: "60000.00" },
+  };
+
+  await page.route("**/api/v1/public/media-planner/search-token/**", async (route) => {
+    const url = new URL(route.request().url());
+    requests.push(url);
+    if (url.searchParams.get("search") === "ZZZ") {
+      await route.fulfill({ contentType: "application/json", body: JSON.stringify(emptyPayload(1)) });
+      return;
+    }
+    if (url.searchParams.get("search") === "ESPA - 18-A") {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    await route.fulfill({ contentType: "application/json", body: JSON.stringify(payload) });
+  });
+
+  await page.goto("/media-planner/search-token");
+  const initialPageUrl = page.url();
+  await expect(page.getByRole("button", { name: "Search" })).toBeVisible();
+  await page.getByLabel("Search").fill("ESPA - 18-A");
+  await page.getByLabel("City").selectOption("Jammu");
+  await page.getByLabel("Location").selectOption("SIDCO Chowk");
+  await page.getByLabel("Availability").selectOption("available");
+  await page.getByLabel("Format").selectOption("single_side");
+  await page.getByLabel("Facing").selectOption("North");
+  await page.getByLabel("Illumination").selectOption("true");
+  await page.getByLabel("Width").fill("20");
+  await page.getByLabel("Height").fill("10");
+  await page.getByLabel("Minimum rate").fill("40000");
+  await page.getByLabel("Maximum rate").fill("60000");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("button", { name: "Searching..." })).toBeDisabled();
+  await expect.poll(() =>
+    requests.some((url) =>
+      url.searchParams.get("search") === "ESPA - 18-A" &&
+      url.searchParams.get("city") === "Jammu" &&
+      url.searchParams.get("location") === "SIDCO Chowk" &&
+      url.searchParams.get("availability") === "available" &&
+      url.searchParams.get("display_format") === "single_side" &&
+      url.searchParams.get("facing") === "North" &&
+      url.searchParams.get("illumination") === "true" &&
+      url.searchParams.get("width") === "20" &&
+      url.searchParams.get("height") === "10" &&
+      url.searchParams.get("min_price") === "40000" &&
+      url.searchParams.get("max_price") === "60000",
+    ),
+  ).toBeTruthy();
+  await expect(page.getByText("ESPA - 18-A")).toBeVisible();
+  expect(page.url()).toBe(initialPageUrl);
+
+  await page.getByLabel("Search").fill("ZZZ");
+  await page.getByLabel("Search").press("Enter");
+  await expect(page.getByRole("heading", { name: "No advertising units match the selected filters." })).toBeVisible();
+  expect(page.url()).toBe(initialPageUrl);
+
+  await page.getByRole("button", { name: "Clear filters" }).first().click();
+  await expect(page.getByLabel("Search")).toHaveValue("");
+  await expect.poll(() => {
+    const lastRequest = requests.at(-1);
+    return lastRequest
+      ? ["search", "city", "location", "availability", "display_format", "facing", "illumination", "width", "height", "min_price", "max_price"].some((key) => lastRequest.searchParams.has(key))
+      : true;
+  }).toBe(false);
 });
 
 test("public planner shows advertising-unit and location counts without collapsing duplicate locations", async ({ page }) => {

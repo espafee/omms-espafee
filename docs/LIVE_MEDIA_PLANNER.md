@@ -17,6 +17,8 @@ Canonical geography for planner eligibility comes from the parent physical locat
 
 Secure planner eligibility still requires every visible unit to match the planner link tenant, be publicly listed, avoid retired status, and satisfy any allowed city, region, or inventory-type restrictions. Public filters can further reduce the displayed result count, but the public header keeps the eligible advertising-unit count and eligible location count visible. The public planner fetches all paginated result pages instead of stopping at the first 48 records.
 
+The public filter panel uses an explicit apply model: clients can change search text, city, location, availability, format, facing, illumination, size, and rate fields without triggering partial fetches. Clicking `Search`, or pressing Enter while focused in the text or numeric inputs, applies the full draft filter set. `Clear filters` immediately resets every filter and reloads the full eligible inventory.
+
 The public planner endpoint returns safe count metadata only:
 
 - `meta.eligible_unit_count`
@@ -78,5 +80,5 @@ The command reports safe planner metadata, final queryset totals, unique-locatio
 9. Confirm any active link without a public URL shows the copy action disabled.
 10. With test data containing 23 eligible advertising units across 21 physical locations, open the public planner and confirm the summary reads `23 advertising units across 21 locations`.
 11. With test data containing 23 published units but 21 eligible units, open Diagnostics and confirm the Excluded units section lists the exact two unit codes and exclusion reasons.
-12. Search the public planner for `ESPA - 14-A` and `ESPA - 14-B` when their parent location matches the planner restrictions. Confirm both codes appear as separate advertising units under `Gurha Morh Vijaypur`.
+12. Search the public planner for `ESPA - 14-A` and `ESPA - 14-B` when their parent location matches the planner restrictions, then click `Search` or press Enter. Confirm both codes appear as separate advertising units under `Gurha Morh Vijaypur`.
 13. For the production ESPA-14 case, direct API and fresh private-window UI verification must both show `23 advertising units across 16 locations` before the incident is considered resolved.

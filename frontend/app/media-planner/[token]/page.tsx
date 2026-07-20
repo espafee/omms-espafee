@@ -37,6 +37,7 @@ const EMPTY_FILTERS: Filters = {
   min_price: "",
   max_price: "",
 };
+const FILTER_KEYS = Object.keys(EMPTY_FILTERS) as (keyof Filters)[];
 const DATE_REQUIRED_MESSAGE = "Select campaign start and end dates before requesting a formal estimate.";
 const DATE_RANGE_MESSAGE = "Campaign end date must be on or after the start date.";
 const UNIT_REQUIRED_MESSAGE = "Select at least one advertising unit.";
@@ -50,6 +51,7 @@ export default function PublicMediaPlannerPage() {
   const { token } = useParams<{ token: string }>();
   const [payload, setPayload] = useState<PublicPlannerPayload | null>(null);
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [draftFilters, setDraftFilters] = useState<Filters>(EMPTY_FILTERS);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
@@ -125,7 +127,26 @@ export default function PublicMediaPlannerPage() {
         ? current.filter((value) => value !== id)
         : [...current, id],
     );
-  const clearFilters = () => setFilters(EMPTY_FILTERS);
+  const applyFilters = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    document.getElementById("available-media")?.scrollIntoView({ block: "start" });
+    if (areFiltersEqual(filters, draftFilters)) {
+      void load();
+      return;
+    }
+    setIsLoading(true);
+    setFilters(draftFilters);
+  };
+  const clearFilters = () => {
+    setDraftFilters(EMPTY_FILTERS);
+    document.getElementById("available-media")?.scrollIntoView({ block: "start" });
+    if (areFiltersEqual(filters, EMPTY_FILTERS)) {
+      void load();
+      return;
+    }
+    setIsLoading(true);
+    setFilters(EMPTY_FILTERS);
+  };
   const hasActiveFilters = Object.values(filters).some(Boolean);
   const emptyState = getEmptyState({
     isLoading,
@@ -347,13 +368,14 @@ export default function PublicMediaPlannerPage() {
 
       <details className="planner-filter-panel" open>
         <summary>Find advertising units</summary>
-        <div className="planner-filter-grid">
+        <form className="planner-filter-form" onSubmit={applyFilters}>
+          <div className="planner-filter-grid">
           <label>
             <span>Search</span>
             <input
-              value={filters.search}
+              value={draftFilters.search}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   search: event.target.value,
                 }))
@@ -364,9 +386,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>City</span>
             <select
-              value={filters.city}
+              value={draftFilters.city}
               onChange={(event) =>
-                setFilters((value) => ({ ...value, city: event.target.value }))
+                setDraftFilters((value) => ({ ...value, city: event.target.value }))
               }
             >
               <option value="">All cities</option>
@@ -378,9 +400,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>Location</span>
             <select
-              value={filters.location}
+              value={draftFilters.location}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   location: event.target.value,
                 }))
@@ -395,9 +417,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>Availability</span>
             <select
-              value={filters.availability}
+              value={draftFilters.availability}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   availability: event.target.value,
                 }))
@@ -421,9 +443,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>Format</span>
             <select
-              value={filters.display_format}
+              value={draftFilters.display_format}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   display_format: event.target.value,
                 }))
@@ -442,9 +464,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>Facing</span>
             <select
-              value={filters.facing}
+              value={draftFilters.facing}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   facing: event.target.value,
                 }))
@@ -461,9 +483,9 @@ export default function PublicMediaPlannerPage() {
           <label>
             <span>Illumination</span>
             <select
-              value={filters.illumination}
+              value={draftFilters.illumination}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   illumination: event.target.value,
                 }))
@@ -485,9 +507,9 @@ export default function PublicMediaPlannerPage() {
             <input
               type="number"
               min="0"
-              value={filters.width}
+              value={draftFilters.width}
               onChange={(event) =>
-                setFilters((value) => ({ ...value, width: event.target.value }))
+                setDraftFilters((value) => ({ ...value, width: event.target.value }))
               }
             />
           </label>
@@ -496,9 +518,9 @@ export default function PublicMediaPlannerPage() {
             <input
               type="number"
               min="0"
-              value={filters.height}
+              value={draftFilters.height}
               onChange={(event) =>
-                setFilters((value) => ({
+                setDraftFilters((value) => ({
                   ...value,
                   height: event.target.value,
                 }))
@@ -512,9 +534,9 @@ export default function PublicMediaPlannerPage() {
                 <input
                   type="number"
                   min="0"
-                  value={filters.min_price}
+                  value={draftFilters.min_price}
                   onChange={(event) =>
-                    setFilters((value) => ({
+                    setDraftFilters((value) => ({
                       ...value,
                       min_price: event.target.value,
                     }))
@@ -526,9 +548,9 @@ export default function PublicMediaPlannerPage() {
                 <input
                   type="number"
                   min="0"
-                  value={filters.max_price}
+                  value={draftFilters.max_price}
                   onChange={(event) =>
-                    setFilters((value) => ({
+                    setDraftFilters((value) => ({
                       ...value,
                       max_price: event.target.value,
                     }))
@@ -537,14 +559,20 @@ export default function PublicMediaPlannerPage() {
               </label>
             </>
           ) : null}
-          <button
-            className="ghost"
-            type="button"
-            onClick={clearFilters}
-          >
-            Clear filters
-          </button>
-        </div>
+            <div className="planner-filter-actions">
+              <button className="submit" type="submit" disabled={isLoading}>
+                {isLoading ? "Searching..." : "Search"}
+              </button>
+              <button
+                className="ghost"
+                type="button"
+                onClick={clearFilters}
+              >
+                Clear filters
+              </button>
+            </div>
+          </div>
+        </form>
       </details>
 
       {error && payload ? (
@@ -555,7 +583,7 @@ export default function PublicMediaPlannerPage() {
           </button>
         </p>
       ) : null}
-      <section className="planner-results-head">
+      <section className="planner-results-head" id="available-media">
         <div>
           <p className="site-code">AVAILABLE MEDIA</p>
           <h2>
@@ -892,6 +920,10 @@ function countUniqueLocations(units: PublicPlannerUnit[]) {
   return new Set(units.map((unit) => unit.location_name.trim().toLowerCase()).filter(Boolean)).size;
 }
 
+function areFiltersEqual(left: Filters, right: Filters) {
+  return FILTER_KEYS.every((key) => left[key] === right[key]);
+}
+
 function getEmptyState({
   isLoading,
   eligibleCount,
@@ -928,7 +960,7 @@ function getEmptyState({
   }
   if (emptyReason === "no_filter_matches" || hasActiveFilters) {
     return {
-      title: "No media units match these filters",
+      title: "No advertising units match the selected filters.",
       message: "Clear or adjust the filters to see more options.",
       showClear: true,
     };

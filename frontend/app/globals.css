@@ -5294,6 +5294,8 @@ body.modal-open { overflow: hidden; }
 .planner-filter-panel { max-width: 1440px; margin: 0 auto 22px; border: 1px solid #d6e2dd; border-radius: 7px; background: white; }
 .planner-filter-panel summary { padding: 13px 16px; color: #174c3a; font-weight: 800; cursor: pointer; }
 .planner-filter-grid { display: grid; grid-template-columns: 1.5fr repeat(5, minmax(120px, 1fr)) auto; gap: 10px; padding: 0 16px 16px; }
+.planner-filter-actions { display: flex; align-items: end; gap: 8px; align-self: end; }
+.planner-filter-actions .submit, .planner-filter-actions .ghost { min-height: 42px; white-space: nowrap; }
 .planner-results-head { display: flex; justify-content: space-between; align-items: end; gap: 20px; max-width: 1440px; margin: 0 auto 12px; }
 .planner-results-head h2 { margin: 3px 0 0; }
 .planner-count-note { display: block; margin-top: 4px; color: #60756d; font-size: 12px; font-weight: 750; }
@@ -5455,6 +5457,8 @@ body.modal-open { overflow: hidden; }
   .planner-date-bar > div, .planner-live-indicator { grid-column: 1 / -1; }
   .planner-filter-panel:not([open]) .planner-filter-grid { display: none; }
   .planner-filter-grid, .planner-proposal-form, .planner-link-form { grid-template-columns: 1fr; }
+  .planner-filter-actions { display: grid; grid-template-columns: 1fr; }
+  .planner-filter-actions .submit, .planner-filter-actions .ghost { width: 100%; justify-content: center; }
   .diagnostics-filter-row { grid-template-columns: 1fr; }
   .planner-unit-grid, .planner-internal-grid, .planner-detail-grid, .planner-line-grid { grid-template-columns: 1fr; }
   .planner-link-table-wrap { overflow: visible; }
