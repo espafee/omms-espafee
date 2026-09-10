@@ -4,9 +4,11 @@ import {
   Suspense,
   type ChangeEvent,
   type FormEvent,
+  type UIEvent,
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -221,6 +223,9 @@ function InventoryWorkspace() {
   const [activeSiteId, setActiveSiteId] = useState<number | null>(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState<number[]>([]);
   const [isPublicationUpdating, setIsPublicationUpdating] = useState(false);
+  const unitTopScrollRef = useRef<HTMLDivElement | null>(null);
+  const unitTableScrollRef = useRef<HTMLDivElement | null>(null);
+  const [unitTableScrollWidth, setUnitTableScrollWidth] = useState(0);
 
   const canManageImages = WRITE_ROLES.has(user?.role ?? "");
   const canManageSites = ADMIN_ROLES.has(user?.role ?? "");
@@ -825,6 +830,59 @@ function InventoryWorkspace() {
     visibleUnitIds.length > 0 &&
     visibleUnitIds.every((id) => selectedUnitIds.includes(id));
 
+  useEffect(() => {
+    const tableContainer = unitTableScrollRef.current;
+    if (!tableContainer) return undefined;
+
+    const updateScrollWidth = () => {
+      setUnitTableScrollWidth(tableContainer.scrollWidth);
+      const topScrollbar = unitTopScrollRef.current;
+      if (
+        topScrollbar &&
+        Math.abs(topScrollbar.scrollLeft - tableContainer.scrollLeft) > 1
+      ) {
+        topScrollbar.scrollLeft = tableContainer.scrollLeft;
+      }
+    };
+
+    updateScrollWidth();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateScrollWidth);
+      return () => window.removeEventListener("resize", updateScrollWidth);
+    }
+
+    const resizeObserver = new ResizeObserver(updateScrollWidth);
+    resizeObserver.observe(tableContainer);
+    const table = tableContainer.querySelector("table");
+    if (table) resizeObserver.observe(table);
+    return () => resizeObserver.disconnect();
+  }, [unitRows.length, view]);
+
+  const syncUnitTopScrollbar = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      const tableContainer = unitTableScrollRef.current;
+      if (!tableContainer) return;
+      const nextScrollLeft = event.currentTarget.scrollLeft;
+      if (Math.abs(tableContainer.scrollLeft - nextScrollLeft) > 1) {
+        tableContainer.scrollLeft = nextScrollLeft;
+      }
+    },
+    [],
+  );
+
+  const syncUnitTableScrollbar = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      const topScrollbar = unitTopScrollRef.current;
+      if (!topScrollbar) return;
+      const nextScrollLeft = event.currentTarget.scrollLeft;
+      if (Math.abs(topScrollbar.scrollLeft - nextScrollLeft) > 1) {
+        topScrollbar.scrollLeft = nextScrollLeft;
+      }
+    },
+    [],
+  );
+
   return (
     <AppShell
       active="inventory"
@@ -1393,7 +1451,28 @@ function InventoryWorkspace() {
             </p>
           ) : null}
           {unitRows.length ? (
-            <div className="inventory-table-wrap inventory-workspace-table-wrap inventory-units-table-wrap">
+            <div className="inventory-units-scroll-card">
+              <div
+                className="inventory-units-top-scroll"
+                ref={unitTopScrollRef}
+                onScroll={syncUnitTopScrollbar}
+                aria-label="Scroll advertising units table horizontally"
+                role="region"
+              >
+                <div
+                  className="inventory-units-top-scroll-spacer"
+                  style={{
+                    width: unitTableScrollWidth
+                      ? `${unitTableScrollWidth}px`
+                      : undefined,
+                  }}
+                />
+              </div>
+              <div
+                className="inventory-table-wrap inventory-workspace-table-wrap inventory-units-table-wrap"
+                ref={unitTableScrollRef}
+                onScroll={syncUnitTableScrollbar}
+              >
               <table className="inventory-table inventory-workspace-table inventory-units-table">
                 <thead>
                   <tr>
@@ -1556,6 +1635,7 @@ function InventoryWorkspace() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : null}
           <Pagination

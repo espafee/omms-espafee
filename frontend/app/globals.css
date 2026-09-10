@@ -2979,9 +2979,38 @@ textarea::placeholder {
 
 .inventory-workspace-table { min-width: 1080px; }
 
+.inventory-units-scroll-card {
+  max-width: 100%;
+  margin-top: 16px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: white;
+}
+
+.inventory-units-top-scroll {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  height: 18px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--line);
+  border-radius: 20px 20px 0 0;
+  background: #fafaf9;
+  scrollbar-gutter: stable;
+}
+
+.inventory-units-top-scroll-spacer {
+  height: 1px;
+  min-width: 100%;
+}
+
 .inventory-units-table-wrap {
+  margin-top: 0;
   overflow-x: auto;
   overflow-y: visible;
+  border: 0;
+  border-radius: 0 0 20px 20px;
   -webkit-overflow-scrolling: touch;
   scrollbar-gutter: stable;
 }
@@ -5551,8 +5580,8 @@ body.modal-open { overflow: hidden; }
   .inventory-units-table-wrap {
     overflow-x: auto;
     overflow-y: visible;
-    border: 1px solid var(--line);
-    background: white;
+    border: 0;
+    background: transparent;
   }
   .inventory-units-table-wrap .inventory-units-table {
     display: table;
