@@ -1393,7 +1393,7 @@ function InventoryWorkspace() {
             </p>
           ) : null}
           {unitRows.length ? (
-            <div className="inventory-table-wrap inventory-workspace-table-wrap">
+            <div className="inventory-table-wrap inventory-workspace-table-wrap inventory-units-table-wrap">
               <table className="inventory-table inventory-workspace-table inventory-units-table">
                 <thead>
                   <tr>
