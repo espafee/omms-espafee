@@ -34,9 +34,89 @@ class PersistentSessionAPITests(APITestCase):
     def login(self):
         return self.client.post(
             reverse("auth-login"),
+            {"username": self.user.username, "password": self.password},
+            format="json",
+        )
+
+    def test_login_uses_username_and_does_not_require_email_payload(self):
+        response = self.client.post(
+            reverse("auth-login"),
+            {"username": self.user.username, "password": self.password},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("access", response.data)
+        self.assertEqual(response.data["user"]["email"], self.user.email)
+        self.assertEqual(response.data["user"]["username"], self.user.username)
+
+    def test_login_rejects_email_only_payload(self):
+        response = self.client.post(
+            reverse("auth-login"),
             {"email": self.user.email, "password": self.password},
             format="json",
         )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", response.data)
+
+    def test_invalid_username_or_password_is_rejected(self):
+        invalid_username = self.client.post(
+            reverse("auth-login"),
+            {"username": "missing_user", "password": self.password},
+            format="json",
+        )
+        invalid_password = self.client.post(
+            reverse("auth-login"),
+            {"username": self.user.username, "password": "wrong-password"},
+            format="json",
+        )
+
+        self.assertEqual(invalid_username.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(invalid_password.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_field_staff_can_login_with_username(self):
+        field_staff = User.objects.create_user(
+            email="field-session@example.com",
+            username="field_session",
+            password=self.password,
+            role=User.Role.FIELD_STAFF,
+        )
+
+        response = self.client.post(
+            reverse("auth-login"),
+            {"username": field_staff.username, "password": self.password},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["user"]["role"], User.Role.FIELD_STAFF)
+
+    def test_demo_admin_and_user_accounts_can_login_with_username(self):
+        demo_password = "Espa@123"
+        admin = User.objects.create_user(
+            email="demo-admin@example.com",
+            username="admin",
+            password=demo_password,
+            role=User.Role.ADMIN,
+        )
+        field_user = User.objects.create_user(
+            email="demo-user1@example.com",
+            username="user1",
+            password=demo_password,
+            role=User.Role.FIELD_STAFF,
+        )
+
+        for user in (admin, field_user):
+            with self.subTest(username=user.username):
+                response = self.client.post(
+                    reverse("auth-login"),
+                    {"username": user.username, "password": demo_password},
+                    format="json",
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.data["user"]["username"], user.username)
 
     def test_login_creates_http_only_refresh_session_cookie(self):
         response = self.login()

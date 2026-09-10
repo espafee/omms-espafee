@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.validators import UniqueValidator
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
@@ -166,18 +167,32 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    username = serializers.CharField(write_only=True)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields.pop(self.username_field, None)
+        self.fields["username"] = serializers.CharField(write_only=True)
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
         return add_user_claims(token, user)
 
     def validate(self, attrs):
-        login_identifier = attrs.get(self.username_field, "")
-        if login_identifier and "@" not in login_identifier:
-            user = User.objects.filter(username__iexact=login_identifier).only("email").first()
-            if user:
-                attrs[self.username_field] = user.email
+        username = attrs.get("username", "").strip()
+        user = User.objects.filter(username__iexact=username).only("email").first()
+        if not user:
+            raise AuthenticationFailed(
+                self.error_messages["no_active_account"],
+                "no_active_account",
+            )
 
-        data = super().validate(attrs)
+        data = super().validate(
+            {
+                self.username_field: user.email,
+                "password": attrs.get("password"),
+            }
+        )
         data["user"] = UserSerializer(self.user).data
         return data

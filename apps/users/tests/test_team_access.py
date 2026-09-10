@@ -212,7 +212,7 @@ class TeamAccessAPITests(APITestCase):
         self.client.force_authenticate(None)
         blocked_login = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": target.email, "password": self.password},
+            {"username": target.username, "password": self.password},
             format="json",
         )
         self.client.force_authenticate(self.alpha_admin)
@@ -220,7 +220,7 @@ class TeamAccessAPITests(APITestCase):
         self.client.force_authenticate(None)
         restored_login = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": target.email, "password": self.password},
+            {"username": target.username, "password": self.password},
             format="json",
         )
 

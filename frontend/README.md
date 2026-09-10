@@ -26,7 +26,7 @@ Run the Django backend separately on port `8000`. The backend is configured to a
 
 ## Behavior
 
-- Email and password are posted to the backend login endpoint
+- Username and password are posted to the backend login endpoint
 - Short-lived JWT access tokens are managed by `frontend/lib/auth.ts`.
 - The persistent refresh session is stored by the backend in an HttpOnly cookie; browser JavaScript must not read or store the refresh credential.
 - API calls use `credentials: "include"` and a single queued silent-refresh path to retry expired access-token requests once.

@@ -33,14 +33,15 @@ test.describe("OMMS web smoke", () => {
 
   test("login handles invalid credentials and successful redirect", async ({ page }) => {
     await page.route("**/api/v1/users/auth/login/", async (route) => {
-      const body = route.request().postDataJSON() as { email?: string };
-      if (body.email === "admin@example.com") {
+      const body = route.request().postDataJSON() as { email?: string; username?: string };
+      expect(body.email).toBeUndefined();
+      if (body.username === "admin") {
         await route.fulfill({
           contentType: "application/json",
           body: JSON.stringify({
             access: "playwright-access-token",
             refresh: "playwright-refresh-token",
-            user: { id: 1, email: "admin@example.com", role: "admin" },
+            user: { id: 1, email: "admin@example.com", username: "admin", role: "admin" },
           }),
         });
         return;
@@ -53,12 +54,12 @@ test.describe("OMMS web smoke", () => {
     });
 
     await page.goto("/login");
-    await page.getByLabel("Email").fill("wrong@example.com");
+    await page.getByLabel("Username").fill("wrong-user");
     await page.getByLabel("Password").fill("bad-password");
     await page.getByRole("button", { name: "Sign in" }).click();
-    await expect(page.getByText("Invalid email or password. Please try again.")).toBeVisible();
+    await expect(page.getByText("Invalid username or password. Please try again.")).toBeVisible();
 
-    await page.getByLabel("Email").fill("admin@example.com");
+    await page.getByLabel("Username").fill("admin");
     await page.getByLabel("Password").fill("DemoPass123!");
     await page.getByRole("button", { name: "Sign in" }).click();
     await expect(page).toHaveURL(/\/dashboard$/);

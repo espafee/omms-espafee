@@ -373,10 +373,10 @@ class AccessControlAPITests(APITestCase):
         self.assertEqual(admin_response.status_code, status.HTTP_200_OK)
         self.assertGreaterEqual(admin_response.data["count"], 6)
 
-    def test_token_endpoint_authenticates_with_email(self):
+    def test_token_endpoint_authenticates_with_username(self):
         response = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": self.client_one.email, "password": self.password},
+            {"username": self.client_one.username, "password": self.password},
             format="json",
         )
 
@@ -398,7 +398,7 @@ class AccessControlAPITests(APITestCase):
 
         response = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": superuser.email, "password": self.password},
+            {"username": superuser.username, "password": self.password},
             format="json",
         )
 
@@ -407,7 +407,7 @@ class AccessControlAPITests(APITestCase):
         self.assertTrue(response.data["user"]["is_staff"])
         self.assertTrue(response.data["user"]["is_superuser"])
 
-    def test_token_endpoint_accepts_username_for_superuser_login_identifier(self):
+    def test_token_endpoint_rejects_email_for_superuser_login_identifier(self):
         superuser = User.objects.create_superuser(
             email="owner2@example.com",
             username="owner_two",
@@ -416,13 +416,12 @@ class AccessControlAPITests(APITestCase):
 
         response = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": superuser.username, "password": self.password},
+            {"email": superuser.email, "password": self.password},
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["user"]["email"], superuser.email)
-        self.assertTrue(response.data["user"]["is_superuser"])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("username", response.data)
 
     def test_public_registration_is_disabled_by_default(self):
         response = self.client.post(

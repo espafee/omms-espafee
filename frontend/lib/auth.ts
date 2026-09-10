@@ -478,14 +478,14 @@ export async function apiUpload<T>(
   return sendUpload(true);
 }
 
-export async function loginWithEmailPassword(email: string, password: string): Promise<AuthSessionPayload> {
+export async function loginWithUsernamePassword(username: string, password: string): Promise<AuthSessionPayload> {
   const response = await fetch(normalizeUrl(normalizeUsersApiRoot(RAW_USER_API_ROOT), LOGIN_PATH), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     credentials: "include",
-    body: JSON.stringify({ email: email.trim(), password }),
+    body: JSON.stringify({ username: username.trim(), password }),
   });
 
   if (!response.ok) {

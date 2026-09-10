@@ -8,7 +8,7 @@ import {
   consumeSkipSessionRestore,
   consumeSessionMessage,
   getAccessToken,
-  loginWithEmailPassword,
+  loginWithUsernamePassword,
   restoreAuthSession,
   storeAuthSession,
 } from "@/lib/auth";
@@ -32,14 +32,14 @@ function notifyPortalLogin() {
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   function getLoginErrorMessage() {
-    return "Invalid email or password. Please try again.";
+    return "Invalid username or password. Please try again.";
   }
 
   useEffect(() => {
@@ -86,7 +86,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
 
     try {
-      const payload = await loginWithEmailPassword(email, password);
+      const payload = await loginWithUsernamePassword(username, password);
       storeAuthSession(payload);
       notifyPortalLogin();
       router.push("/dashboard");
@@ -117,7 +117,7 @@ export default function LoginPage() {
         <div className="form-wrap">
           <h2 className="section-title">Welcome back</h2>
           <p className="section-copy">
-            Use your email and password to access the dashboard.
+            Use your username and password to access the dashboard.
           </p>
 
           {isCheckingSession ? (
@@ -125,15 +125,15 @@ export default function LoginPage() {
           ) : (
           <form className="form" onSubmit={handleSubmit}>
             <div className="field">
-              <label htmlFor="email">Email</label>
+              <label htmlFor="username">Username</label>
               <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                placeholder="name@company.com"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
+                id="username"
+                name="username"
+                type="text"
+                autoComplete="username"
+                placeholder="Enter your username"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
                 required
               />
             </div>

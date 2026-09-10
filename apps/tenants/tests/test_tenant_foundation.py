@@ -86,7 +86,7 @@ class TenantFoundationTests(APITestCase):
     def test_auth_response_contains_tenant_claims(self):
         response = self.client.post(
             reverse("token-obtain-pair"),
-            {"email": self.alpha_admin.email, "password": self.password},
+            {"username": self.alpha_admin.username, "password": self.password},
             format="json",
         )
 
